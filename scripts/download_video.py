@@ -1,7 +1,9 @@
 import os
 import re
-import yt_dlp
 import sys
+
+import yt_dlp
+
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()
 
@@ -31,7 +33,94 @@ def progress_hook(d):
     elif d['status'] == 'finished':
         print(f"[download] Download concluído: {d['filename']}", flush=True)
 
+def extract_gdrive_id(url):
+    """Extract file ID from supported Google Drive file URLs."""
+    patterns = [
+        r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/uc\?export=download&id=([a-zA-Z0-9_-]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+
+    return None
+
+
+def is_gdrive_url(url):
+    return extract_gdrive_id(url) is not None
+
+
+def remove_partial_file(path):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def looks_like_drive_error_page(path):
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096).lower()
+        return b"<html" in head and (b"google" in head or b"drive" in head)
+    except OSError:
+        return False
+
+
+def download_from_gdrive(url, base_root="VIRALS"):
+    file_id = extract_gdrive_id(url)
+    if not file_id:
+        raise ValueError(i18n("Cannot extract Google Drive file ID from URL."))
+
+    project_folder = os.path.join(base_root, f"gdrive_{file_id[:8]}")
+    os.makedirs(project_folder, exist_ok=True)
+
+    output_path = os.path.join(project_folder, "input.mp4")
+
+    if os.path.exists(output_path):
+        if os.path.getsize(output_path) > 1024 and not looks_like_drive_error_page(output_path):
+            print(i18n("Video already exists at: {}").format(output_path))
+            print(i18n("Skipping download and reusing local file."))
+            return output_path, project_folder
+
+        print(i18n("Existing file found but seems corrupted/empty. Downloading again..."))
+        remove_partial_file(output_path)
+
+    print(i18n("Downloading from Google Drive..."))
+    print(i18n("File ID: {}").format(file_id))
+
+    try:
+        import gdown
+
+        drive_url = f"https://drive.google.com/uc?id={file_id}"
+        result = gdown.download(drive_url, output_path, quiet=False)
+
+        if not result or not os.path.exists(output_path) or os.path.getsize(output_path) <= 1024:
+            remove_partial_file(output_path)
+            raise RuntimeError(i18n("Downloaded file is empty or missing."))
+
+        if looks_like_drive_error_page(output_path):
+            remove_partial_file(output_path)
+            raise RuntimeError(
+                i18n("Google Drive file is not shared publicly. Set sharing to 'Anyone with the link'.")
+            )
+
+        print(i18n("Download complete: {}").format(output_path))
+        return output_path, project_folder
+
+    except Exception as e:
+        remove_partial_file(output_path)
+        raise RuntimeError(
+            i18n("Google Drive download failed. Set sharing to 'Anyone with the link'. Error: {}").format(e)
+        )
+
 def download(url, base_root="VIRALS", download_subs=True, quality="best"):
+    if is_gdrive_url(url):
+        return download_from_gdrive(url, base_root=base_root)
+
     # 1. Extrair informações do vídeo para pegar o título
     # 1. Extrair informações do vídeo para pegar o título
     print(i18n("Extracting video information..."))

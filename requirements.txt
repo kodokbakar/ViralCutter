@@ -2,6 +2,7 @@
 numpy<2.1.0
 g4f[all]
 yt-dlp
+gdown
 ffmpeg-python
 whisperx
 mediapipe
