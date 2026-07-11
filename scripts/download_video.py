@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 import sys
 
 import yt_dlp
@@ -39,6 +40,7 @@ def extract_gdrive_id(url):
         r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)",
         r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)",
         r"drive\.google\.com/uc\?export=download&id=([a-zA-Z0-9_-]+)",
+        r"drive\.google\.com/uc\?id=([a-zA-Z0-9_-]+)",
     ]
 
     for pattern in patterns:
@@ -50,7 +52,18 @@ def extract_gdrive_id(url):
 
 
 def is_gdrive_url(url):
-    return extract_gdrive_id(url) is not None
+    return "drive.google.com" in url or extract_gdrive_id(url) is not None
+
+
+def validate_gdrive_url(url):
+    if "drive.google.com/drive/folders/" in url:
+        raise ValueError(i18n("Folder link detected. Please share an individual Google Drive file link."))
+
+    file_id = extract_gdrive_id(url)
+    if not file_id:
+        raise ValueError(i18n("Invalid Google Drive URL format."))
+
+    return file_id
 
 
 def remove_partial_file(path):
@@ -70,10 +83,29 @@ def looks_like_drive_error_page(path):
         return False
 
 
+def is_video_file(path):
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0 and "video" in result.stdout.lower()
+    except OSError:
+        return False
+
+
 def download_from_gdrive(url, base_root="VIRALS"):
-    file_id = extract_gdrive_id(url)
-    if not file_id:
-        raise ValueError(i18n("Cannot extract Google Drive file ID from URL."))
+    file_id = validate_gdrive_url(url)
 
     project_folder = os.path.join(base_root, f"gdrive_{file_id[:8]}")
     os.makedirs(project_folder, exist_ok=True)
@@ -81,7 +113,11 @@ def download_from_gdrive(url, base_root="VIRALS"):
     output_path = os.path.join(project_folder, "input.mp4")
 
     if os.path.exists(output_path):
-        if os.path.getsize(output_path) > 1024 and not looks_like_drive_error_page(output_path):
+        if (
+            os.path.getsize(output_path) > 1024
+            and not looks_like_drive_error_page(output_path)
+            and is_video_file(output_path)
+        ):
             print(i18n("Video already exists at: {}").format(output_path))
             print(i18n("Skipping download and reusing local file."))
             return output_path, project_folder
@@ -105,17 +141,25 @@ def download_from_gdrive(url, base_root="VIRALS"):
         if looks_like_drive_error_page(output_path):
             remove_partial_file(output_path)
             raise RuntimeError(
-                i18n("Google Drive file is not shared publicly. Set sharing to 'Anyone with the link'.")
+                i18n("File not accessible. Set sharing to 'Anyone with the link'.")
             )
+
+        if not is_video_file(output_path):
+            remove_partial_file(output_path)
+            raise RuntimeError(i18n("Downloaded file is not a video."))
 
         print(i18n("Download complete: {}").format(output_path))
         return output_path, project_folder
 
+    except (ConnectionError, TimeoutError) as e:
+        remove_partial_file(output_path)
+        raise RuntimeError(i18n("Network error while downloading from Google Drive. Please retry. Error: {}").format(e))
+    except FileNotFoundError as e:
+        remove_partial_file(output_path)
+        raise RuntimeError(i18n("File not accessible. Set sharing to 'Anyone with the link'. Error: {}").format(e))
     except Exception as e:
         remove_partial_file(output_path)
-        raise RuntimeError(
-            i18n("Google Drive download failed. Set sharing to 'Anyone with the link'. Error: {}").format(e)
-        )
+        raise RuntimeError(i18n("Google Drive download failed. Set sharing to 'Anyone with the link'. Error: {}").format(e))
 
 def download(url, base_root="VIRALS", download_subs=True, quality="best"):
     if is_gdrive_url(url):
