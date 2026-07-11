@@ -102,6 +102,7 @@ def main():
     # Configuração de Argumentos via Linha de Comando (CLI)
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
     parser.add_argument("--url", help="YouTube Video URL")
+    parser.add_argument("--gdrive-url", help="Google Drive video URL")
     parser.add_argument("--segments", type=int, help="Number of segments to create")
     parser.add_argument("--viral", action="store_true", help="Enable viral mode")
     parser.add_argument("--themes", help="Comma-separated themes (if not viral mode)")
@@ -145,7 +146,7 @@ def main():
     workflow_choice = args.workflow
     
     # If Subtitles Only, checking project path
-    if workflow_choice == "3" and not args.project_path and not args.url and not args.skip_prompts:
+    if workflow_choice == "3" and not args.project_path and not args.url and not args.gdrive_url and not args.skip_prompts:
         # Prompt for project path or use latest if not provided?
         pass # Will handle in main flow
 
@@ -158,7 +159,11 @@ def main():
         workflow_choice = "3"
 
     # Obtenção de Inputs (CLI ou Interativo)
-    url = args.url
+    if args.gdrive_url and args.url:
+        print(i18n("Warning: Both --url and --gdrive-url provided. Using --gdrive-url."))
+
+    url = args.gdrive_url or args.url
+    is_gdrive = bool(args.gdrive_url)
     project_path_arg = args.project_path
     input_video = None
 
@@ -413,8 +418,11 @@ def main():
                 sys.exit(1)
                 
             print(i18n("Starting download..."))
-            download_subs = not args.skip_youtube_subs
-            download_result = download_video.download(url, download_subs=download_subs, quality=args.video_quality)
+            if is_gdrive:
+                download_result = download_video.download_from_gdrive(url)
+            else:
+                download_subs = not args.skip_youtube_subs
+                download_result = download_video.download(url, download_subs=download_subs, quality=args.video_quality)
             
             if isinstance(download_result, tuple):
                 input_video, project_folder = download_result

@@ -225,8 +225,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
              yield i18n("Error: No Google Drive URL provided."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None
              return
 
-        cmd.extend(["--url", gdrive_url])
-        cmd.append("--skip-youtube-subs")
+        cmd.extend(["--gdrive-url", gdrive_url])
     else:
         if url:
             cmd.extend(["--url", url])
