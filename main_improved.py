@@ -683,6 +683,7 @@ def main():
                     segments_folder=segments_folder,
                     crossfade_duration=args.crossfade,
                     add_transitions=args.fade_to_black or args.crossfade > 0,
+                    transition_type="fade_to_black" if args.fade_to_black else "crossfade",
                 )
                 print(i18n("Compilation saved: {}").format(compiled_path))
             except FileNotFoundError as e:

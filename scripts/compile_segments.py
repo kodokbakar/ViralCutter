@@ -120,35 +120,32 @@ def concat_reencode(paths, output_path, work_dir):
     concat_copy(normalized, output_path, work_dir)
 
 
-def compile_with_crossfade(paths, output_path, duration):
-    if len(paths) < 2:
-        return paths[0]
+def normalize_for_transition(path, output_path):
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-stats",
+        "-i", path,
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ar", "48000",
+        "-ac", "2",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True)
+    return output_path
 
-    inputs = []
-    for path in paths:
-        inputs.extend(["-i", path])
 
-    filters = []
-    last_video = "[0:v]"
-    last_audio = "[0:a]"
-    offset = 0.0
-
-    for index in range(1, len(paths)):
-        clip_duration = get_duration(paths[index - 1])
-        offset += max(clip_duration - duration, 0)
-
-        video_out = f"[v{index}]"
-        audio_out = f"[a{index}]"
-
-        filters.append(
-            f"{last_video}[{index}:v]xfade=transition=fade:duration={duration}:offset={offset}{video_out}"
-        )
-        filters.append(
-            f"{last_audio}[{index}:a]acrossfade=d={duration}{audio_out}"
-        )
-
-        last_video = video_out
-        last_audio = audio_out
+def apply_crossfade(video_a, video_b, duration, output_path):
+    duration_a = get_duration(video_a)
+    offset = max(duration_a - duration, 0)
 
     cmd = [
         "ffmpeg",
@@ -156,10 +153,15 @@ def compile_with_crossfade(paths, output_path, duration):
         "-hide_banner",
         "-loglevel", "error",
         "-stats",
-        *inputs,
-        "-filter_complex", ";".join(filters),
-        "-map", last_video,
-        "-map", last_audio,
+        "-i", video_a,
+        "-i", video_b,
+        "-filter_complex",
+        (
+            f"[0:v][1:v]xfade=transition=fade:duration={duration}:offset={offset}[v];"
+            f"[0:a][1:a]acrossfade=d={duration}[a]"
+        ),
+        "-map", "[v]",
+        "-map", "[a]",
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
@@ -169,6 +171,68 @@ def compile_with_crossfade(paths, output_path, duration):
         output_path,
     ]
     subprocess.run(cmd, check=True)
+    return output_path
+
+
+def apply_fade_to_black(video_path, duration, output_path):
+    video_duration = get_duration(video_path)
+    fade_duration = min(duration, video_duration / 3)
+    fade_out_start = max(video_duration - fade_duration, 0)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-stats",
+        "-i", video_path,
+        "-vf", f"fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start}:d={fade_duration}",
+        "-af", f"afade=t=in:st=0:d={fade_duration},afade=t=out:st={fade_out_start}:d={fade_duration}",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True)
+    return output_path
+
+
+def compile_with_crossfade(paths, output_path, duration, work_dir):
+    normalized_dir = os.path.join(work_dir, "transition_normalized")
+    os.makedirs(normalized_dir, exist_ok=True)
+
+    normalized = [
+        normalize_for_transition(path, os.path.join(normalized_dir, f"{index:03d}.mp4"))
+        for index, path in enumerate(paths)
+    ]
+
+    current = normalized[0]
+    temp_outputs = []
+
+    for index, next_clip in enumerate(normalized[1:], start=1):
+        temp_output = os.path.join(work_dir, f"crossfade_{index:03d}.mp4")
+        apply_crossfade(current, next_clip, duration, temp_output)
+        temp_outputs.append(temp_output)
+        current = temp_output
+
+    shutil.move(current, output_path)
+    return output_path
+
+
+def compile_with_fade_to_black(paths, output_path, duration, work_dir):
+    faded_dir = os.path.join(work_dir, "fade_to_black")
+    os.makedirs(faded_dir, exist_ok=True)
+
+    faded_paths = [
+        apply_fade_to_black(path, duration, os.path.join(faded_dir, f"{index:03d}.mp4"))
+        for index, path in enumerate(paths)
+    ]
+
+    concat_copy(faded_paths, output_path, work_dir)
+    return output_path
 
 
 def get_duration(path):
@@ -199,6 +263,7 @@ def compile_segments(
     output_path: str = None,
     crossfade_duration: float = 0.0,
     add_transitions: bool = False,
+    transition_type: str = "crossfade",
 ) -> str:
     """
     Compile processed segment videos into one MP4.
@@ -218,8 +283,12 @@ def compile_segments(
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        if add_transitions and crossfade_duration > 0:
-            compile_with_crossfade(paths, output_path, crossfade_duration)
+        transition_duration = crossfade_duration if crossfade_duration > 0 else 0.5
+
+        if add_transitions and transition_type == "fade_to_black":
+            compile_with_fade_to_black(paths, output_path, transition_duration, work_dir)
+        elif add_transitions and transition_type == "crossfade":
+            compile_with_crossfade(paths, output_path, transition_duration, work_dir)
         elif same_video_format(paths):
             concat_copy(paths, output_path, work_dir)
         else:
@@ -243,7 +312,10 @@ def compile_segments(
 
         print(f"Compilation generated: {output_path}")
         return output_path
-    finally:
+    except Exception:
+        print(f"Compilation failed. Temporary files preserved at: {work_dir}")
+        raise
+    else:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
@@ -252,7 +324,8 @@ def main():
     parser.add_argument("segments_folder", help="Folder containing processed segment videos.")
     parser.add_argument("--output", help="Output MP4 path.")
     parser.add_argument("--crossfade-duration", type=float, default=0.0)
-    parser.add_argument("--transitions", action="store_true", help="Enable crossfade transitions.")
+    parser.add_argument("--transition-type", choices=["crossfade", "fade_to_black"], default="crossfade")
+    parser.add_argument("--transitions", action="store_true", help="Enable video transitions.")
     args = parser.parse_args()
 
     compile_segments(
@@ -260,6 +333,7 @@ def main():
         output_path=args.output,
         crossfade_duration=args.crossfade_duration,
         add_transitions=args.transitions,
+        transition_type=args.transition_type,
     )
 
 
