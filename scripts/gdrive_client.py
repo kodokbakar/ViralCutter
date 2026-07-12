@@ -2,9 +2,6 @@ import io
 import os
 import re
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -34,8 +31,48 @@ def format_size(size):
 
     return f"{size:.1f} TB"
 
+def is_colab_runtime():
+    try:
+        import google.colab  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def get_colab_credentials():
+    from google.colab import auth
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    auth.authenticate_user()
+    creds, _ = google.auth.default(scopes=SCOPES)
+
+    if creds and not creds.valid:
+        creds.refresh(Request())
+
+    return creds
+
+def get_application_default_credentials():
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    creds, _ = google.auth.default(scopes=SCOPES)
+
+    if creds and not creds.valid:
+        creds.refresh(Request())
+
+    return creds
 
 def get_credentials():
+    try:
+        return get_application_default_credentials()
+    except Exception:
+        pass
+
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
     creds = None
 
     if os.path.exists(TOKEN_PATH):
@@ -48,7 +85,8 @@ def get_credentials():
         if not os.path.exists(CREDENTIALS_PATH):
             raise FileNotFoundError(
                 "Google Drive credentials.json not found. "
-                "Create an OAuth Desktop Client in Google Cloud Console and save it as credentials.json in the repo root."
+                "In Colab, run auth.authenticate_user() before starting the WebUI. "
+                "For local desktop use, create an OAuth Desktop Client and save it as credentials.json in the repo root."
             )
 
         flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
@@ -58,7 +96,6 @@ def get_credentials():
         token.write(creds.to_json())
 
     return creds
-
 
 def get_drive_service():
     return build("drive", "v3", credentials=get_credentials())
