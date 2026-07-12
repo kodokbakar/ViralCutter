@@ -178,7 +178,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, face_model, face_mode, face_detect_interval, no_face_mode, 
+def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode, 
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
@@ -260,6 +260,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
         cmd.append("--compile")
         if crossfade_duration and float(crossfade_duration) > 0:
             cmd.extend(["--crossfade", str(float(crossfade_duration))])
+        if segment_order and str(segment_order).strip():
+            cmd.extend(["--segment-order", str(segment_order).strip()])
     cmd.extend(["--face-model", face_model])
     cmd.extend(["--face-mode", face_mode])
     if face_detect_interval: cmd.extend(["--face-detect-interval", str(face_detect_interval)])
@@ -541,10 +543,21 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             label=i18n("Crossfade duration (seconds)"),
                             visible=False,
                         )
+                        segment_order_input = gr.Textbox(
+                            label=i18n("Segment Order"),
+                            placeholder="Example: 3,1,2",
+                            value="",
+                            visible=False,
+                            info=i18n("Comma-separated original segment numbers. Leave empty for default order."),
+                        )
+
                     compile_mode_input.change(
-                        lambda enabled: gr.update(visible=enabled),
+                        lambda enabled: (
+                            gr.update(visible=enabled),
+                            gr.update(visible=enabled),
+                        ),
                         inputs=compile_mode_input,
-                        outputs=crossfade_duration_input,
+                        outputs=[crossfade_duration_input, segment_order_input],
                     )
                     with gr.Row():
                         face_mode_input = gr.Dropdown(choices=[(i18n("Auto"), "auto"), ("1", "1"), ("2", "2")], label=i18n("Face Mode"), value="auto")
@@ -695,7 +708,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              start_btn.click(run_viral_cutter, inputs=[
                  input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
-                 workflow_input, compile_mode_input, crossfade_duration_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input, 
+                 workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
                  use_custom_subs, 

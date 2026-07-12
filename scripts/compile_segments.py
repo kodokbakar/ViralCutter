@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import re
 import shutil
@@ -9,10 +10,24 @@ from scripts import merge_subtitles
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi")
 
 
-def segment_sort_key(path):
+def extract_segment_number(path):
     name = os.path.basename(path)
-    match = re.search(r"(?:segment|output|final-output)?[-_]?(\d+)", name, re.IGNORECASE)
-    return (int(match.group(1)) if match else 10**9, name.lower())
+    patterns = [
+        r"^(\d+)[_-]",
+        r"(?:segment|output|final-output)[-_]?(\d+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+    return None
+
+
+def segment_sort_key(path):
+    number = extract_segment_number(path)
+    return (number if number is not None else 10**9, os.path.basename(path).lower())
 
 
 def find_segment_files(segments_folder):
@@ -35,6 +50,136 @@ def find_segment_files(segments_folder):
 
     return files
 
+def parse_segment_order(segment_order, segment_count):
+    if not segment_order:
+        return None
+
+    try:
+        order = [int(part.strip()) for part in str(segment_order).split(",") if part.strip()]
+    except ValueError as exc:
+        raise ValueError("Segment order must be comma-separated numbers, e.g. 3,1,2.") from exc
+
+    expected = set(range(1, segment_count + 1))
+    actual = set(order)
+
+    if len(order) != segment_count or actual != expected:
+        raise ValueError(
+            f"Invalid segment order. Expected each number from 1 to {segment_count} exactly once."
+        )
+
+    return order
+
+
+def viral_segments_path(project_root):
+    return os.path.join(project_root, "viral_segments.txt")
+
+
+def load_viral_segments(project_root):
+    path = viral_segments_path(project_root)
+    if not os.path.exists(path):
+        return None, path
+
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f), path
+
+
+def save_viral_segments(data, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def ensure_default_segment_order(project_root, segment_count):
+    data, path = load_viral_segments(project_root)
+    if not data or not isinstance(data.get("segments"), list):
+        return None
+
+    changed = False
+    segments = data["segments"]
+
+    for index, segment in enumerate(segments[:segment_count], start=1):
+        if isinstance(segment, dict) and "order" not in segment:
+            segment["order"] = index
+            changed = True
+
+    if changed:
+        save_viral_segments(data, path)
+
+    return data
+
+
+def save_requested_segment_order(project_root, requested_order, segment_count):
+    data = ensure_default_segment_order(project_root, segment_count)
+    if not data:
+        return
+
+    rank_by_segment = {
+        segment_number: rank
+        for rank, segment_number in enumerate(requested_order, start=1)
+    }
+
+    for index, segment in enumerate(data.get("segments", [])[:segment_count], start=1):
+        if isinstance(segment, dict):
+            segment["order"] = rank_by_segment.get(index, index)
+
+    save_viral_segments(data, viral_segments_path(project_root))
+
+
+def order_from_viral_segments(project_root, segment_count):
+    data = ensure_default_segment_order(project_root, segment_count)
+    if not data:
+        return None
+
+    indexed_segments = []
+    for index, segment in enumerate(data.get("segments", [])[:segment_count], start=1):
+        if not isinstance(segment, dict):
+            return None
+        indexed_segments.append((index, int(segment.get("order", index))))
+
+    order = [index for index, _ in sorted(indexed_segments, key=lambda item: (item[1], item[0]))]
+
+    expected = set(range(1, segment_count + 1))
+    if len(order) != segment_count or set(order) != expected:
+        raise ValueError(
+            f"Invalid order values in viral_segments.txt. Expected each order from 1 to {segment_count} exactly once."
+        )
+
+    return order
+
+
+def reorder_paths(paths, requested_order):
+    sorted_paths = sorted(paths, key=segment_sort_key)
+
+    by_one_based = {}
+    by_zero_based = {}
+
+    for path in sorted_paths:
+        number = extract_segment_number(path)
+        if number is None:
+            continue
+        by_one_based[number] = path
+        by_zero_based[number + 1] = path
+
+    if all(index in by_one_based for index in requested_order):
+        return [by_one_based[index] for index in requested_order]
+
+    if all(index in by_zero_based for index in requested_order):
+        return [by_zero_based[index] for index in requested_order]
+
+    return [sorted_paths[index - 1] for index in requested_order]
+
+
+def apply_segment_order(paths, project_root, segment_order=None):
+    requested_order = parse_segment_order(segment_order, len(paths))
+
+    if requested_order:
+        save_requested_segment_order(project_root, requested_order, len(paths))
+        return reorder_paths(paths, requested_order)
+
+    metadata_order = order_from_viral_segments(project_root, len(paths))
+    if metadata_order:
+        return reorder_paths(paths, metadata_order)
+
+    return paths
 
 def project_root_for(segments_folder):
     folder = os.path.abspath(segments_folder)
@@ -264,6 +409,7 @@ def compile_segments(
     crossfade_duration: float = 0.0,
     add_transitions: bool = False,
     transition_type: str = "crossfade",
+    segment_order: str = None,
 ) -> str:
     """
     Compile processed segment videos into one MP4.
@@ -271,11 +417,11 @@ def compile_segments(
     Returns the main compilation path.
     """
     paths = find_segment_files(segments_folder)
+    project_root = project_root_for(segments_folder)
+    paths = apply_segment_order(paths, project_root, segment_order)
 
     if len(paths) == 1:
         return paths[0]
-
-    project_root = project_root_for(segments_folder)
     output_path = output_path or os.path.join(project_root, "compilation.mp4")
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
@@ -325,6 +471,7 @@ def main():
     parser.add_argument("--output", help="Output MP4 path.")
     parser.add_argument("--crossfade-duration", type=float, default=0.0)
     parser.add_argument("--transition-type", choices=["crossfade", "fade_to_black"], default="crossfade")
+    parser.add_argument("--segment-order", help="Comma-separated compile order, e.g. 3,1,2")
     parser.add_argument("--transitions", action="store_true", help="Enable video transitions.")
     args = parser.parse_args()
 
@@ -334,6 +481,7 @@ def main():
         crossfade_duration=args.crossfade_duration,
         add_transitions=args.transitions,
         transition_type=args.transition_type,
+        segment_order=args.segment_order,
     )
 
 

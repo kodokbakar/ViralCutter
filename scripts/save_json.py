@@ -1,6 +1,13 @@
 import os
 import json
 
+def ensure_default_order(segments_data):
+    if isinstance(segments_data, dict) and isinstance(segments_data.get("segments"), list):
+        for index, segment in enumerate(segments_data["segments"], start=1):
+            if isinstance(segment, dict) and "order" not in segment:
+                segment["order"] = index
+    return segments_data
+
 def save_viral_segments(segments_data=None, project_folder="tmp"):
     output_txt_file = os.path.join(project_folder, "viral_segments.txt")
 
@@ -18,6 +25,7 @@ def save_viral_segments(segments_data=None, project_folder="tmp"):
                     if "segments" in segments_data and isinstance(segments_data["segments"], list):
                         # Salva os dados em um arquivo JSON
                         with open(output_txt_file, 'w', encoding='utf-8') as file:
+                            segments_data = ensure_default_order(segments_data)
                             json.dump(segments_data, file, ensure_ascii=False, indent=4)
                         print(f"Segmentos virais salvos em {output_txt_file}")
                         break
@@ -29,6 +37,7 @@ def save_viral_segments(segments_data=None, project_folder="tmp"):
         else:
             # Caso os segmentos tenham sido gerados, salva automaticamente
             with open(output_txt_file, 'w', encoding='utf-8') as file:
+                segments_data = ensure_default_order(segments_data)
                 json.dump(segments_data, file, ensure_ascii=False, indent=4)
             print(f"Segmentos virais salvos em {output_txt_file}\n")
     else:

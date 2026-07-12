@@ -143,6 +143,7 @@ def main():
     parser.add_argument("--compile", action="store_true", help="Compile segments into single video")
     parser.add_argument("--crossfade", type=float, default=0.0, help="Crossfade duration between clips in seconds")
     parser.add_argument("--fade-to-black", action="store_true", help="Add fade transitions between clips")
+    parser.add_argument("--segment-order", help="Comma-separated segment order for compilation, e.g. 3,1,2")
 
     args = parser.parse_args()
     
@@ -684,6 +685,7 @@ def main():
                     crossfade_duration=args.crossfade,
                     add_transitions=args.fade_to_black or args.crossfade > 0,
                     transition_type="fade_to_black" if args.fade_to_black else "crossfade",
+                    segment_order=args.segment_order,
                 )
                 print(i18n("Compilation saved: {}").format(compiled_path))
             except FileNotFoundError as e:
