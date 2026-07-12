@@ -104,6 +104,8 @@ def main():
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
     parser.add_argument("--url", help="YouTube Video URL")
     parser.add_argument("--gdrive-url", help="Google Drive video URL")
+    parser.add_argument("--gdrive-file-id", help="Google Drive file ID selected from Drive Explorer")
+    parser.add_argument("--gdrive-file-name", help="Google Drive file name selected from Drive Explorer")
     parser.add_argument("--segments", type=int, help="Number of segments to create")
     parser.add_argument("--viral", action="store_true", help="Enable viral mode")
     parser.add_argument("--themes", help="Comma-separated themes (if not viral mode)")
@@ -151,7 +153,7 @@ def main():
     workflow_choice = args.workflow
     
     # If Subtitles Only, checking project path
-    if workflow_choice == "3" and not args.project_path and not args.url and not args.gdrive_url and not args.skip_prompts:
+    if workflow_choice == "3" and not args.project_path and not args.url and not args.gdrive_url and not args.gdrive_file_id and not args.skip_prompts:
         # Prompt for project path or use latest if not provided?
         pass # Will handle in main flow
 
@@ -164,7 +166,9 @@ def main():
         workflow_choice = "3"
 
     # Obtenção de Inputs (CLI ou Interativo)
-    if args.gdrive_url and args.url:
+    if args.gdrive_file_id and (args.gdrive_url or args.url):
+        print(i18n("Warning: Google Drive file selection provided. Ignoring URL inputs."))
+    elif args.gdrive_url and args.url:
         print(i18n("Warning: Both --url and --gdrive-url provided. Using --gdrive-url."))
 
     url = args.gdrive_url or args.url
@@ -418,12 +422,17 @@ def main():
         print(f"DEBUG: Checking input_video state. input_video={input_video}")
         
         if not input_video:
-            if not url:
-                print(i18n("Error: No URL provided and no existing video selected."))
+            if not url and not args.gdrive_file_id:
+                print(i18n("Error: No URL or Google Drive video selected and no existing video selected."))
                 sys.exit(1)
                 
             print(i18n("Starting download..."))
-            if is_gdrive:
+            if args.gdrive_file_id:
+                download_result = download_video.download_from_gdrive_file_id(
+                    args.gdrive_file_id,
+                    file_name=args.gdrive_file_name,
+                )
+            elif is_gdrive:
                 download_result = download_video.download_from_gdrive(url)
             else:
                 download_subs = not args.skip_youtube_subs
