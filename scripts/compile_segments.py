@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+from scripts import merge_subtitles
 
 
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi")
@@ -226,6 +227,20 @@ def compile_segments(
             concat_reencode(paths, output_path, work_dir)
 
         mirror_to_output_folder(output_path, project_root)
+
+        try:
+            subtitle_output = os.path.splitext(output_path)[0] + ".srt"
+            durations = [get_duration(path) for path in paths]
+            merged_srt = merge_subtitles.merge_project_subtitles(
+                paths,
+                durations,
+                project_root,
+                subtitle_output,
+            )
+            print(f"Merged subtitles generated: {merged_srt}")
+        except FileNotFoundError as e:
+            print(f"Warning: subtitle merge skipped: {e}")
+
         print(f"Compilation generated: {output_path}")
         return output_path
     finally:
