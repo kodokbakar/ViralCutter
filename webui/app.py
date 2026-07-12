@@ -129,6 +129,8 @@ def kill_process():
     return i18n("No process running.")
 
 GEMINI_MODELS = [
+    'gemini-3.5-flash',
+    'gemini-3-flash-preview',
     'gemini-3-pro-preview',
     'gemini-2.5-flash',
     'gemini-2.5-flash-preview-09-2025',
