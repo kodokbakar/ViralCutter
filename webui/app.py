@@ -180,7 +180,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode, 
+def run_viral_cutter(input_source, project_name, url, gdrive_file_id, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode, 
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
@@ -223,11 +223,12 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
         # Skip YouTube subs as it is a local upload
         cmd.append("--skip-youtube-subs")
     elif input_source == "Google Drive":
-        if not gdrive_url:
-             yield i18n("Error: No Google Drive URL provided."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
+        if not gdrive_file_id:
+             yield i18n("Error: No Google Drive video selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
 
-        cmd.extend(["--gdrive-url", gdrive_url])
+        cmd.extend(["--gdrive-file-id", gdrive_file_id])
+        cmd.append("--skip-youtube-subs")
     else:
         if url:
             cmd.extend(["--url", url])
@@ -424,7 +425,27 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     ], label=i18n("Input Source"), value="YouTube URL")
                     
                     url_input = gr.Textbox(label=i18n("YouTube URL"), placeholder="https://www.youtube.com/watch?v=...", visible=True)
-                    gdrive_input = gr.Textbox(label=i18n("Google Drive URL"), placeholder="https://drive.google.com/file/d/...", visible=False)
+                    with gr.Group(visible=False) as gdrive_group:
+                        gr.Markdown(i18n("Select a video from your Google Drive. First use requires browser OAuth login."))
+                        gdrive_search_input = gr.Textbox(
+                            label=i18n("Search Google Drive Videos"),
+                            placeholder=i18n("Search by file name..."),
+                            value="",
+                        )
+                        with gr.Row():
+                            gdrive_refresh_btn = gr.Button(i18n("Search / Refresh Drive Videos"))
+                        gdrive_file_input = gr.Dropdown(
+                            choices=[],
+                            label=i18n("Select Drive Video"),
+                            interactive=True,
+                            allow_custom_value=False,
+                        )
+                        gdrive_status = gr.Textbox(
+                            label=i18n("Google Drive Status"),
+                            value=i18n("Place credentials.json in the repo root, then click Search / Refresh Drive Videos."),
+                            interactive=False,
+                        )
+
                     video_upload = gr.File(label=i18n("Upload Video"), file_count="single", file_types=["video"], visible=False)
                     
                     with gr.Row():
@@ -433,6 +454,29 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         use_youtube_subs_input = gr.Checkbox(label=i18n("Use YouTube Subs"), value=True, info=i18n("Download and use official subtitles if available. (Recommended, it speeds up the process)"))
 
                     project_selector = gr.Dropdown(choices=[], label=i18n("Select Project"), visible=False)
+
+                    def refresh_gdrive_videos(search_query):
+                        try:
+                            from scripts import gdrive_client
+
+                            files = gdrive_client.list_drive_videos(search_query)
+                            choices = gdrive_client.file_choices(files)
+
+                            if not choices:
+                                return (
+                                    gr.update(choices=[], value=None),
+                                    i18n("No Google Drive videos found."),
+                                )
+
+                            return (
+                                gr.update(choices=choices, value=choices[0][1]),
+                                i18n("Found {} Google Drive videos.").format(len(choices)),
+                            )
+                        except Exception as e:
+                            return (
+                                gr.update(choices=[], value=None),
+                                i18n("Google Drive error: {}").format(str(e)),
+                            )
                     
                     def on_source_change(source):
                         if source == "YouTube URL":
@@ -460,7 +504,6 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                                 gr.update(value="Full"),
                             )
                         else:
-                            # Load projects
                             projs = library.get_existing_projects()
                             return (
                                 gr.update(visible=False),
@@ -568,7 +611,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     
                     
                     # Update listeners now that all components are defined
-                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, gdrive_input, project_selector, video_upload, workflow_input])
+                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, gdrive_group, project_selector, video_upload, workflow_input])
+                    gdrive_refresh_btn.click(refresh_gdrive_videos, inputs=gdrive_search_input, outputs=[gdrive_file_input, gdrive_status])
+                    gdrive_search_input.submit(refresh_gdrive_videos, inputs=gdrive_search_input, outputs=[gdrive_file_input, gdrive_status])
              
              with gr.Accordion(i18n("Advanced Face Settings"), open=False):
                  face_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in FACE_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Balanced)", interactive=True)
@@ -708,7 +753,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
+                 input_source, project_selector, url_input, gdrive_file_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
                  workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 

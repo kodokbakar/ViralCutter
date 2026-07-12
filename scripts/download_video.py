@@ -161,6 +161,15 @@ def download_from_gdrive(url, base_root="VIRALS"):
         remove_partial_file(output_path)
         raise RuntimeError(i18n("Google Drive download failed. Set sharing to 'Anyone with the link'. Error: {}").format(e))
 
+def download_from_gdrive_file_id(file_id, file_name=None, base_root="VIRALS"):
+    from scripts import gdrive_client
+
+    return gdrive_client.download_drive_video(
+        file_id=file_id,
+        file_name=file_name,
+        base_root=base_root,
+    )
+
 def download(url, base_root="VIRALS", download_subs=True, quality="best"):
     if is_gdrive_url(url):
         return download_from_gdrive(url, base_root=base_root)
