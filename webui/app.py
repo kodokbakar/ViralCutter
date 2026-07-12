@@ -178,26 +178,26 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode, 
+def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode, 
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
     
     global current_process
-    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None 
+    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False) 
 
     cmd = [sys.executable, MAIN_SCRIPT_PATH]
     
     # Input Source Logic
     if input_source == "Existing Project":
         if not project_name:
-             yield i18n("Error: No project selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None
+             yield i18n("Error: No project selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
     elif input_source == "Upload Video":
         if not video_file:
-             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None
+             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
         
         # Determine project name from filename
@@ -222,7 +222,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
         cmd.append("--skip-youtube-subs")
     elif input_source == "Google Drive":
         if not gdrive_url:
-             yield i18n("Error: No Google Drive URL provided."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None
+             yield i18n("Error: No Google Drive URL provided."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
 
         cmd.extend(["--gdrive-url", gdrive_url])
@@ -256,6 +256,12 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
 
     workflow_map = {"Full": "1", "Cut Only": "2", "Subtitles Only": "3"}
     cmd.extend(["--workflow", workflow_map.get(workflow, "1")])
+    if compile_mode:
+        cmd.append("--compile")
+        if crossfade_duration and float(crossfade_duration) > 0:
+            cmd.extend(["--crossfade", str(float(crossfade_duration))])
+        if segment_order and str(segment_order).strip():
+            cmd.extend(["--segment-order", str(segment_order).strip()])
     cmd.extend(["--face-model", face_model])
     cmd.extend(["--face-mode", face_mode])
     if face_detect_interval: cmd.extend(["--face-detect-interval", str(face_detect_interval)])
@@ -313,6 +319,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
         current_process = subprocess.Popen(cmd, cwd=WORKING_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, env=env)
         logs = ""
         project_folder_path = None
+        compilation_status = ""
         if input_source == "Existing Project" and project_name:
              # If using existing project, we already know the path, but let's see if logs confirm it
              project_folder_path = os.path.join(VIRALS_DIR, project_name)
@@ -329,18 +336,24 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
                 if "Project Folder:" in line:
                     parts = line.split("Project Folder:")
                     if len(parts) > 1: project_folder_path = parts[1].strip()
+                if (
+                    "Compilation saved:" in line
+                    or "Error compiling segments:" in line
+                    or "Warning: No processed segments found for compilation:" in line
+                ):
+                    compilation_status = line.strip()
                 
                 # Throttle updates to avoid browser freeze (0.2s interval)
                 current_time = time.time()
                 if current_time - last_update_time > 0.2:
-                    yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None
+                    yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
                     last_update_time = current_time
         
         # Final yield to ensure all logs are shown
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None
+        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
     except Exception as e:
         logs += f"\nError running process: {str(e)}\n"
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None
+        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
     finally:
         if current_process:
             if current_process.stdout:
@@ -365,7 +378,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_url, video_file, se
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
     else:
         html_output = f"<h3>{i18n('Error: Project folder could not be determined from logs.')}</h3>"
-    yield logs, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), html_output
+    yield logs, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), html_output, gr.update(value=compilation_status, visible=bool(compilation_status))
 
 css = """
 /* Global Dark Theme Overrides */
@@ -521,6 +534,32 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         workflow_input = gr.Dropdown(choices=[(i18n("Full"), "Full"), (i18n("Cut Only"), "Cut Only"), (i18n("Subtitles Only"), "Subtitles Only")], label=i18n("Workflow"), value="Full")
                         face_model_input = gr.Dropdown(["insightface", "mediapipe"], label=i18n("Face Model"), value="insightface")
                     with gr.Row():
+                        compile_mode_input = gr.Checkbox(label=i18n("Compile into single video"), value=False)
+                        crossfade_duration_input = gr.Slider(
+                            minimum=0.0,
+                            maximum=2.0,
+                            value=0.0,
+                            step=0.1,
+                            label=i18n("Crossfade duration (seconds)"),
+                            visible=False,
+                        )
+                        segment_order_input = gr.Textbox(
+                            label=i18n("Segment Order"),
+                            placeholder="Example: 3,1,2",
+                            value="",
+                            visible=False,
+                            info=i18n("Comma-separated original segment numbers. Leave empty for default order."),
+                        )
+
+                    compile_mode_input.change(
+                        lambda enabled: (
+                            gr.update(visible=enabled),
+                            gr.update(visible=enabled),
+                        ),
+                        inputs=compile_mode_input,
+                        outputs=[crossfade_duration_input, segment_order_input],
+                    )
+                    with gr.Row():
                         face_mode_input = gr.Dropdown(choices=[(i18n("Auto"), "auto"), ("1", "1"), ("2", "2")], label=i18n("Face Mode"), value="auto")
                         face_detect_interval_input = gr.Textbox(label=i18n("Face Det. Interval"), value="0.17,1.0")
                         no_face_mode_input = gr.Dropdown(choices=[(i18n("Padding (9:16)"), "padding"), (i18n("Zoom (Center)"), "zoom")], label=i18n("No Face Fallback"), value="zoom")
@@ -663,12 +702,13 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 }
              """)
              results_html = gr.HTML(label=i18n("Results"))
+             compilation_output = gr.Textbox(label=i18n("Compilation Status"), visible=False)
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
                  input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
-                 workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input, 
+                 workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
                  use_custom_subs, 
@@ -680,7 +720,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
                  video_quality_input, use_youtube_subs_input, translate_input
-             ], outputs=[logs_output, start_btn, stop_btn, results_html])
+             ], outputs=[logs_output, start_btn, stop_btn, results_html, compilation_output])
 
 
         with gr.Tab(i18n("Subtitle Editor")):

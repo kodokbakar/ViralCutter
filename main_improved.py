@@ -22,6 +22,7 @@ from scripts import (
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
+    compile_segments,
     save_json,
     organize_output,
     translate_json,
@@ -139,6 +140,10 @@ def main():
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
     parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
+    parser.add_argument("--compile", action="store_true", help="Compile segments into single video")
+    parser.add_argument("--crossfade", type=float, default=0.0, help="Crossfade duration between clips in seconds")
+    parser.add_argument("--fade-to-black", action="store_true", help="Add fade transitions between clips")
+    parser.add_argument("--segment-order", help="Comma-separated segment order for compilation, e.g. 3,1,2")
 
     args = parser.parse_args()
     
@@ -666,6 +671,27 @@ def main():
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
+
+        if args.compile:
+            print(i18n("\nCompiling segments into single video..."))
+
+            segments_folder = os.path.join(project_folder, "burned_sub")
+            if not os.path.isdir(segments_folder) or not any(f.endswith(".mp4") for f in os.listdir(segments_folder)):
+                segments_folder = os.path.join(project_folder, "final")
+
+            try:
+                compiled_path = compile_segments.compile_segments(
+                    segments_folder=segments_folder,
+                    crossfade_duration=args.crossfade,
+                    add_transitions=args.fade_to_black or args.crossfade > 0,
+                    transition_type="fade_to_black" if args.fade_to_black else "crossfade",
+                    segment_order=args.segment_order,
+                )
+                print(i18n("Compilation saved: {}").format(compiled_path))
+            except FileNotFoundError as e:
+                print(i18n("Warning: No processed segments found for compilation: {}").format(e))
+            except Exception as e:
+                print(i18n("Error compiling segments: {}").format(e))
         
         # --- Save Processing Configuration ---
         try:
