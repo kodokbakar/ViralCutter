@@ -1,2 +1,4 @@
 credentials.json
 token_drive.json
+/graphify-out
+/scripts/__pycache__

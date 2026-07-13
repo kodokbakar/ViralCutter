@@ -617,7 +617,16 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         outputs=[crossfade_duration_input, segment_order_input],
                     )
                     with gr.Row():
-                        face_mode_input = gr.Dropdown(choices=[(i18n("Auto"), "auto"), ("1", "1"), ("2", "2")], label=i18n("Face Mode"), value="auto")
+                        face_mode_input = gr.Dropdown(
+                            choices=[
+                                (i18n("Auto"), "auto"),
+                                ("1", "1"),
+                                ("2", "2"),
+                                (i18n("None - Preserve Source"), "none"),
+                            ],
+                            label=i18n("Face Mode"),
+                            value="auto",
+                        )
                         face_detect_interval_input = gr.Textbox(label=i18n("Face Det. Interval"), value="0.17,1.0")
                         no_face_mode_input = gr.Dropdown(choices=[(i18n("Padding (9:16)"), "padding"), (i18n("Zoom (Center)"), "zoom")], label=i18n("No Face Fallback"), value="zoom")
                     
