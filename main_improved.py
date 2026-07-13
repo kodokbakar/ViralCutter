@@ -18,7 +18,7 @@ from scripts import (
     transcribe_video,
     create_viral_segments,
     cut_segments,
-    edit_video,
+    preserve_segments,
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
@@ -123,7 +123,7 @@ def main():
     parser.add_argument("--project-path", help="Path to existing project folder (overrides URL/Latest)")
     parser.add_argument("--workflow", choices=["1", "2", "3"], default="1", help="Workflow choice: 1=Full, 2=Cut Only, 3=Subtitles Only")
     parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
-    parser.add_argument("--face-mode", choices=["auto", "1", "2"], default="auto", help="Face tracking mode: auto, 1, 2")
+    parser.add_argument("--face-mode", choices=["auto", "1", "2", "none"], default="auto", help="Face tracking mode: auto, 1, 2, none")
     parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
     parser.add_argument("--no-face-mode", choices=["padding", "zoom"], default="padding", help="Method to handle segments with no face detected: 'padding' (9:16 frame with black bars) or 'zoom' (Center Crop Zoom)")
     parser.add_argument("--face-detect-interval", type=str, default="0.17,1.0", help="Face detection interval in seconds. Single value or 'interval_1face,interval_2face'")
@@ -572,35 +572,41 @@ def main():
             print(i18n(f"Process completed! Check your results in: {project_folder}"))
             sys.exit(0)
 
-        # 5. Edit Video (Face Crop)
+        # 5. Edit Video / Preserve Original Framing
         if workflow_choice != "3":
-            print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
-            
-            # Parse dead zone safely
-            try:
-                dead_zone_val = float(args.face_dead_zone)
-            except:
-                dead_zone_val = 40.0
-                
-            edit_video.edit(
-                project_folder=project_folder, 
-                face_model=face_model, 
-                face_mode=face_mode, 
-                detection_period=detection_intervals,
-                filter_threshold=args.face_filter_threshold,
-                two_face_threshold=args.face_two_threshold,
-                confidence_threshold=args.face_confidence_threshold,
-                dead_zone=dead_zone_val,
-                focus_active_speaker=args.focus_active_speaker,
-                active_speaker_mar=args.active_speaker_mar,
-                active_speaker_score_diff=args.active_speaker_score_diff,
-                include_motion=args.include_motion,
-                active_speaker_motion_deadzone=args.active_speaker_motion_threshold,
-                active_speaker_motion_sensitivity=args.active_speaker_motion_sensitivity,
-                active_speaker_decay=args.active_speaker_decay,
-                segments_data=viral_segments.get("segments", []) if viral_segments else None,
-                no_face_mode=args.no_face_mode
-            )
+            if face_mode == "none":
+                print(i18n("Face mode none selected. Skipping face detection and preserving source framing..."))
+                preserve_segments.preserve_original_scale(project_folder=project_folder)
+            else:
+                print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
+
+                from scripts import edit_video
+
+                # Parse dead zone safely
+                try:
+                    dead_zone_val = float(args.face_dead_zone)
+                except:
+                    dead_zone_val = 40.0
+
+                edit_video.edit(
+                    project_folder=project_folder,
+                    face_model=face_model,
+                    face_mode=face_mode,
+                    detection_period=detection_intervals,
+                    filter_threshold=args.face_filter_threshold,
+                    two_face_threshold=args.face_two_threshold,
+                    confidence_threshold=args.face_confidence_threshold,
+                    dead_zone=dead_zone_val,
+                    focus_active_speaker=args.focus_active_speaker,
+                    active_speaker_mar=args.active_speaker_mar,
+                    active_speaker_score_diff=args.active_speaker_score_diff,
+                    include_motion=args.include_motion,
+                    active_speaker_motion_deadzone=args.active_speaker_motion_threshold,
+                    active_speaker_motion_sensitivity=args.active_speaker_motion_sensitivity,
+                    active_speaker_decay=args.active_speaker_decay,
+                    segments_data=viral_segments.get("segments", []) if viral_segments else None,
+                    no_face_mode=args.no_face_mode
+                )
 
 
         else:
