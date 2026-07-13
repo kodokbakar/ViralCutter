@@ -113,6 +113,8 @@ def main():
     parser.add_argument("--burn-only", action="store_true", help="Skip processing and only burn subtitles")
     parser.add_argument("--min-duration", type=int, default=15, help="Minimum segment duration (seconds)")
     parser.add_argument("--max-duration", type=int, default=90, help="Maximum segment duration (seconds)")
+    parser.add_argument("--pre-roll", type=float, default=1.25, help="Seconds to add before each selected segment")
+    parser.add_argument("--post-roll", type=float, default=0.75, help="Seconds to add after each selected segment")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     
     parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
@@ -548,6 +550,8 @@ def main():
                     min_duration=args.min_duration,
                     max_duration=args.max_duration,
                     snap_window=4.0,
+                    pre_roll=args.pre_roll,
+                    post_roll=args.post_roll,
                 )
 
                 viral_segments_file = os.path.join(project_folder, "viral_segments.txt")
