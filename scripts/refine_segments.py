@@ -228,6 +228,157 @@ def clamp_duration(start, end, original_start, original_end, min_duration, max_d
 
     return start, end
 
+def segment_score(segment):
+    try:
+        return int(segment.get("score", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def segment_order(segment, fallback):
+    try:
+        return int(segment.get("order", fallback))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def get_segment_bounds(segment):
+    start = to_seconds(segment.get("start_time"))
+    end = to_seconds(
+        segment.get("end_time"),
+        start + to_seconds(segment.get("duration")),
+    )
+
+    if end <= start:
+        end = start + to_seconds(segment.get("duration"))
+
+    return start, end
+
+
+def set_segment_bounds(segment, start, end):
+    segment["start_time"] = round(start, 3)
+    segment["end_time"] = round(end, 3)
+    segment["duration"] = round(end - start, 3)
+    return segment
+
+
+def overlap_seconds(a_start, a_end, b_start, b_end):
+    return max(0.0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def overlap_ratio(candidate, existing):
+    c_start, c_end = get_segment_bounds(candidate)
+    e_start, e_end = get_segment_bounds(existing)
+
+    overlap = overlap_seconds(c_start, c_end, e_start, e_end)
+    if overlap <= 0:
+        return 0.0
+
+    shorter_duration = max(0.001, min(c_end - c_start, e_end - e_start))
+    return overlap / shorter_duration
+
+
+def trim_candidate_overlap(candidate, existing, min_duration):
+    c_start, c_end = get_segment_bounds(candidate)
+    e_start, e_end = get_segment_bounds(existing)
+
+    overlap = overlap_seconds(c_start, c_end, e_start, e_end)
+    if overlap <= 0:
+        return candidate
+
+    left_start = c_start
+    left_end = min(c_end, e_start)
+    left_duration = left_end - left_start
+
+    right_start = max(c_start, e_end)
+    right_end = c_end
+    right_duration = right_end - right_start
+
+    trimmed = dict(candidate)
+    trimmed["overlap_trimmed"] = True
+
+    if left_duration >= right_duration and left_duration >= min_duration:
+        return set_segment_bounds(trimmed, left_start, left_end)
+
+    if right_duration >= min_duration:
+        return set_segment_bounds(trimmed, right_start, right_end)
+
+    if left_duration >= min_duration:
+        return set_segment_bounds(trimmed, left_start, left_end)
+
+    return None
+
+
+def resolve_overlapping_segments(segments, min_duration, drop_ratio=0.40):
+    """
+    Keep higher-score segments when overlap is large.
+    Trim small overlaps when the remaining clip still satisfies min_duration.
+    """
+    ranked = sorted(
+        enumerate(segments),
+        key=lambda item: (
+            -segment_score(item[1]),
+            segment_order(item[1], item[0] + 1),
+            item[0],
+        ),
+    )
+
+    accepted = []
+
+    for original_index, segment in ranked:
+        candidate = dict(segment)
+        candidate["_original_index"] = original_index
+
+        dropped = False
+
+        for existing in accepted:
+            ratio = overlap_ratio(candidate, existing)
+
+            if ratio <= 0:
+                continue
+
+            if ratio > drop_ratio:
+                print(
+                    "[overlap] Dropping '{}' because it overlaps {:.0%} with higher-score '{}'.".format(
+                        candidate.get("title", "Segment"),
+                        ratio,
+                        existing.get("title", "Segment"),
+                    )
+                )
+                dropped = True
+                break
+
+            trimmed = trim_candidate_overlap(candidate, existing, float(min_duration))
+            if trimmed is None:
+                print(
+                    "[overlap] Dropping '{}' because trimming would make it shorter than min duration.".format(
+                        candidate.get("title", "Segment")
+                    )
+                )
+                dropped = True
+                break
+
+            print(
+                "[overlap] Trimmed '{}': {:.3f}-{:.3f} -> {:.3f}-{:.3f}".format(
+                    candidate.get("title", "Segment"),
+                    to_seconds(candidate.get("start_time")),
+                    to_seconds(candidate.get("end_time")),
+                    to_seconds(trimmed.get("start_time")),
+                    to_seconds(trimmed.get("end_time")),
+                )
+            )
+            candidate = trimmed
+
+        if not dropped:
+            accepted.append(candidate)
+
+    accepted.sort(key=lambda segment: segment.get("_original_index", 0))
+
+    for index, segment in enumerate(accepted, start=1):
+        segment.pop("_original_index", None)
+        segment["order"] = segment.get("order", index)
+
+    return accepted
 
 def refine_to_sentence_boundaries(
     viral_segments,
@@ -315,6 +466,12 @@ def refine_to_sentence_boundaries(
                 )
             )
 
+    resolved = resolve_overlapping_segments(
+        refined,
+        min_duration=float(min_duration),
+        drop_ratio=0.40,
+    )
+
     viral_segments = dict(viral_segments)
-    viral_segments["segments"] = refined
+    viral_segments["segments"] = resolved
     return viral_segments

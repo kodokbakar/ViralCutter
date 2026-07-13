@@ -296,7 +296,6 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
 
 
     
-    cmd.append("--skip-prompts")
     
     if focus_active_speaker:
         cmd.append("--focus-active-speaker")
@@ -641,7 +640,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     gdrive_refresh_btn.click(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
                     gdrive_search_input.submit(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
              
-             with gr.Accordion(i18n("Advanced Face Settings"), open=False):
+             with gr.Accordion(i18n("Advanced Face Settings"), open=False) as advanced_face_settings:
                  face_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in FACE_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Balanced)", interactive=True)
                  with gr.Row():
                       face_filter_thresh_input = gr.Slider(label=i18n("Ignore Small Faces (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.35, step=0.05, info=i18n("Relative size to ignore background."))
