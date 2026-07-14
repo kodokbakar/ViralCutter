@@ -1,14 +1,76 @@
 import os
 import sys
+import subprocess
 import torch
 import time
-import whisperx
 import gc
 import re
-import glob
 from i18n.i18n import I18nAuto
 
 i18n = I18nAuto()
+
+def log_step(message):
+    print(f"[TRANSCRIBE {time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def log_gpu_state(label):
+    if not torch.cuda.is_available():
+        log_step(f"{label}: CUDA unavailable")
+        return
+
+    try:
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        log_step(
+            f"{label}: GPU={torch.cuda.get_device_name(0)} "
+            f"allocated={allocated:.2f}GB reserved={reserved:.2f}GB"
+        )
+    except Exception as e:
+        log_step(f"{label}: failed to read torch CUDA memory: {e}")
+
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if result.stdout.strip():
+            log_step(f"{label}: nvidia-smi memory/util={result.stdout.strip()}")
+    except Exception as e:
+        log_step(f"{label}: nvidia-smi unavailable: {e}")
+
+
+def get_audio_duration(input_file):
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_file,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return None
+
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def get_env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
 def apply_safe_globals_hack():
     """
@@ -174,13 +236,23 @@ def parse_vtt(vtt_path):
     return segments
 
 def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
-    print(i18n(f"Iniciando transcrição de {input_file}..."))
-    
-    # Diagnóstico de Ambiente
-    print(f"DEBUG: Python: {sys.executable}")
-    print(f"DEBUG: Torch: {torch.__version__}")
-    
     start_time = time.time()
+
+    log_step(i18n(f"Iniciando transcrição de {input_file}..."))
+    log_step(f"Python: {sys.executable}")
+    log_step(f"Torch: {torch.__version__}")
+    log_step(f"CUDA available: {torch.cuda.is_available()}")
+    log_step(f"CUDA version: {torch.version.cuda}")
+
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input video not found: {input_file}")
+
+    input_size_mb = os.path.getsize(input_file) / 1024**2
+    input_duration = get_audio_duration(input_file)
+    duration_text = f"{input_duration:.1f}s" if input_duration else "unknown"
+
+    log_step(f"Input size: {input_size_mb:.2f} MB")
+    log_step(f"Input duration: {duration_text}")
     
     if project_folder is None:
         project_folder = os.path.dirname(input_file)
@@ -202,15 +274,36 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
 
     # Device Setup
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"DEBUG: Usando dispositivo: {device}")
-    compute_type = "float16" if device == "cuda" else "float32"
+    compute_type = os.environ.get("VIRALCUTTER_WHISPER_COMPUTE_TYPE")
+    if not compute_type:
+        compute_type = "float16" if device == "cuda" else "int8"
+
+    batch_size = get_env_int("VIRALCUTTER_WHISPER_BATCH_SIZE", 8 if device == "cuda" else 4)
+    chunk_size = get_env_int("VIRALCUTTER_WHISPER_CHUNK_SIZE", 10)
+
+    log_step(f"Using device: {device}")
+    log_step(f"Using compute_type: {compute_type}")
+    log_step(f"Using batch_size: {batch_size}")
+    log_step(f"Using chunk_size: {chunk_size}")
+
+    if device == "cuda":
+        log_gpu_state("before whisperx import")
 
     try:
         apply_safe_globals_hack()
+
+        log_step("Importing whisperx...")
+        import whisperx
+        log_step("whisperx import OK")
+
+        if device == "cuda":
+            log_gpu_state("after whisperx import")
         
         # 1. Carregar Áudio (sempre necessário)
-        print(f"Carregando áudio: {input_file}")
+        log_step(f"Loading audio: {input_file}")
+        audio_load_start = time.time()
         audio = whisperx.load_audio(input_file)
+        log_step(f"Audio loaded in {time.time() - audio_load_start:.2f}s")
         
         # 2. Verificar se existem legendas baixadas para Alignment Only
         # Procurar por *.srt E *.vtt na pasta que comecem com input (ou o nome base)
@@ -258,49 +351,80 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
             pass 
         else:
             # 3. Transcrever (Caminho Normal)
-            print("Nenhuma legenda válida encontrada. Realizando transcrição completa (WhisperX)...")
-            print(f"Carregando modelo {model_name}...")
-            model = whisperx.load_model(
-                model_name, 
-                device, 
-                compute_type=compute_type,
-                asr_options={"hotwords": None}
-            )
+            log_step("No valid subtitles found. Starting full WhisperX transcription.")
+            log_step(f"Loading WhisperX model: {model_name}")
 
-            result = model.transcribe(
-                audio, 
-                batch_size=16, 
-                chunk_size=10
+            model_load_start = time.time()
+            model = whisperx.load_model(
+                model_name,
+                device,
+                compute_type=compute_type,
+                asr_options={"hotwords": None},
             )
-            
+            log_step(f"WhisperX model loaded in {time.time() - model_load_start:.2f}s")
+
+            if device == "cuda":
+                log_gpu_state("after whisperx.load_model")
+
+            log_step("Starting model.transcribe()")
+            transcribe_start = time.time()
+            result = model.transcribe(
+                audio,
+                batch_size=batch_size,
+                chunk_size=chunk_size,
+            )
+            log_step(f"model.transcribe() completed in {time.time() - transcribe_start:.2f}s")
+
+            if device == "cuda":
+                log_gpu_state("after model.transcribe")
+
             detected_language = result["language"]
             start_segments = result["segments"]
+
+            log_step(f"Detected language: {detected_language}")
+            log_step(f"Transcribed segments: {len(start_segments)}")
             
             # Limpar modelo de transcrição
             if device == "cuda":
                 del model
                 gc.collect()
                 torch.cuda.empty_cache()
+                log_gpu_state("after transcription model cleanup")
 
         # 4. Alinhar (Sempre executado, seja com subs parsed ou transcritos)
-        print(f"Alinhando transcrição (Idioma: {detected_language}) para obter timestamps precisos...")
+        log_step(f"Starting alignment for language: {detected_language}")
         # Usa o modelo específico solicitado pelo usuário: WAV2VEC2_ASR_LARGE_LV60K_960H
         # Mas o whisperx.load_align_model escolhe automaticamente baseado na linguagem.
         # Se for inglês, ele usa wav2vec2-large-960h-lv60-self geralmente.
         # Não podemos forçar facilmente o modelo exato sem hackear o whisperx, mas o padrão é bom.
         
         try:
+            align_load_start = time.time()
             model_a, metadata = whisperx.load_align_model(language_code=detected_language, device=device)
-            
-            aligned_result = whisperx.align(start_segments, model_a, metadata, audio, device, return_char_alignments=False)
+            log_step(f"Alignment model loaded in {time.time() - align_load_start:.2f}s")
+
+            if device == "cuda":
+                log_gpu_state("after load_align_model")
+
+            align_start = time.time()
+            aligned_result = whisperx.align(
+                start_segments,
+                model_a,
+                metadata,
+                audio,
+                device,
+                return_char_alignments=False,
+            )
+            log_step(f"whisperx.align() completed in {time.time() - align_start:.2f}s")
             
             # aligned_result agora contém "segments" com word timestamps
             result = aligned_result
             result["language"] = detected_language
             
             if device == "cuda":
-                 del model_a
-                 torch.cuda.empty_cache()
+                del model_a
+                torch.cuda.empty_cache()
+                log_gpu_state("after alignment model cleanup")
                  
         except Exception as e:
             print(f"Erro durante alinhamento: {e}. ")
@@ -313,7 +437,7 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                  print("Continuando com transcrição bruta.")
 
         # 5. Salvar Resultados
-        print("Salvando resultados...")
+        log_step("Saving transcription outputs...")
         from whisperx.utils import get_writer
         
         save_options = {
@@ -338,10 +462,10 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
         
         end_time = time.time()
         elapsed = end_time - start_time
-        print(f"Processamento concluído em {int(elapsed//60)}m {int(elapsed%60)}s.")
+        log_step(f"Transcription completed in {int(elapsed//60)}m {int(elapsed%60)}s.")
 
     except Exception as e:
-        print(f"ERRO CRÍTICO na transcrição: {e}")
+        log_step(f"CRITICAL transcription error: {e}")
         import traceback
         traceback.print_exc()
         raise
