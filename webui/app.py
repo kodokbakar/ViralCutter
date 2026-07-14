@@ -181,7 +181,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode, 
+def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
@@ -265,6 +265,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     if themes: cmd.extend(["--themes", themes])
     cmd.extend(["--min-duration", str(int(min_duration))])
     cmd.extend(["--max-duration", str(int(max_duration))])
+    cmd.extend(["--pre-roll", str(float(pre_roll))])
+    cmd.extend(["--post-roll", str(float(post_roll))])
     cmd.extend(["--model", model])
     cmd.extend(["--ai-backend", ai_backend])
     if api_key: cmd.extend(["--api-key", api_key])
@@ -294,7 +296,6 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
 
 
     
-    cmd.append("--skip-prompts")
     
     if focus_active_speaker:
         cmd.append("--focus-active-speaker")
@@ -534,6 +535,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Row():
                         min_dur_input = gr.Number(label=i18n("Min Duration (s)"), value=15)
                         max_dur_input = gr.Number(label=i18n("Max Duration (s)"), value=90)
+                    with gr.Row():
+                        pre_roll_input = gr.Number(label=i18n("Pre-roll (s)"), value=1.25)
+                        post_roll_input = gr.Number(label=i18n("Post-roll (s)"), value=0.75)
                 with gr.Column(scale=1):
                     with gr.Row():
                         ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value="gemini", scale=2)
@@ -636,7 +640,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     gdrive_refresh_btn.click(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
                     gdrive_search_input.submit(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
              
-             with gr.Accordion(i18n("Advanced Face Settings"), open=False):
+             with gr.Accordion(i18n("Advanced Face Settings"), open=False) as advanced_face_settings:
                  face_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in FACE_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Balanced)", interactive=True)
                  with gr.Row():
                       face_filter_thresh_input = gr.Slider(label=i18n("Ignore Small Faces (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.35, step=0.05, info=i18n("Relative size to ignore background."))
@@ -774,7 +778,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
+                 input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input,
                  model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
                  workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 

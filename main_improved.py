@@ -19,6 +19,7 @@ from scripts import (
     create_viral_segments,
     cut_segments,
     preserve_segments,
+    refine_segments,
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
@@ -112,6 +113,8 @@ def main():
     parser.add_argument("--burn-only", action="store_true", help="Skip processing and only burn subtitles")
     parser.add_argument("--min-duration", type=int, default=15, help="Minimum segment duration (seconds)")
     parser.add_argument("--max-duration", type=int, default=90, help="Maximum segment duration (seconds)")
+    parser.add_argument("--pre-roll", type=float, default=1.25, help="Seconds to add before each selected segment")
+    parser.add_argument("--post-roll", type=float, default=0.75, help="Seconds to add after each selected segment")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     
     parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
@@ -537,6 +540,27 @@ def main():
                       except Exception as e:
                           print(i18n("Failed to align raw segments: {}").format(e))
                           # If alignment fails, it might crash later, but we tried. 
+
+        # 3.6. Snap segment timing to sentence boundaries before cutting
+        if workflow_choice != "3" and viral_segments and "segments" in viral_segments:
+            try:
+                viral_segments = refine_segments.refine_to_sentence_boundaries(
+                    viral_segments,
+                    project_folder=project_folder,
+                    min_duration=args.min_duration,
+                    max_duration=args.max_duration,
+                    snap_window=4.0,
+                    pre_roll=args.pre_roll,
+                    post_roll=args.post_roll,
+                )
+
+                viral_segments_file = os.path.join(project_folder, "viral_segments.txt")
+                with open(viral_segments_file, "w", encoding="utf-8") as f:
+                    json.dump(viral_segments, f, indent=4, ensure_ascii=False)
+
+                print(i18n("Segment timings snapped to sentence boundaries."))
+            except Exception as e:
+                print(i18n("Warning: sentence boundary snap skipped: {}").format(e))
 
         # 4. Cut Segments
         # Se workflow for 3, pulamos corte
