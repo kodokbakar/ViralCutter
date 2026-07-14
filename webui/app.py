@@ -129,6 +129,143 @@ def kill_process():
             return i18n("Error terminating process: {}").format(e)
     return i18n("No process running.")
 
+MAX_UI_LOG_CHARS = 120_000
+
+STAGE_RULES = [
+    ("starting download", "Download"),
+    ("downloading video", "Download"),
+    ("transcribing with model", "Transcription"),
+    ("iniciando transcrição", "Transcription"),
+    ("realizando transcrição completa", "Transcription"),
+    ("creating viral segments", "AI segment selection"),
+    ("matching", "Segment alignment"),
+    ("segment timings snapped", "Timing refinement"),
+    ("cutting segments", "Video cutting"),
+    ("generated segment", "Video cutting"),
+    ("face mode none selected", "Preserve source framing"),
+    ("editing video with", "Face processing"),
+    ("processing subtitles", "Subtitle processing"),
+    ("adjusting subtitles", "Subtitle processing"),
+    ("burning subtitles", "Subtitle burn-in"),
+    ("compiling segments", "Compilation"),
+    ("compilation saved", "Compilation"),
+    ("process completed", "Completed"),
+]
+
+
+def log_timestamp():
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
+def format_duration(seconds):
+    seconds = max(0, int(seconds))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def trim_log_for_ui(logs):
+    if len(logs) <= MAX_UI_LOG_CHARS:
+        return logs
+
+    return (
+        "[... older logs trimmed in UI; full log is saved to webui_run.log when a project folder is known ...]\n"
+        + logs[-MAX_UI_LOG_CHARS:]
+    )
+
+
+def format_log_entry(message, level="INFO"):
+    prefix = f"[{log_timestamp()}] [{level}] "
+    text = str(message).rstrip("\n")
+
+    if not text:
+        return f"{prefix}\n"
+
+    return "".join(f"{prefix}{line}\n" for line in text.splitlines())
+
+
+def append_log_pair(full_logs, ui_logs, message, level="INFO"):
+    entry = format_log_entry(message, level)
+    full_logs += entry
+    ui_logs = trim_log_for_ui(ui_logs + entry)
+    return full_logs, ui_logs
+
+
+def redact_command(cmd):
+    redacted = []
+    redact_next = False
+    sensitive_flags = {"--api-key"}
+
+    for token in cmd:
+        token = str(token)
+
+        if redact_next:
+            redacted.append("<redacted>")
+            redact_next = False
+            continue
+
+        redacted.append(token)
+
+        if token in sensitive_flags:
+            redact_next = True
+
+    return redacted
+
+
+def command_for_log(cmd):
+    parts = []
+
+    for token in redact_command(cmd):
+        token = str(token).replace('"', '\\"')
+        if not token or any(ch.isspace() for ch in token):
+            parts.append(f'"{token}"')
+        else:
+            parts.append(token)
+
+    return " ".join(parts)
+
+
+def stage_for_line(line):
+    lowered = line.lower()
+
+    for needle, stage in STAGE_RULES:
+        if needle in lowered:
+            return stage
+
+    return None
+
+
+def extract_project_folder_from_line(line):
+    if "Project Folder:" not in line:
+        return None
+
+    parts = line.split("Project Folder:", 1)
+    if len(parts) < 2:
+        return None
+
+    path = parts[1].strip()
+    return path or None
+
+
+def save_webui_log(project_folder_path, full_logs):
+    if not project_folder_path or not os.path.exists(project_folder_path):
+        return None
+
+    log_path = os.path.join(project_folder_path, "webui_run.log")
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(full_logs)
+        return log_path
+    except Exception as e:
+        print(f"Warning: failed to save WebUI log: {e}")
+        return None
+
 GEMINI_MODELS = [
     'gemini-3.5-flash',
     'gemini-3-flash-preview',
@@ -335,63 +472,121 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+
+    full_logs = ""
+    logs = ""
+    project_folder_path = None
+    compilation_status = ""
+    seen_stages = set()
+    run_started_at = time.time()
+
+    if input_source == "Existing Project" and project_name:
+        project_folder_path = os.path.join(VIRALS_DIR, project_name)
+
+    full_logs, logs = append_log_pair(full_logs, logs, "=" * 72, "START")
+    full_logs, logs = append_log_pair(full_logs, logs, "ViralCutter WebUI job started.", "START")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Working directory: {WORKING_DIR}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"VIRALS directory: {VIRALS_DIR}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Input source: {input_source}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Workflow: {workflow}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Segments: {int(segments)} | Viral mode: {bool(viral)}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Duration: {int(min_duration)}s-{int(max_duration)}s | Pre-roll: {float(pre_roll)}s | Post-roll: {float(post_roll)}s", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Whisper model: {model} | AI backend: {ai_backend}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Face model: {face_model} | Face mode: {face_mode} | No-face fallback: {no_face_mode}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Compile: {bool(compile_mode)} | Crossfade: {float(crossfade_duration or 0)}s", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Command: {command_for_log(cmd)}", "CMD")
+
     try:
-        current_process = subprocess.Popen(cmd, cwd=WORKING_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, env=env)
-        logs = ""
-        project_folder_path = None
-        compilation_status = ""
-        if input_source == "Existing Project" and project_name:
-             # If using existing project, we already know the path, but let's see if logs confirm it
-             project_folder_path = os.path.join(VIRALS_DIR, project_name)
+        yield logs, gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
+
+        current_process = subprocess.Popen(
+            cmd,
+            cwd=WORKING_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=env,
+        )
+
+        full_logs, logs = append_log_pair(full_logs, logs, f"Process started with PID: {current_process.pid}", "RUN")
 
         last_update_time = time.time()
-        
+
         while True:
             line = current_process.stdout.readline()
+
             if not line and current_process.poll() is not None:
                 break
-            
+
             if line:
-                logs += line
-                if "Project Folder:" in line:
-                    parts = line.split("Project Folder:")
-                    if len(parts) > 1: project_folder_path = parts[1].strip()
+                clean_line = line.rstrip("\n")
+
+                detected_project = extract_project_folder_from_line(clean_line)
+                if detected_project:
+                    project_folder_path = detected_project
+                    full_logs, logs = append_log_pair(full_logs, logs, f"Detected project folder: {project_folder_path}", "PROJECT")
+
+                stage = stage_for_line(clean_line)
+                if stage and stage not in seen_stages:
+                    seen_stages.add(stage)
+                    full_logs, logs = append_log_pair(full_logs, logs, f"Stage: {stage}", "STAGE")
+
                 if (
-                    "Compilation saved:" in line
-                    or "Error compiling segments:" in line
-                    or "Warning: No processed segments found for compilation:" in line
+                    "Compilation saved:" in clean_line
+                    or "Error compiling segments:" in clean_line
+                    or "Warning: No processed segments found for compilation:" in clean_line
                 ):
-                    compilation_status = line.strip()
-                
-                # Throttle updates to avoid browser freeze (0.2s interval)
+                    compilation_status = clean_line.strip()
+
+                process_entry = format_log_entry(clean_line, "PROC")
+                full_logs += process_entry
+                logs = trim_log_for_ui(logs + process_entry)
+
                 current_time = time.time()
                 if current_time - last_update_time > 0.2:
                     yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
                     last_update_time = current_time
-        
-        # Final yield to ensure all logs are shown
+
+        return_code = current_process.poll()
+        elapsed = format_duration(time.time() - run_started_at)
+
+        if return_code == 0:
+            full_logs, logs = append_log_pair(full_logs, logs, f"Process completed successfully in {elapsed}.", "DONE")
+            if not compilation_status:
+                compilation_status = i18n("Process completed successfully.")
+        else:
+            full_logs, logs = append_log_pair(full_logs, logs, f"Process exited with code {return_code} after {elapsed}.", "ERROR")
+            if not compilation_status:
+                compilation_status = i18n("Process failed with exit code {}. Check logs.").format(return_code)
+
+        log_path = save_webui_log(project_folder_path, full_logs)
+        if log_path:
+            full_logs, logs = append_log_pair(full_logs, logs, f"Full WebUI log saved to: {log_path}", "LOG")
+            save_webui_log(project_folder_path, full_logs)
+
         yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
+
     except Exception as e:
-        logs += f"\nError running process: {str(e)}\n"
+        full_logs, logs = append_log_pair(full_logs, logs, f"Error running process: {str(e)}", "ERROR")
         yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
+
     finally:
         if current_process:
             if current_process.stdout:
                 try:
                     current_process.stdout.close()
-                except Exception: pass
+                except Exception:
+                    pass
+
             if current_process.poll() is None:
-                # If we are here, it means we finished reading or errored out, but process is still running.
-                # If it was a normal break from loop, process should be done or close to done.
-                # If we are stopping, current_process.terminate() might be needed outside? 
-                # But here we just wait.
                 try:
                     current_process.wait()
-                except Exception: pass
+                except Exception:
+                    pass
+
             current_process = None
-    
-    # Wait to ensure filesystem flush
-    time.sleep(1.0)
     
     html_output = ""
     if project_folder_path and os.path.exists(project_folder_path):
@@ -422,6 +617,23 @@ footer {visibility: hidden}
     max-width: 98% !important; 
     width: 98% !important;
     margin: 0 auto !important;
+}
+
+#logs_output textarea {
+    min-height: 520px !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    background: #080808 !important;
+    color: #e8e8e8 !important;
+    border: 1px solid #333 !important;
+    border-radius: 10px !important;
+    white-space: pre !important;
+}
+
+#logs_output label {
+    font-weight: 700 !important;
+    color: #ffb86b !important;
 }
 """
 
@@ -744,7 +956,14 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  start_btn = gr.Button(i18n("Start Processing"), variant="primary")
                  stop_btn = gr.Button(i18n("Stop"), variant="stop", visible=False)
              stop_btn.click(kill_process, outputs=[])
-             logs_output = gr.Textbox(label=i18n("Logs"), lines=10, autoscroll=True, elem_id="logs_output")
+             logs_output = gr.Textbox(
+                 label=i18n("Process Logs"),
+                 lines=24,
+                 autoscroll=True,
+                 interactive=False,
+                 elem_id="logs_output",
+                 placeholder=i18n("Run logs will appear here with timestamps, stages, command preview, and final status."),
+             )
              
              # Force scroll to bottom via JS
              logs_output.change(fn=None, inputs=[], outputs=[], js="""
