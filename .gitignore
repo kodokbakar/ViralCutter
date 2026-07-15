@@ -3,3 +3,4 @@ token_drive.json
 /graphify-out
 /scripts/__pycache__
 /webui/__pycache__
+*_export.zip

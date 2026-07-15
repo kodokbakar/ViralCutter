@@ -19,6 +19,7 @@ import library # Module for Library Logic
 import subtitle_handler as subs # Module for Subtitles
 import subtitle_editor as editor # Module for Editor Logic
 import runtime_doctor
+import project_export
 
 # Path to the main script
 MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
@@ -301,6 +302,13 @@ def save_webui_log(project_folder_path, full_logs):
     except Exception as e:
         print(f"Warning: failed to save WebUI log: {e}")
         return None
+    
+def export_project_zip(project_name):
+    if not project_name:
+        return None
+
+    project_path = os.path.join(VIRALS_DIR, project_name)
+    return project_export.build_project_zip(project_path)
 
 GEMINI_MODELS = [
     'gemini-3.5-flash',
@@ -1520,13 +1528,41 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
 
         with gr.Tab(i18n("Library")):
             gr.Markdown(f"### {i18n('Existing Projects')}")
+
             with gr.Row():
-                project_dropdown = gr.Dropdown(choices=library.get_existing_projects(), label=i18n("Select Project"), value=None)
-                refresh_btn = gr.Button(i18n("Refresh List"))
+                project_dropdown = gr.Dropdown(
+                    choices=library.get_existing_projects(),
+                    label=i18n("Select Project"),
+                    value=None,
+                    scale=4,
+                )
+                refresh_btn = gr.Button(i18n("Refresh List"), scale=1)
+
+            with gr.Row():
+                export_zip_btn = gr.Button(i18n("Download Project ZIP"), variant="primary")
+                project_zip_file = gr.File(
+                    label=i18n("Project ZIP"),
+                    interactive=False,
+                )
+
             project_gallery_html = gr.HTML()
+
             refresh_btn.click(library.refresh_projects, outputs=project_dropdown)
-            def on_select_project(proj_name): return library.generate_project_gallery(proj_name)
-            project_dropdown.change(on_select_project, project_dropdown, project_gallery_html)
+
+            def on_select_project(proj_name):
+                return library.generate_project_gallery(proj_name)
+
+            project_dropdown.change(
+                on_select_project,
+                project_dropdown,
+                project_gallery_html,
+            )
+
+            export_zip_btn.click(
+                export_project_zip,
+                inputs=project_dropdown,
+                outputs=project_zip_file,
+            )
     
     gr.Markdown(f"""
         <hr>
