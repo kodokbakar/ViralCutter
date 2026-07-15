@@ -135,24 +135,59 @@ MAX_UI_LOG_CHARS = 120_000
 STAGE_RULES = [
     ("starting download", "Download"),
     ("downloading video", "Download"),
+    ("download finished", "Download"),
     ("transcribing with model", "Transcription"),
     ("iniciando transcrição", "Transcription"),
-    ("realizando transcrição completa", "Transcription"),
+    ("starting full whisperx transcription", "Transcription"),
+    ("starting model.transcribe", "Transcription"),
+    ("model.transcribe() completed", "Transcription"),
     ("creating viral segments", "AI segment selection"),
+    ("enviando chunk", "AI segment selection"),
+    ("processing chunk", "AI segment selection"),
     ("matching", "Segment alignment"),
+    ("segments aligned", "Segment alignment"),
     ("segment timings snapped", "Timing refinement"),
     ("cutting segments", "Video cutting"),
     ("generated segment", "Video cutting"),
-    ("face mode none selected", "Preserve source framing"),
+    ("face mode none selected", "Face processing"),
     ("editing video with", "Face processing"),
     ("processing subtitles", "Subtitle processing"),
     ("adjusting subtitles", "Subtitle processing"),
-    ("burning subtitles", "Subtitle burn-in"),
-    ("compiling segments", "Compilation"),
-    ("compilation saved", "Compilation"),
+    ("burning subtitles", "Subtitle processing"),
+    ("compiling segments", "Subtitle processing"),
+    ("compilation saved", "Subtitle processing"),
     ("process completed", "Completed"),
 ]
 
+PIPELINE_STAGES = [
+    ("Download", 1),
+    ("Transcription", 2),
+    ("AI segment selection", 3),
+    ("Segment alignment", 4),
+    ("Timing refinement", 5),
+    ("Video cutting", 6),
+    ("Face processing", 7),
+    ("Subtitle processing", 8),
+    ("Completed", 8),
+]
+
+STAGE_TO_INDEX = {stage: index for stage, index in PIPELINE_STAGES}
+TOTAL_PIPELINE_STAGES = 8
+
+
+def format_progress(stage, stage_started_at, run_started_at):
+    stage = stage or "Starting"
+    now = time.time()
+    stage_elapsed = format_duration(now - stage_started_at) if stage_started_at else "0s"
+    total_elapsed = format_duration(now - run_started_at) if run_started_at else "0s"
+
+    index = STAGE_TO_INDEX.get(stage, 0)
+    percent = int((index / TOTAL_PIPELINE_STAGES) * 100) if index else 0
+
+    if index:
+        return f"[{index}/{TOTAL_PIPELINE_STAGES}] {stage} — {percent}% — stage elapsed: {stage_elapsed} — total elapsed: {total_elapsed}"
+
+    return f"[0/{TOTAL_PIPELINE_STAGES}] {stage} — 0% — total elapsed: {total_elapsed}"
 
 def log_timestamp():
     return datetime.datetime.now().strftime("%H:%M:%S")
@@ -315,6 +350,56 @@ LANGUAGE_CHOICES = [
     ("Russian", "ru"),
 ]
 
+TRANSCRIPTION_PRESETS = {
+    "fast": {
+        "label": "Fast Test",
+        "model": "small",
+        "batch_size": 8,
+        "chunk_size": 10,
+        "description": "Fast smoke test for Colab T4. Use this first.",
+    },
+    "balanced": {
+        "label": "Balanced",
+        "model": "medium",
+        "batch_size": 8,
+        "chunk_size": 15,
+        "description": "Good quality/speed balance for normal runs.",
+    },
+    "accurate": {
+        "label": "Accurate",
+        "model": "large-v3-turbo",
+        "batch_size": 4,
+        "chunk_size": 10,
+        "description": "Higher accuracy, slower, safer batch size for T4.",
+    },
+    "custom": {
+        "label": "Custom",
+        "model": None,
+        "batch_size": None,
+        "chunk_size": None,
+        "description": "Manual model, batch size, and chunk size.",
+    },
+}
+
+
+def apply_transcription_preset(preset_name):
+    preset = TRANSCRIPTION_PRESETS.get(preset_name, TRANSCRIPTION_PRESETS["custom"])
+
+    if preset_name == "custom":
+        return (
+            gr.update(interactive=True),
+            gr.update(interactive=True),
+            gr.update(interactive=True),
+            i18n("Custom preset enabled. Edit model, batch size, and chunk size manually."),
+        )
+
+    return (
+        gr.update(value=preset["model"], interactive=False),
+        gr.update(value=preset["batch_size"], interactive=False),
+        gr.update(value=preset["chunk_size"], interactive=False),
+        i18n(preset["description"]),
+    )
+
 DEFAULT_PROMPT_TEXT = """You are a World-Class Viral Video Editor.
 {context_instruction}
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
@@ -382,7 +467,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, model, whisper_language, prompt_template, 
+def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, transcription_preset, model, whisper_language, whisper_batch_size, whisper_chunk_size, prompt_template, 
                      ai_backend, api_key, ai_model_name, chunk_size, workflow, 
                      compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
@@ -391,20 +476,20 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
     
     global current_process
-    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False) 
+    yield "", "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
 
     cmd = [sys.executable, MAIN_SCRIPT_PATH]
     
     # Input Source Logic
     if input_source == "Existing Project":
         if not project_name:
-             yield i18n("Error: No project selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
+             yield i18n("Error: No project selected."), "", gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
     elif input_source == "Upload Video":
         if not video_file:
-             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
+             yield i18n("Error: No video file uploaded."), "", gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
         
         # Determine project name from filename
@@ -429,7 +514,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
         cmd.append("--skip-youtube-subs")
     elif input_source == "Google Drive":
         if not gdrive_path or not os.path.exists(gdrive_path):
-             yield i18n("Error: No Google Drive video selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
+             yield i18n("Error: No Google Drive video selected."), "", gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(value="", visible=False)
              return
 
         original_filename = os.path.basename(gdrive_path)
@@ -473,6 +558,13 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     cmd.extend(["--post-roll", str(float(post_roll))])
     cmd.extend(["--model", model])
     cmd.extend(["--language", whisper_language or "auto"])
+    cmd.extend(["--whisper-preset", transcription_preset or "custom"])
+
+    if whisper_batch_size:
+        cmd.extend(["--whisper-batch-size", str(int(whisper_batch_size))])
+
+    if whisper_chunk_size:
+        cmd.extend(["--whisper-chunk-size", str(int(whisper_chunk_size))])
 
     prompt_template_path = save_temp_prompt_template(prompt_template)
     cmd.extend(["--prompt-file", prompt_template_path])
@@ -543,6 +635,11 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if whisper_batch_size:
+        env["VIRALCUTTER_WHISPER_BATCH_SIZE"] = str(int(whisper_batch_size))
+
+    if whisper_chunk_size:
+        env["VIRALCUTTER_WHISPER_CHUNK_SIZE"] = str(int(whisper_chunk_size))
 
     full_logs = ""
     logs = ""
@@ -550,6 +647,9 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     compilation_status = ""
     seen_stages = set()
     run_started_at = time.time()
+    current_stage = "Starting"
+    current_stage_started_at = run_started_at
+    progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
 
     if input_source == "Existing Project" and project_name:
         project_folder_path = os.path.join(VIRALS_DIR, project_name)
@@ -562,15 +662,19 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     full_logs, logs = append_log_pair(full_logs, logs, f"Workflow: {workflow}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Segments: {int(segments)} | Viral mode: {bool(viral)}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Duration: {int(min_duration)}s-{int(max_duration)}s | Pre-roll: {float(pre_roll)}s | Post-roll: {float(post_roll)}s", "CONFIG")
-    full_logs, logs = append_log_pair(full_logs, logs, f"Whisper model: {model} | AI backend: {ai_backend}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Whisper preset: {transcription_preset or 'custom'}", "CONFIG")
+    whisper_batch_display = int(whisper_batch_size) if whisper_batch_size else "default"
+    whisper_chunk_display = int(whisper_chunk_size) if whisper_chunk_size else "default"
+    full_logs, logs = append_log_pair(full_logs, logs, f"Whisper model: {model} | batch: {whisper_batch_display} | chunk: {whisper_chunk_display}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper language: {whisper_language or 'auto'}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"AI backend: {ai_backend}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, "Prompt template: WebUI override enabled", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Face model: {face_model} | Face mode: {face_mode} | No-face fallback: {no_face_mode}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Compile: {bool(compile_mode)} | Crossfade: {float(crossfade_duration or 0)}s", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Command: {command_for_log(cmd)}", "CMD")
 
     try:
-        yield logs, gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
+        yield logs, progress_status, gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
 
         current_process = subprocess.Popen(
             cmd,
@@ -602,9 +706,15 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                     full_logs, logs = append_log_pair(full_logs, logs, f"Detected project folder: {project_folder_path}", "PROJECT")
 
                 stage = stage_for_line(clean_line)
-                if stage and stage not in seen_stages:
-                    seen_stages.add(stage)
-                    full_logs, logs = append_log_pair(full_logs, logs, f"Stage: {stage}", "STAGE")
+                if stage and stage != current_stage:
+                    current_stage = stage
+                    current_stage_started_at = time.time()
+
+                    if stage not in seen_stages:
+                        seen_stages.add(stage)
+
+                    progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
+                    full_logs, logs = append_log_pair(full_logs, logs, progress_status, "STAGE")
 
                 if (
                     "Compilation saved:" in clean_line
@@ -619,14 +729,22 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
 
                 current_time = time.time()
                 if current_time - last_update_time > 0.2:
-                    yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
+                    progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
+                    yield logs, progress_status, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
                     last_update_time = current_time
 
-        return_code = current_process.poll()
+        return_code = current_process.wait()
         elapsed = format_duration(time.time() - run_started_at)
 
         if return_code == 0:
+            current_stage = "Completed"
+            current_stage_started_at = time.time()
+
+        progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
+
+        if return_code == 0:
             full_logs, logs = append_log_pair(full_logs, logs, f"Process completed successfully in {elapsed}.", "DONE")
+            full_logs, logs = append_log_pair(full_logs, logs, progress_status, "STAGE")
             if not compilation_status:
                 compilation_status = i18n("Process completed successfully.")
         else:
@@ -639,11 +757,12 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
             full_logs, logs = append_log_pair(full_logs, logs, f"Full WebUI log saved to: {log_path}", "LOG")
             save_webui_log(project_folder_path, full_logs)
 
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
+        yield logs, progress_status, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value=compilation_status, visible=bool(compilation_status))
 
     except Exception as e:
         full_logs, logs = append_log_pair(full_logs, logs, f"Error running process: {str(e)}", "ERROR")
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
+        progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
+        yield logs, progress_status, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
 
     finally:
         if current_process:
@@ -666,7 +785,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
     else:
         html_output = f"<h3>{i18n('Error: Project folder could not be determined from logs.')}</h3>"
-    yield logs, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), html_output, gr.update(value=compilation_status, visible=bool(compilation_status))
+    progress_status = format_progress(current_stage, current_stage_started_at, run_started_at)
+    yield logs, progress_status, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), html_output, gr.update(value=compilation_status, visible=bool(compilation_status))
 
 css = """
 /* Global Dark Theme Overrides */
@@ -724,6 +844,16 @@ footer {visibility: hidden}
 #doctor_output label {
     font-weight: 700 !important;
     color: #8be9fd !important;
+}
+
+#progress_output textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    background: #101820 !important;
+    color: #f8f8f2 !important;
+    border: 1px solid #444 !important;
+    border-radius: 10px !important;
 }
 """
 
@@ -892,11 +1022,24 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
                     ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, ai_model_input, refresh_models_btn, chunk_size_input])
 
+                    transcription_preset_input = gr.Dropdown(
+                        choices=[
+                            (i18n("Fast Test"), "fast"),
+                            (i18n("Balanced"), "balanced"),
+                            (i18n("Accurate"), "accurate"),
+                            (i18n("Custom"), "custom"),
+                        ],
+                        label=i18n("Transcription Preset"),
+                        value="fast",
+                        info=i18n("Fast Test is recommended for first Colab smoke test."),
+                    )
+
                     with gr.Row():
                         model_input = gr.Dropdown(
                             ["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"],
                             label=i18n("Whisper Model"),
                             value="small",
+                            interactive=False,
                             scale=2,
                         )
                         whisper_language_input = gr.Dropdown(
@@ -906,6 +1049,39 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             scale=1,
                             info=i18n("Use Auto Detect, or force the spoken language for faster/more stable transcription."),
                         )
+
+                    with gr.Row():
+                        whisper_batch_size_input = gr.Number(
+                            label=i18n("Whisper Batch Size"),
+                            value=8,
+                            precision=0,
+                            interactive=False,
+                            info=i18n("Lower this if GPU memory fails."),
+                        )
+                        whisper_chunk_size_input = gr.Number(
+                            label=i18n("Whisper Chunk Size"),
+                            value=10,
+                            precision=0,
+                            interactive=False,
+                            info=i18n("Seconds per WhisperX chunk."),
+                        )
+
+                    transcription_preset_status = gr.Textbox(
+                        label=i18n("Transcription Preset Info"),
+                        value=i18n("Fast smoke test for Colab T4. Use this first."),
+                        interactive=False,
+                    )
+
+                    transcription_preset_input.change(
+                        apply_transcription_preset,
+                        inputs=transcription_preset_input,
+                        outputs=[
+                            model_input,
+                            whisper_batch_size_input,
+                            whisper_chunk_size_input,
+                            transcription_preset_status,
+                        ],
+                    )
                     with gr.Accordion(i18n("AI Prompt Template"), open=False):
                         prompt_template_input = gr.Textbox(
                             label=i18n("prompt.txt"),
@@ -1083,6 +1259,13 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  start_btn = gr.Button(i18n("Start Processing"), variant="primary")
                  stop_btn = gr.Button(i18n("Stop"), variant="stop", visible=False)
              stop_btn.click(kill_process, outputs=[])
+             progress_output = gr.Textbox(
+                 label=i18n("Pipeline Progress"),
+                 value="",
+                 lines=2,
+                 interactive=False,
+                 elem_id="progress_output",
+             )
              logs_output = gr.Textbox(
                  label=i18n("Process Logs"),
                  lines=24,
@@ -1125,7 +1308,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
                  input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input,
-                 model_input, whisper_language_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
+                 transcription_preset_input, model_input, whisper_language_input, whisper_batch_size_input, whisper_chunk_size_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
@@ -1138,7 +1321,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
                  video_quality_input, use_youtube_subs_input, translate_input
-             ], outputs=[logs_output, start_btn, stop_btn, results_html, compilation_output])
+             ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
 
 
         with gr.Tab(i18n("Subtitle Editor")):
