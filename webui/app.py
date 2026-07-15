@@ -18,6 +18,7 @@ import re
 import library # Module for Library Logic
 import subtitle_handler as subs # Module for Subtitles
 import subtitle_editor as editor # Module for Editor Logic
+import runtime_doctor
 
 # Path to the main script
 MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
@@ -707,6 +708,23 @@ footer {visibility: hidden}
     font-weight: 700 !important;
     color: #ffb86b !important;
 }
+
+#doctor_output textarea {
+    min-height: 560px !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    background: #080808 !important;
+    color: #e8e8e8 !important;
+    border: 1px solid #333 !important;
+    border-radius: 10px !important;
+    white-space: pre !important;
+}
+
+#doctor_output label {
+    font-weight: 700 !important;
+    color: #8be9fd !important;
+}
 """
 
 import header
@@ -1286,6 +1304,36 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 outputs=editor_status
             )
 
+        with gr.Tab(i18n("Runtime Doctor")):
+            gr.Markdown(f"### {i18n('Colab / GPU Health Check')}")
+            gr.Markdown(
+                i18n(
+                    "Run this before long jobs. It checks Python, Torch CUDA, nvidia-smi, "
+                    "WhisperX, CTranslate2, faster-whisper, ffmpeg, and optional video duration."
+                )
+            )
+
+            doctor_video_path = gr.Textbox(
+                label=i18n("Optional input video path"),
+                placeholder="/content/ViralCutter/VIRALS/project/input.mp4",
+                value="",
+            )
+
+            doctor_btn = gr.Button(i18n("Check Colab / GPU Health"), variant="primary")
+
+            doctor_output = gr.Textbox(
+                label=i18n("Runtime Doctor Report"),
+                lines=28,
+                interactive=False,
+                autoscroll=False,
+                elem_id="doctor_output",
+            )
+
+            doctor_btn.click(
+                runtime_doctor.run_runtime_doctor,
+                inputs=doctor_video_path,
+                outputs=doctor_output,
+            )
 
         with gr.Tab(i18n("Library")):
             gr.Markdown(f"### {i18n('Existing Projects')}")
