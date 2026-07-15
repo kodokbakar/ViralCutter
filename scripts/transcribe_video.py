@@ -263,7 +263,15 @@ def parse_vtt(vtt_path):
         return None
     return segments
 
-def transcribe(input_file, model_name='large-v3', project_folder='tmp', language='auto'):
+def transcribe(
+    input_file,
+    model_name='large-v3',
+    project_folder='tmp',
+    language='auto',
+    batch_size=None,
+    chunk_size=None,
+    preset_name="custom",
+):
     start_time = time.time()
 
     log_step(i18n(f"Iniciando transcrição de {input_file}..."))
@@ -306,10 +314,18 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp', language
     if not compute_type:
         compute_type = "float16" if device == "cuda" else "int8"
 
-    batch_size = get_env_int("VIRALCUTTER_WHISPER_BATCH_SIZE", 8 if device == "cuda" else 4)
-    chunk_size = get_env_int("VIRALCUTTER_WHISPER_CHUNK_SIZE", 10)
+    if batch_size is None:
+        batch_size = get_env_int("VIRALCUTTER_WHISPER_BATCH_SIZE", 8 if device == "cuda" else 4)
+    else:
+        batch_size = int(batch_size)
+
+    if chunk_size is None:
+        chunk_size = get_env_int("VIRALCUTTER_WHISPER_CHUNK_SIZE", 10)
+    else:
+        chunk_size = int(chunk_size)
 
     log_step(f"Using device: {device}")
+    log_step(f"Using transcription preset: {preset_name or 'custom'}")
     log_step(f"Using compute_type: {compute_type}")
     log_step(f"Using batch_size: {batch_size}")
     log_step(f"Using chunk_size: {chunk_size}")

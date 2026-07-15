@@ -118,7 +118,9 @@ def main():
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     parser.add_argument("--language", default="auto", help="WhisperX language code. Use 'auto' for detection, or force codes like en, id, pt, es.")
     parser.add_argument("--prompt-file", help="Path to AI prompt template file")
-    
+    parser.add_argument("--whisper-preset", default="custom", choices=["fast", "balanced", "accurate", "custom"], help="WhisperX transcription preset")
+    parser.add_argument("--whisper-batch-size", type=int, help="WhisperX batch size override")
+    parser.add_argument("--whisper-chunk-size", type=int, help="WhisperX chunk size override")
     parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
     parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
     
@@ -472,6 +474,9 @@ def main():
                 args.model,
                 project_folder=project_folder,
                 language=args.language,
+                batch_size=args.whisper_batch_size,
+                chunk_size=args.whisper_chunk_size,
+                preset_name=args.whisper_preset,
             )
  
         # 3. Create Viral Segments
@@ -763,6 +768,14 @@ def main():
                     "themes": themes,
                     "num_segments": num_segments,
                     "chunk_size": args.chunk_size
+                },
+                "transcription_config": {
+                    "model": args.model,
+                    "language": args.language,
+                    "preset": args.whisper_preset,
+                    "batch_size": args.whisper_batch_size,
+                    "chunk_size": args.whisper_chunk_size,
+                    "prompt_file": args.prompt_file,
                 },
                 "face_config": {
                     "model": face_model,
