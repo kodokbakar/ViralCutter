@@ -498,7 +498,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     return final_result
 
 
-def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None):
+def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, prompt_file_arg=None):
     quantidade_de_virals = num_segments
 
     # 1. Load Transcript
@@ -511,7 +511,8 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
     # Load Config and Prompt
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(base_dir, 'api_config.json')
-    prompt_path = os.path.join(base_dir, 'prompt.txt')
+    default_prompt_path = os.path.join(base_dir, 'prompt.txt')
+    prompt_path = prompt_file_arg if prompt_file_arg else default_prompt_path
 
     config = {
         "selected_api": "gemini",
@@ -558,11 +559,17 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
         model_name = model_name_arg if model_name_arg else ""
 
     system_prompt_template = ""
-    if os.path.exists(prompt_path):
+
+    if prompt_path and os.path.exists(prompt_path):
+        print(f"[INFO] Loading prompt template from: {prompt_path}")
         with open(prompt_path, 'r', encoding='utf-8') as f:
             system_prompt_template = f.read()
+    elif os.path.exists(default_prompt_path):
+        print(f"[WARN] Prompt file not found: {prompt_path}. Falling back to: {default_prompt_path}")
+        with open(default_prompt_path, 'r', encoding='utf-8') as f:
+            system_prompt_template = f.read()
     else:
-        print("Aviso: prompt.txt não encontrado. Usando prompt interno.")
+        print("Warning: prompt.txt not found. Using built-in prompt.")
         system_prompt_template = """You are a World-Class Viral Video Editor.
 {context_instruction}
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.

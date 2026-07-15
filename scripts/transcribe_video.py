@@ -72,6 +72,34 @@ def get_env_int(name, default):
     except (TypeError, ValueError):
         return default
 
+def normalize_language(language):
+    if language is None:
+        return None
+
+    language = str(language).strip()
+    if not language or language.lower() == "auto":
+        return None
+
+    language = language.lower()
+
+    aliases = {
+        "zh-cn": "zh",
+        "zh-tw": "zh",
+        "chinese": "zh",
+        "indonesian": "id",
+        "english": "en",
+        "portuguese": "pt",
+        "spanish": "es",
+        "french": "fr",
+        "german": "de",
+        "italian": "it",
+        "japanese": "ja",
+        "korean": "ko",
+        "russian": "ru",
+    }
+
+    return aliases.get(language, language)
+
 def apply_safe_globals_hack():
     """
     Workaround for 'Weights only load failed' error in newer PyTorch versions.
@@ -235,7 +263,15 @@ def parse_vtt(vtt_path):
         return None
     return segments
 
-def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
+def transcribe(
+    input_file,
+    model_name='large-v3',
+    project_folder='tmp',
+    language='auto',
+    batch_size=None,
+    chunk_size=None,
+    preset_name="custom",
+):
     start_time = time.time()
 
     log_step(i18n(f"Iniciando transcrição de {input_file}..."))
@@ -278,13 +314,24 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
     if not compute_type:
         compute_type = "float16" if device == "cuda" else "int8"
 
-    batch_size = get_env_int("VIRALCUTTER_WHISPER_BATCH_SIZE", 8 if device == "cuda" else 4)
-    chunk_size = get_env_int("VIRALCUTTER_WHISPER_CHUNK_SIZE", 10)
+    if batch_size is None:
+        batch_size = get_env_int("VIRALCUTTER_WHISPER_BATCH_SIZE", 8 if device == "cuda" else 4)
+    else:
+        batch_size = int(batch_size)
+
+    if chunk_size is None:
+        chunk_size = get_env_int("VIRALCUTTER_WHISPER_CHUNK_SIZE", 10)
+    else:
+        chunk_size = int(chunk_size)
 
     log_step(f"Using device: {device}")
+    log_step(f"Using transcription preset: {preset_name or 'custom'}")
     log_step(f"Using compute_type: {compute_type}")
     log_step(f"Using batch_size: {batch_size}")
     log_step(f"Using chunk_size: {chunk_size}")
+    selected_language = normalize_language(language)
+    language_mode = selected_language or "auto"
+    log_step(f"Whisper language mode: {language_mode}")
 
     if device == "cuda":
         log_gpu_state("before whisperx import")
@@ -317,8 +364,8 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
         start_segments = None
         alignment_only = False
         
-        # Default blind guess if we have no info
-        detected_language = "en" 
+        # Alignment-only mode has no ASR language detection, so use selected language or EN fallback.
+        detected_language = selected_language or "en"
 
         if potential_subs:
             sub_path = potential_subs[0]
@@ -335,9 +382,9 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                 start_segments = parsed
                 alignment_only = True
                 
-                # Forçar EN conforme solicitado pelo usuário para alinhamento
-                detected_language = 'en'
-                print(f"Idioma forçado para alinhamento: {detected_language}")
+                # force selected language for alignment, but detected_language is used for model loading
+                detected_language = selected_language or "en"
+                log_step(f"Subtitle alignment language: {detected_language}")
                 
                 print("--- MODO ALINHAMENTO RÁPIDO ATIVADO ---")
         
@@ -359,6 +406,7 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
                 model_name,
                 device,
                 compute_type=compute_type,
+                language=selected_language,
                 asr_options={"hotwords": None},
             )
             log_step(f"WhisperX model loaded in {time.time() - model_load_start:.2f}s")
@@ -378,7 +426,7 @@ def transcribe(input_file, model_name='large-v3', project_folder='tmp'):
             if device == "cuda":
                 log_gpu_state("after model.transcribe")
 
-            detected_language = result["language"]
+            detected_language = selected_language or result["language"]
             start_segments = result["segments"]
 
             log_step(f"Detected language: {detected_language}")
