@@ -299,7 +299,70 @@ def get_local_models():
     if not os.path.exists(MODELS_DIR): return []
     return [f for f in os.listdir(MODELS_DIR) if f.endswith(".gguf")]
 
+LANGUAGE_CHOICES = [
+    ("Auto Detect", "auto"),
+    ("Indonesian", "id"),
+    ("English", "en"),
+    ("Portuguese", "pt"),
+    ("Spanish", "es"),
+    ("French", "fr"),
+    ("German", "de"),
+    ("Italian", "it"),
+    ("Japanese", "ja"),
+    ("Korean", "ko"),
+    ("Chinese", "zh"),
+    ("Russian", "ru"),
+]
 
+DEFAULT_PROMPT_TEXT = """You are a World-Class Viral Video Editor.
+{context_instruction}
+Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
+Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
+IMPORTANT: Output "Title", "Hook", and "Reasoning" in the SAME LANGUAGE as the transcript.
+TRANSCRIPT:
+{transcript_chunk}
+OUTPUT JSON ONLY:
+{json_template}
+"""
+
+
+def load_prompt_template():
+    prompt_path = os.path.join(WORKING_DIR, "prompt.txt")
+
+    try:
+        if os.path.exists(prompt_path):
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                return f.read()
+    except Exception as e:
+        print(f"Warning: failed to load prompt.txt: {e}")
+
+    return DEFAULT_PROMPT_TEXT
+
+
+def save_temp_prompt_template(prompt_text):
+    prompt_text = str(prompt_text or "").strip()
+    if not prompt_text:
+        prompt_text = load_prompt_template()
+
+    prompt_path = os.path.join(WORKING_DIR, "temp_prompt.txt")
+
+    with open(prompt_path, "w", encoding="utf-8") as f:
+        f.write(prompt_text)
+
+    return prompt_path
+
+
+def save_root_prompt_template(prompt_text):
+    prompt_text = str(prompt_text or "").strip()
+    if not prompt_text:
+        return i18n("Prompt is empty. Nothing saved.")
+
+    prompt_path = os.path.join(WORKING_DIR, "prompt.txt")
+
+    with open(prompt_path, "w", encoding="utf-8") as f:
+        f.write(prompt_text)
+
+    return i18n("Saved prompt template to prompt.txt")
 
 def apply_face_preset(preset_name):
     if preset_name not in FACE_PRESETS:
@@ -318,8 +381,11 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, model, ai_backend, api_key, ai_model_name, chunk_size, workflow, compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode,
-                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, model, whisper_language, prompt_template, 
+                     ai_backend, api_key, ai_model_name, chunk_size, workflow, 
+                     compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode,
+                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
+                     active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
     
@@ -405,6 +471,10 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     cmd.extend(["--pre-roll", str(float(pre_roll))])
     cmd.extend(["--post-roll", str(float(post_roll))])
     cmd.extend(["--model", model])
+    cmd.extend(["--language", whisper_language or "auto"])
+
+    prompt_template_path = save_temp_prompt_template(prompt_template)
+    cmd.extend(["--prompt-file", prompt_template_path])
     cmd.extend(["--ai-backend", ai_backend])
     if api_key: cmd.extend(["--api-key", api_key])
     
@@ -492,6 +562,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     full_logs, logs = append_log_pair(full_logs, logs, f"Segments: {int(segments)} | Viral mode: {bool(viral)}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Duration: {int(min_duration)}s-{int(max_duration)}s | Pre-roll: {float(pre_roll)}s | Post-roll: {float(post_roll)}s", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper model: {model} | AI backend: {ai_backend}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Whisper language: {whisper_language or 'auto'}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, "Prompt template: WebUI override enabled", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Face model: {face_model} | Face mode: {face_mode} | No-face fallback: {no_face_mode}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Compile: {bool(compile_mode)} | Crossfade: {float(crossfade_duration or 0)}s", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Command: {command_for_log(cmd)}", "CMD")
@@ -802,7 +874,44 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
                     ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, ai_model_input, refresh_models_btn, chunk_size_input])
 
-                    model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Whisper Model"), value="large-v3-turbo")
+                    with gr.Row():
+                        model_input = gr.Dropdown(
+                            ["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"],
+                            label=i18n("Whisper Model"),
+                            value="small",
+                            scale=2,
+                        )
+                        whisper_language_input = gr.Dropdown(
+                            choices=[(i18n(label), value) for label, value in LANGUAGE_CHOICES],
+                            label=i18n("Whisper Language"),
+                            value="auto",
+                            scale=1,
+                            info=i18n("Use Auto Detect, or force the spoken language for faster/more stable transcription."),
+                        )
+                    with gr.Accordion(i18n("AI Prompt Template"), open=False):
+                        prompt_template_input = gr.Textbox(
+                            label=i18n("prompt.txt"),
+                            value=load_prompt_template(),
+                            lines=18,
+                            max_lines=28,
+                            interactive=True,
+                            info=i18n("Available placeholders: {context_instruction}, {virality_instruction}, {min_duration}, {max_duration}, {transcript_chunk}, {json_template}, {amount}"),
+                        )
+                        with gr.Row():
+                            reload_prompt_btn = gr.Button(i18n("Reload prompt.txt"), size="sm")
+                            save_prompt_btn = gr.Button(i18n("Save as default prompt.txt"), size="sm")
+                        prompt_status = gr.Textbox(label=i18n("Prompt Status"), interactive=False)
+
+                    reload_prompt_btn.click(
+                        lambda: (load_prompt_template(), i18n("Reloaded prompt.txt")),
+                        outputs=[prompt_template_input, prompt_status],
+                    )
+
+                    save_prompt_btn.click(
+                        save_root_prompt_template,
+                        inputs=prompt_template_input,
+                        outputs=prompt_status,
+                    )
                     with gr.Row():
                         workflow_input = gr.Dropdown(choices=[(i18n("Full"), "Full"), (i18n("Cut Only"), "Cut Only"), (i18n("Subtitles Only"), "Subtitles Only")], label=i18n("Workflow"), value="Full")
                         face_model_input = gr.Dropdown(["insightface", "mediapipe"], label=i18n("Face Model"), value="insightface")
@@ -998,7 +1107,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
                  input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input,
-                 model_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
+                 model_input, whisper_language_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,

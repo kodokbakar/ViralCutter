@@ -116,6 +116,8 @@ def main():
     parser.add_argument("--pre-roll", type=float, default=1.25, help="Seconds to add before each selected segment")
     parser.add_argument("--post-roll", type=float, default=0.75, help="Seconds to add after each selected segment")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
+    parser.add_argument("--language", default="auto", help="WhisperX language code. Use 'auto' for detection, or force codes like en, id, pt, es.")
+    parser.add_argument("--prompt-file", help="Path to AI prompt template file")
     
     parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
     parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
@@ -465,7 +467,12 @@ def main():
         else:
             print(i18n("Transcribing with model {}...").format(args.model))
             # Se skip config, args.model é default
-            srt_file, tsv_file = transcribe_video.transcribe(input_video, args.model, project_folder=project_folder)
+            srt_file, tsv_file = transcribe_video.transcribe(
+                input_video,
+                args.model,
+                project_folder=project_folder,
+                language=args.language,
+            )
  
         # 3. Create Viral Segments
         if workflow_choice != "3":
@@ -493,16 +500,17 @@ def main():
                 if not viral_segments:
                     print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
                     viral_segments = create_viral_segments.create(
-                        num_segments, 
-                        viral_mode, 
-                        themes, 
-                        args.min_duration, 
+                        num_segments,
+                        viral_mode,
+                        themes,
+                        args.min_duration,
                         args.max_duration,
                         ai_mode=ai_backend,
                         api_key=api_key,
                         project_folder=project_folder,
                         chunk_size_arg=args.chunk_size,
-                        model_name_arg=args.ai_model_name
+                        model_name_arg=args.ai_model_name,
+                        prompt_file_arg=args.prompt_file,
                     )
                 
                 if not viral_segments or not viral_segments.get("segments"):
