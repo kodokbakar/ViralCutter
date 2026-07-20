@@ -4,3 +4,5 @@ token_drive.json
 /scripts/__pycache__
 /webui/__pycache__
 *_export.zip
+*pycache*
+AGENTS.md
