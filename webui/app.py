@@ -458,6 +458,54 @@ def save_root_prompt_template(prompt_text):
 
     return i18n("Saved prompt template to prompt.txt")
 
+def generate_watermark_preview(logo_path, position, scale, opacity, h_margin, v_margin, custom_x, custom_y):
+    if not logo_path:
+        return None
+    
+    try:
+        from PIL import Image, ImageDraw
+        import numpy as np
+        
+        canvas_w, canvas_h = 1080, 1920
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), (30, 30, 30, 255))
+        draw = ImageDraw.Draw(canvas)
+        draw.text((canvas_w//2 - 100, canvas_h//2), "9:16 Preview", fill=(100, 100, 100))
+        
+        logo = Image.open(logo_path).convert("RGBA")
+        new_w = int(logo.width * scale)
+        new_h = int(logo.height * scale)
+        logo = logo.resize((new_w, new_h), Image.LANCZOS)
+        
+        if opacity < 1.0:
+            alpha = logo.split()[3]
+            alpha = alpha.point(lambda p: int(p * opacity))
+            logo.putalpha(alpha)
+        
+        if position == "top-left":
+            x, y = h_margin, v_margin
+        elif position == "top-right":
+            x, y = canvas_w - new_w - h_margin, v_margin
+        elif position == "bottom-left":
+            x, y = h_margin, canvas_h - new_h - v_margin
+        elif position == "bottom-right":
+            x, y = canvas_w - new_w - h_margin, canvas_h - new_h - v_margin
+        elif position == "center":
+            x, y = (canvas_w - new_w) // 2, (canvas_h - new_h) // 2
+        elif position == "custom":
+            x, y = int(custom_x), int(custom_y)
+        else:
+            x, y = h_margin, v_margin
+        
+        canvas.paste(logo, (x, y), logo)
+        
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        canvas.save(tmp.name)
+        return tmp.name
+    except Exception as e:
+        print(f"Watermark preview error: {e}")
+        return None
+
 def apply_face_preset(preset_name):
     if preset_name not in FACE_PRESETS:
         return [gr.update() for _ in range(4)] # No change
@@ -481,7 +529,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
                      active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
-                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
+                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
+                     watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity, watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y):
     
     global current_process
     yield "", "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
@@ -640,6 +689,26 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                 json.dump(subtitle_config, f, indent=4)
             cmd.extend(["--subtitle-config", subtitle_config_path])
         except Exception: pass 
+    
+    if watermark_enabled and watermark_logo:
+        import tempfile
+        import shutil as sh
+        
+        logo_ext = os.path.splitext(watermark_logo)[1] if watermark_logo else ".png"
+        temp_logo = os.path.join(WORKING_DIR, f"temp_watermark{logo_ext}")
+        try:
+            sh.copy(watermark_logo, temp_logo)
+            cmd.extend(["--watermark-logo", temp_logo])
+            cmd.extend(["--watermark-position", watermark_position])
+            cmd.extend(["--watermark-scale", str(watermark_scale)])
+            cmd.extend(["--watermark-opacity", str(watermark_opacity)])
+            cmd.extend(["--watermark-h-margin", str(int(watermark_h_margin))])
+            cmd.extend(["--watermark-v-margin", str(int(watermark_v_margin))])
+            if watermark_position == "custom":
+                cmd.extend(["--watermark-custom-x", str(int(watermark_custom_x))])
+                cmd.extend(["--watermark-custom-y", str(int(watermark_custom_y))])
+        except Exception as e:
+            print(f"Warning: Failed to copy watermark logo: {e}")
     
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -1263,6 +1332,94 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 demo.load(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
                 demo.load(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs) # Apply default preset on load
 
+             with gr.Accordion(i18n("Watermark Settings"), open=False):
+                 watermark_enabled = gr.Checkbox(label=i18n("Enable Watermark"), value=False)
+                 watermark_logo = gr.File(label=i18n("Upload Logo (PNG recommended)"), file_count="single", file_types=["image"], visible=False)
+                 
+                 with gr.Row():
+                     watermark_position = gr.Dropdown(
+                         choices=[
+                             (i18n("Bottom Right"), "bottom-right"),
+                             (i18n("Bottom Left"), "bottom-left"),
+                             (i18n("Top Right"), "top-right"),
+                             (i18n("Top Left"), "top-left"),
+                             (i18n("Center"), "center"),
+                             (i18n("Custom"), "custom"),
+                         ],
+                         label=i18n("Position"),
+                         value="bottom-right",
+                         visible=False,
+                     )
+                     watermark_scale = gr.Slider(
+                         minimum=0.05, maximum=0.5, value=0.15, step=0.01,
+                         label=i18n("Scale"),
+                         visible=False,
+                     )
+                     watermark_opacity = gr.Slider(
+                         minimum=0.1, maximum=1.0, value=0.8, step=0.05,
+                         label=i18n("Opacity"),
+                         visible=False,
+                     )
+                 
+                 with gr.Row():
+                     watermark_h_margin = gr.Slider(
+                         minimum=0, maximum=200, value=20, step=5,
+                         label=i18n("Horizontal Margin (px)"),
+                         visible=False,
+                     )
+                     watermark_v_margin = gr.Slider(
+                         minimum=0, maximum=200, value=20, step=5,
+                         label=i18n("Vertical Margin (px)"),
+                         visible=False,
+                     )
+                 
+                 with gr.Row():
+                     watermark_custom_x = gr.Number(label=i18n("Custom X Position"), value=100, visible=False)
+                     watermark_custom_y = gr.Number(label=i18n("Custom Y Position"), value=100, visible=False)
+                 
+                 watermark_preview = gr.Image(label=i18n("Watermark Preview"), visible=False, height=200)
+                 
+                 def toggle_watermark_settings(enabled):
+                     return (
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled),
+                         gr.update(visible=enabled and False),  # Custom X only when position=custom
+                         gr.update(visible=enabled and False),  # Custom Y only when position=custom
+                         gr.update(visible=enabled),
+                     )
+                 
+                 def toggle_custom_position(position):
+                     is_custom = position == "custom"
+                     return gr.update(visible=is_custom), gr.update(visible=is_custom)
+                 
+                 watermark_enabled.change(
+                     toggle_watermark_settings,
+                     inputs=watermark_enabled,
+                     outputs=[
+                         watermark_logo, watermark_position, watermark_scale,
+                         watermark_opacity, watermark_h_margin, watermark_v_margin,
+                         watermark_custom_x, watermark_custom_y, watermark_preview,
+                     ],
+                 )
+                 
+                 watermark_position.change(
+                     toggle_custom_position,
+                     inputs=watermark_position,
+                     outputs=[watermark_custom_x, watermark_custom_y],
+                 )
+                 
+                 watermark_preview_inputs = [watermark_logo, watermark_position, watermark_scale, watermark_opacity, watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y]
+                 for inp in watermark_preview_inputs:
+                     inp.change(
+                         generate_watermark_preview,
+                         inputs=watermark_preview_inputs,
+                         outputs=watermark_preview,
+                     )
+
              with gr.Row():
                  start_btn = gr.Button(i18n("Start Processing"), variant="primary")
                  stop_btn = gr.Button(i18n("Stop"), variant="stop", visible=False)
@@ -1321,14 +1478,14 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
                  use_custom_subs, 
-                 # Expanded Manual Inputs mapping
                  font_name_input, font_size_input, font_color_input, highlight_color_input, 
                  outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input, 
                  bold_input, italic_input, uppercase_input, vertical_pos_input, alignment_input,
-                 # New Inputs
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
-                 video_quality_input, use_youtube_subs_input, translate_input
+                 video_quality_input, use_youtube_subs_input, translate_input,
+                 watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity,
+                 watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y
              ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
 
 

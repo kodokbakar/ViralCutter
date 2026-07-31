@@ -153,6 +153,14 @@ def main():
     parser.add_argument("--crossfade", type=float, default=0.0, help="Crossfade duration between clips in seconds")
     parser.add_argument("--fade-to-black", action="store_true", help="Add fade transitions between clips")
     parser.add_argument("--segment-order", help="Comma-separated segment order for compilation, e.g. 3,1,2")
+    parser.add_argument("--watermark-logo", help="Path to watermark logo image (PNG recommended)")
+    parser.add_argument("--watermark-position", choices=["top-left", "top-right", "bottom-left", "bottom-right", "center", "custom"], default="bottom-right", help="Watermark position preset")
+    parser.add_argument("--watermark-scale", type=float, default=0.15, help="Watermark scale factor (0.0-1.0)")
+    parser.add_argument("--watermark-opacity", type=float, default=0.8, help="Watermark opacity (0.0-1.0)")
+    parser.add_argument("--watermark-h-margin", type=int, default=20, help="Horizontal margin in pixels")
+    parser.add_argument("--watermark-v-margin", type=int, default=20, help="Vertical margin in pixels")
+    parser.add_argument("--watermark-custom-x", type=int, default=100, help="Custom X position (for custom position)")
+    parser.add_argument("--watermark-custom-y", type=int, default=100, help="Custom Y position (for custom position)")
 
     args = parser.parse_args()
     
@@ -720,6 +728,24 @@ def main():
                 raise e
         else:
             print(i18n("Subtitle burning skipped."))
+        
+        # 7. Watermark (optional)
+        if args.watermark_logo and os.path.exists(args.watermark_logo):
+            print(i18n("Applying watermark..."))
+            from scripts import watermark
+            watermark.watermark(
+                project_folder=project_folder,
+                logo_path=args.watermark_logo,
+                position=args.watermark_position,
+                scale=args.watermark_scale,
+                opacity=args.watermark_opacity,
+                h_margin=args.watermark_h_margin,
+                v_margin=args.watermark_v_margin,
+                custom_x=args.watermark_custom_x,
+                custom_y=args.watermark_custom_y
+            )
+        elif args.watermark_logo:
+            print(i18n("Warning: Watermark logo not found: {}").format(args.watermark_logo))
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
