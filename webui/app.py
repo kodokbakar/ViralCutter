@@ -564,9 +564,24 @@ def validate_whisper_batch(value):
     return gr.update(info="")
 
 def validate_whisper_chunk(value):
-    if value is not None and value < 100:
-        return gr.update(value=100, info="Must be >= 100")
-    return gr.update(info="")
+    if value is None:
+        return gr.update(value=10, info="Defaulted to 10 seconds.")
+
+    value = int(value)
+
+    if value < 1:
+        return gr.update(value=1, info="Must be at least 1 second.")
+
+    if value > 60:
+        return gr.update(
+            value=value,
+            info="Large chunks may use more GPU memory. Recommended: 10–30 seconds.",
+        )
+
+    return gr.update(
+        value=value,
+        info="Recommended range: 10–30 seconds.",
+    )
 
 # Subtitle logic moved to subtitle_handler.py
 
@@ -1201,7 +1216,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             value=10,
                             precision=0,
                             interactive=False,
-                            info=i18n("Seconds per WhisperX chunk."),
+                            info=i18n("Seconds processed per WhisperX chunk. Recommended: 10–30. "
+                                      "Lower values use less GPU memory."),
                         )
 
                     transcription_preset_status = gr.Textbox(
