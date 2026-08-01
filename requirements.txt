@@ -1,12 +1,6 @@
---extra-index-url https://download.pytorch.org/whl/cu121
-
 # WhisperX compatibility contract
 numpy==1.26.4
 pandas==2.2.3
-setuptools==69.5.1
-
-torch==2.3.1+cu121
-torchaudio==2.3.1+cu121
 
 whisperx==3.2.0
 faster-whisper==1.0.0
@@ -37,7 +31,7 @@ gradio
 fastapi
 uvicorn
 
-# Application utilities
+# Utilities
 psutil
 deep-translator
 tqdm
