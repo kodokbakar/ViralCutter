@@ -1,23 +1,30 @@
-# Colab-specific core requirements.
-# WhisperX, Torch, CTranslate2, G4F, MediaPipe, and InsightFace
-# are installed separately by ViralCutter.ipynb.
+# Packages installed separately in the notebook:
+# torch, torchvision, torchaudio
+# whisperx, faster-whisper, ctranslate2
+# mediapipe, insightface, onnxruntime-gpu
+# transformers, accelerate
 
 numpy<2.0
+
+g4f
 yt-dlp
 pytubefix
 gdown
 ffmpeg-python
+
 google-genai
 google-generativeai
+
 gradio
 opencv-python
 psutil
 fastapi
 uvicorn
+
 deep-translator
 tqdm
 pandas
-accelerate>=0.26.0
+
 google-api-python-client
 google-auth
 google-auth-httplib2
