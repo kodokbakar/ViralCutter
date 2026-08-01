@@ -1,35 +1,40 @@
-# WhisperX compatibility contract
+# Core numerical stack
 numpy==1.26.4
 pandas==2.2.3
+protobuf>=4.25.3,<5
 
+# WhisperX stack
 whisperx==3.2.0
 faster-whisper==1.0.0
 ctranslate2==4.4.0
 av==11.0.0
-
 transformers==4.35.2
 tokenizers==0.15.2
-huggingface-hub==0.24.7
+huggingface-hub==0.33.5
 accelerate==0.26.1
 
 # Video and face processing
-ffmpeg-python
+ffmpeg-python==0.2.0
 mediapipe==0.10.21
+jax==0.4.35
+jaxlib==0.4.35
+opencv-contrib-python==4.11.0.86
 insightface==0.7.3
-opencv-python==4.11.0.86
 
 # Video sources
 yt-dlp
 gdown
 
 # AI backends
-g4f
-google-genai
+g4f==7.9.4
+google-genai==1.64.0
 
-# WebUI
-gradio==4.44.1
-gradio-client==1.3.0
-fastapi
+# WebUI compatibility stack
+gradio==5.49.1
+gradio-client==1.13.3
+websockets==15.0.1
+pydantic>=2.9,<2.12
+fastapi>=0.115.2,<1
 uvicorn
 
 # Utilities
@@ -39,6 +44,6 @@ tqdm
 
 # Google Drive API
 google-api-python-client
-google-auth
+google-auth>=2.47,<3
 google-auth-httplib2
 google-auth-oauthlib
