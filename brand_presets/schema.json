@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ViralCutter Brand Preset",
+  "type": "object",
+  "properties": {
+    "name": {"type": "string", "description": "Preset name"},
+    "version": {"type": "string", "description": "Schema version"},
+    "watermark": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "logo_path": {"type": "string", "description": "Relative to brand_presets/ or absolute"},
+        "position": {"type": "string", "enum": ["top-left", "top-right", "bottom-left", "bottom-right", "center", "custom"]},
+        "scale": {"type": "number", "minimum": 0.05, "maximum": 0.5},
+        "opacity": {"type": "number", "minimum": 0.1, "maximum": 1.0},
+        "h_margin": {"type": "integer", "minimum": 0, "maximum": 200},
+        "v_margin": {"type": "integer", "minimum": 0, "maximum": 200},
+        "custom_x": {"type": "integer"},
+        "custom_y": {"type": "integer"}
+      },
+      "required": ["enabled"]
+    },
+    "outro": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "mode": {"type": "string", "enum": ["per-clip", "compilation-only"]},
+        "type": {"type": "string", "enum": ["image", "video", "text"]},
+        "source_path": {"type": "string", "description": "Image or video file path"},
+        "text_content": {"type": "string", "description": "Text for text outro mode"},
+        "duration": {"type": "number", "minimum": 1.0, "maximum": 30.0, "description": "Outro duration in seconds"},
+        "transition": {"type": "string", "enum": ["none", "fade", "crossfade"]},
+        "transition_duration": {"type": "number", "minimum": 0.0, "maximum": 5.0},
+        "audio": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "source_path": {"type": "string"},
+            "volume": {"type": "number", "minimum": 0.0, "maximum": 2.0}
+          }
+        }
+      },
+      "required": ["enabled"]
+    }
+  },
+  "required": ["name", "version"]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "Default",
+  "version": "1.0.0",
+  "watermark": {
+    "enabled": false,
+    "logo_path": "",
+    "position": "bottom-right",
+    "scale": 0.15,
+    "opacity": 0.8,
+    "h_margin": 20,
+    "v_margin": 20
+  },
+  "outro": {
+    "enabled": false,
+    "mode": "per-clip",
+    "type": "image",
+    "source_path": "",
+    "text_content": "Thanks for watching!",
+    "duration": 3.0,
+    "transition": "fade",
+    "transition_duration": 0.5,
+    "audio": {
+      "enabled": false,
+      "source_path": "",
+      "volume": 1.0
+    }
+  }
+}

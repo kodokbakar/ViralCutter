@@ -498,6 +498,32 @@ def generate_watermark_preview(logo_path, position, scale, opacity, h_margin, v_
         
         canvas.paste(logo, (x, y), logo)
         
+        # Safe-area zones: semi-transparent overlays for platform UI overlap
+        overlay = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        odraw = ImageDraw.Draw(overlay)
+        # TikTok: bottom 150px (red)
+        odraw.rectangle([0, canvas_h - 150, canvas_w, canvas_h], fill=(255, 0, 0, 40))
+        # TikTok: left 90px (red)
+        odraw.rectangle([0, 0, 90, canvas_h], fill=(255, 0, 0, 40))
+        # TikTok: right 90px (red)
+        odraw.rectangle([canvas_w - 90, 0, canvas_w, canvas_h], fill=(255, 0, 0, 40))
+        # Instagram: bottom 120px (blue)
+        odraw.rectangle([0, canvas_h - 120, canvas_w, canvas_h], fill=(0, 100, 255, 40))
+        # Shorts: bottom 120px (green)
+        odraw.rectangle([0, canvas_h - 120, canvas_w, canvas_h], fill=(0, 200, 0, 40))
+        canvas = Image.alpha_composite(canvas, overlay)
+        
+        # Legend (top-left)
+        draw = ImageDraw.Draw(canvas)
+        lx, ly = 15, 15
+        draw.rectangle([lx, ly, lx + 160, ly + 80], fill=(0, 0, 0, 200))
+        draw.rectangle([lx + 8, ly + 8, lx + 24, ly + 22], fill=(255, 0, 0, 180))
+        draw.text((lx + 30, ly + 6), "TikTok", fill=(255, 255, 255))
+        draw.rectangle([lx + 8, ly + 30, lx + 24, ly + 44], fill=(0, 100, 255, 180))
+        draw.text((lx + 30, ly + 28), "Instagram", fill=(255, 255, 255))
+        draw.rectangle([lx + 8, ly + 52, lx + 24, ly + 66], fill=(0, 200, 0, 180))
+        draw.text((lx + 30, ly + 50), "Shorts", fill=(255, 255, 255))
+        
         import tempfile
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         canvas.save(tmp.name)
@@ -520,6 +546,28 @@ def apply_experimental_preset(preset_name):
     p = EXPERIMENTAL_PRESETS[preset_name]
     return p["focus"], p["mar"], p["score"], p["motion"], p["motion_th"], p["motion_sens"], p["decay"]
 
+def validate_segments(value):
+    if value is None or value < 1:
+        return gr.update(value=1, info="Must be >= 1")
+    return gr.update(info="")
+
+def validate_duration(min_val, max_val):
+    if min_val < 1:
+        return gr.update(info="Must be >= 1"), gr.update()
+    if max_val < min_val:
+        return gr.update(), gr.update(info="Must be >= min duration")
+    return gr.update(info=""), gr.update(info="")
+
+def validate_whisper_batch(value):
+    if value is not None and value < 1:
+        return gr.update(value=1, info="Must be >= 1")
+    return gr.update(info="")
+
+def validate_whisper_chunk(value):
+    if value is not None and value < 100:
+        return gr.update(value=100, info="Must be >= 100")
+    return gr.update(info="")
+
 # Subtitle logic moved to subtitle_handler.py
 
 
@@ -530,7 +578,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                      active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target,
-                     watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity, watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y):
+                     watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity, watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y,
+                     outro_enabled, outro_mode, outro_type, outro_source, outro_text, outro_duration, outro_transition, outro_transition_duration):
     
     global current_process
     yield "", "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(value="", visible=False)
@@ -709,6 +758,18 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                 cmd.extend(["--watermark-custom-y", str(int(watermark_custom_y))])
         except Exception as e:
             print(f"Warning: Failed to copy watermark logo: {e}")
+    
+    if outro_enabled:
+        cmd.append("--outro-enabled")
+        cmd.extend(["--outro-mode", outro_mode])
+        cmd.extend(["--outro-type", outro_type])
+        if outro_source:
+            cmd.extend(["--outro-source", outro_source])
+        if outro_text:
+            cmd.extend(["--outro-text", outro_text])
+        cmd.extend(["--outro-duration", str(float(outro_duration))])
+        cmd.extend(["--outro-transition", outro_transition])
+        cmd.extend(["--outro-transition-duration", str(float(outro_transition_duration))])
     
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -1056,7 +1117,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Row():
                         ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("AI Model"), value=GEMINI_MODELS[1], allow_custom_value=True, visible=True, scale=5)
                         refresh_models_btn = gr.Button("🔄", size="sm", visible=False, scale=0, min_width=50) # Only local
-                        chunk_size_input = gr.Number(label=i18n("Chunk Size"), value=70000, precision=0, scale=2)
+                        chunk_size_input = gr.Number(label=i18n("AI Chunk Size (Text)"), value=70000, precision=0, scale=2)
                     
                     # Update listeners with logic to hide/show API key
                     def update_ai_ui(backend):
@@ -1414,11 +1475,46 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  
                  watermark_preview_inputs = [watermark_logo, watermark_position, watermark_scale, watermark_opacity, watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y]
                  for inp in watermark_preview_inputs:
-                     inp.change(
-                         generate_watermark_preview,
-                         inputs=watermark_preview_inputs,
-                         outputs=watermark_preview,
-                     )
+                      inp.change(
+                          generate_watermark_preview,
+                          inputs=watermark_preview_inputs,
+                          outputs=watermark_preview,
+                      )
+
+             with gr.Accordion(i18n("Outro Settings"), open=False):
+                 outro_enabled = gr.Checkbox(label=i18n("Enable Outro"), value=False)
+                 outro_mode = gr.Radio(
+                     choices=["per-clip", "compilation-only"],
+                     label=i18n("Outro Mode"),
+                     value="compilation-only",
+                     visible=False,
+                 )
+                 outro_type = gr.Radio(
+                     choices=["image", "video", "text"],
+                     label=i18n("Outro Type"),
+                     value="text",
+                     visible=False,
+                 )
+                 outro_source = gr.File(label=i18n("Outro File (image/video)"), file_count="single", visible=False)
+                 outro_text = gr.Textbox(label=i18n("Outro Text"), value="Thanks for watching!", visible=False)
+                 outro_duration = gr.Slider(minimum=1.0, maximum=15.0, value=5.0, step=0.5, label=i18n("Outro Duration (s)"), visible=False)
+                 outro_transition = gr.Dropdown(
+                     choices=["none", "fade", "crossfade"],
+                     label=i18n("Transition"),
+                     value="fade",
+                     visible=False,
+                 )
+                 outro_transition_duration = gr.Slider(minimum=0.1, maximum=3.0, value=1.0, step=0.1, label=i18n("Transition Duration (s)"), visible=False)
+
+                 def toggle_outro_settings(enabled):
+                     vis = enabled
+                     return [gr.update(visible=vis)] * 7
+
+                 outro_enabled.change(
+                     toggle_outro_settings,
+                     inputs=outro_enabled,
+                     outputs=[outro_mode, outro_type, outro_source, outro_text, outro_duration, outro_transition, outro_transition_duration],
+                 )
 
              with gr.Row():
                  start_btn = gr.Button(i18n("Start Processing"), variant="primary")
@@ -1484,10 +1580,17 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
                  video_quality_input, use_youtube_subs_input, translate_input,
-                 watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity,
-                 watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y
-             ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
+                  watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity,
+                  watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y,
+                  outro_enabled, outro_mode, outro_type, outro_source, outro_text, outro_duration,
+                  outro_transition, outro_transition_duration
+              ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
 
+             segments_input.change(validate_segments, inputs=segments_input, outputs=segments_input)
+             min_dur_input.change(validate_duration, inputs=[min_dur_input, max_dur_input], outputs=[min_dur_input, max_dur_input])
+             max_dur_input.change(validate_duration, inputs=[min_dur_input, max_dur_input], outputs=[min_dur_input, max_dur_input])
+             whisper_batch_size_input.change(validate_whisper_batch, inputs=whisper_batch_size_input, outputs=whisper_batch_size_input)
+             whisper_chunk_size_input.change(validate_whisper_chunk, inputs=whisper_chunk_size_input, outputs=whisper_chunk_size_input)
 
         with gr.Tab(i18n("Subtitle Editor")):
             gr.Markdown(f"### {i18n('Edit Subtitles (Smart Mode)')}")

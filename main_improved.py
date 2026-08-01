@@ -161,9 +161,51 @@ def main():
     parser.add_argument("--watermark-v-margin", type=int, default=20, help="Vertical margin in pixels")
     parser.add_argument("--watermark-custom-x", type=int, default=100, help="Custom X position (for custom position)")
     parser.add_argument("--watermark-custom-y", type=int, default=100, help="Custom Y position (for custom position)")
+    parser.add_argument("--outro-enabled", action="store_true", help="Enable outro appending")
+    parser.add_argument("--outro-mode", choices=["per-clip", "compilation-only"], default="compilation-only", help="Outro application mode")
+    parser.add_argument("--outro-type", choices=["image", "video", "text"], default="text", help="Outro content type")
+    parser.add_argument("--outro-source", help="Path to outro image or video file")
+    parser.add_argument("--outro-text", default="Thanks for watching!", help="Text for text outro type")
+    parser.add_argument("--outro-duration", type=float, default=5.0, help="Outro duration in seconds")
+    parser.add_argument("--outro-transition", choices=["none", "fade", "crossfade"], default="fade", help="Transition type for outro")
+    parser.add_argument("--outro-transition-duration", type=float, default=1.0, help="Transition duration in seconds")
+    parser.add_argument("--brand-preset", help="Path to brand preset JSON (overrides watermark/outro settings)")
 
     args = parser.parse_args()
     
+    from scripts.pipeline_validation import validate_args
+    try:
+        validate_args(args)
+    except ValueError as e:
+        print(f"Error: Invalid configuration:\n{e}")
+        sys.exit(1)
+
+    if args.brand_preset:
+        try:
+            with open(args.brand_preset, "r", encoding="utf-8") as f:
+                preset = json.load(f)
+            wp = preset.get("watermark", {})
+            if wp.get("logo"): args.watermark_logo = wp["logo"]
+            if "position" in wp: args.watermark_position = wp["position"]
+            if "scale" in wp: args.watermark_scale = wp["scale"]
+            if "opacity" in wp: args.watermark_opacity = wp["opacity"]
+            if "h_margin" in wp: args.watermark_h_margin = wp["h_margin"]
+            if "v_margin" in wp: args.watermark_v_margin = wp["v_margin"]
+            if "custom_x" in wp: args.watermark_custom_x = wp["custom_x"]
+            if "custom_y" in wp: args.watermark_custom_y = wp["custom_y"]
+            op = preset.get("outro", {})
+            if "enabled" in op: args.outro_enabled = op["enabled"]
+            if "mode" in op: args.outro_mode = op["mode"]
+            if "type" in op: args.outro_type = op["type"]
+            if "source" in op: args.outro_source = op["source"]
+            if "text" in op: args.outro_text = op["text"]
+            if "duration" in op: args.outro_duration = op["duration"]
+            if "transition" in op: args.outro_transition = op["transition"]
+            if "transition_duration" in op: args.outro_transition_duration = op["transition_duration"]
+            print(i18n("Brand preset loaded: {}").format(args.brand_preset))
+        except Exception as e:
+            print(i18n("Warning: Failed to load brand preset: {}").format(str(e)))
+
     # Workflow Logic
     workflow_choice = args.workflow
     
@@ -746,6 +788,26 @@ def main():
             )
         elif args.watermark_logo:
             print(i18n("Warning: Watermark logo not found: {}").format(args.watermark_logo))
+
+        if args.outro_enabled:
+            print(i18n("Applying outro..."))
+            from scripts.append_outro import apply_outro_to_clips, apply_outro_to_compilation
+            outro_kwargs = dict(
+                outro_type=args.outro_type,
+                outro_source=args.outro_source,
+                outro_text=args.outro_text,
+                duration=args.outro_duration,
+                transition=args.outro_transition,
+                transition_duration=args.outro_transition_duration,
+            )
+            if args.outro_mode == "per-clip":
+                ok, msg = apply_outro_to_clips(project_folder, **outro_kwargs)
+            else:
+                ok, msg = apply_outro_to_compilation(project_folder, **outro_kwargs)
+            if ok:
+                print(i18n("Outro applied: {}").format(msg))
+            else:
+                print(i18n("Warning: Outro failed: {}").format(msg))
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
