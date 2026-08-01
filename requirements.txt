@@ -1,20 +1,48 @@
-# Outras dependencias essenciais
-numpy<2.1.0
-g4f[all]
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# WhisperX compatibility contract
+numpy==1.26.4
+pandas==2.2.3
+setuptools==69.5.1
+
+torch==2.3.1+cu121
+torchaudio==2.3.1+cu121
+
+whisperx==3.2.0
+faster-whisper==1.0.0
+ctranslate2==4.4.0
+av==11.0.0
+
+transformers==4.35.2
+tokenizers==0.15.2
+huggingface-hub==0.24.7
+accelerate==0.26.1
+
+# Video and face processing
+ffmpeg-python
+mediapipe==0.10.21
+insightface==0.7.3
+opencv-python==4.11.0.86
+
+# Video sources
 yt-dlp
 gdown
-ffmpeg-python
-whisperx
-mediapipe
+
+# AI backends
+g4f
 google-genai
-insightface
+
+# WebUI
 gradio
-opencv-python
-psutil
 fastapi
 uvicorn
+
+# Application utilities
+psutil
 deep-translator
 tqdm
+
+# Google Drive API
 google-api-python-client
 google-auth
 google-auth-httplib2

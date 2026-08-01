@@ -239,7 +239,7 @@ def _verdict(cuda_ok, nvidia_ok, imports_ok, ffmpeg_ok):
     return lines
 
 
-def run_runtime_doctor(input_video_path=None):
+def check_runtime(input_video_path=None):
     started = time.time()
     lines = [
         "=" * 72,
@@ -264,13 +264,45 @@ def run_runtime_doctor(input_video_path=None):
 
     lines.append("")
     lines.append("Video tools")
-    ffmpeg_lines, ffmpeg_ok = _check_ffmpeg(input_video_path=input_video_path)
+    ffmpeg_lines, ffmpeg_ok = _check_ffmpeg(
+        input_video_path=input_video_path,
+    )
     lines.extend(ffmpeg_lines)
 
-    lines.extend(_verdict(cuda_ok, nvidia_ok, imports_ok, ffmpeg_ok))
+    lines.extend(
+        _verdict(
+            cuda_ok,
+            nvidia_ok,
+            imports_ok,
+            ffmpeg_ok,
+        )
+    )
 
     elapsed = time.time() - started
     lines.append("")
     lines.append(f"Doctor completed in {elapsed:.2f}s.")
 
-    return "\n".join(str(line) for line in lines)
+    ready = all(
+        (
+            cuda_ok,
+            nvidia_ok,
+            imports_ok,
+            ffmpeg_ok,
+        )
+    )
+
+    report = "\n".join(str(line) for line in lines)
+    return report, ready
+
+
+def run_runtime_doctor(input_video_path=None):
+    report, _ = check_runtime(input_video_path)
+    return report
+
+
+if __name__ == "__main__":
+    video_path = sys.argv[1] if len(sys.argv) > 1 else None
+    report, ready = check_runtime(video_path)
+
+    print(report)
+    raise SystemExit(0 if ready else 1)
