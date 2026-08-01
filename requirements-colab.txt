@@ -1,0 +1,19 @@
+# Colab-specific requirements (excludes packages installed separately)
+# whisperx, mediapipe, insightface installed separately in notebook
+numpy<2.1.0
+g4f[all]
+yt-dlp
+gdown
+ffmpeg-python
+google-genai
+gradio
+opencv-python
+psutil
+fastapi
+uvicorn
+deep-translator
+tqdm
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
