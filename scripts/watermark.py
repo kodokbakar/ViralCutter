@@ -2,6 +2,14 @@ import os
 import subprocess
 
 
+# Safe-area margins (px) to avoid platform UI overlays covering the watermark.
+SAFE_AREA_TIKTOK_BOTTOM = 150
+SAFE_AREA_IG_BOTTOM = 120
+SAFE_AREA_SHORTS_BOTTOM = 120
+SAFE_AREA_TIKTOK_LEFT = 90
+SAFE_AREA_TIKTOK_RIGHT = 90
+
+
 def get_watermark_filter(logo_path, position, scale, opacity, h_margin, v_margin, custom_x, custom_y):
     """
     Build FFmpeg overlay filter string for watermark.
@@ -68,6 +76,14 @@ def apply_watermark(video_path, logo_path, output_path, position="bottom-right",
         return False, f"Video not found: {video_path}"
     if not os.path.exists(logo_path):
         return False, f"Logo not found: {logo_path}"
+    if not (0.0 <= scale <= 1.0):
+        return False, f"scale must be 0.0-1.0, got {scale}"
+    if not (0.0 <= opacity <= 1.0):
+        return False, f"opacity must be 0.0-1.0, got {opacity}"
+    if not isinstance(h_margin, (int, float)) or h_margin < 0:
+        return False, f"h_margin must be non-negative, got {h_margin}"
+    if not isinstance(v_margin, (int, float)) or v_margin < 0:
+        return False, f"v_margin must be non-negative, got {v_margin}"
     
     filter_str = get_watermark_filter(logo_path, position, scale, opacity, h_margin, v_margin, custom_x, custom_y)
     
@@ -168,6 +184,50 @@ def watermark(project_folder="tmp", logo_path=None, position="bottom-right",
             print(f"Done: {output_name}")
         else:
             print(f"Failed: {msg}")
+
+
+def check_safe_area(position, scale, h_margin, v_margin, video_height=1920):
+    """Check if watermark position overlaps platform UI zones.
+
+    Returns list of warning strings. Empty list means no overlap detected.
+    """
+    warnings = []
+    # Estimate logo height from scale (assumes ~100px base logo at scale=1.0)
+    logo_height = int(100 * scale)
+
+    # Bottom positions: logo sits at (video_height - logo_height - v_margin)
+    if position in ("bottom-left", "bottom-right"):
+        logo_bottom_y = video_height - v_margin
+        logo_top_y = logo_bottom_y - logo_height
+
+        if logo_top_y > video_height - SAFE_AREA_TIKTOK_BOTTOM:
+            warnings.append(
+                f"TikTok safe-area overlap: watermark bottom {logo_bottom_y}px "
+                f"> safe-zone {video_height - SAFE_AREA_TIKTOK_BOTTOM}px"
+            )
+        if logo_top_y > video_height - SAFE_AREA_IG_BOTTOM:
+            warnings.append(
+                f"Instagram safe-area overlap: watermark bottom {logo_bottom_y}px "
+                f"> safe-zone {video_height - SAFE_AREA_IG_BOTTOM}px"
+            )
+        if logo_top_y > video_height - SAFE_AREA_SHORTS_BOTTOM:
+            warnings.append(
+                f"YouTube Shorts safe-area overlap: watermark bottom {logo_bottom_y}px "
+                f"> safe-zone {video_height - SAFE_AREA_SHORTS_BOTTOM}px"
+            )
+
+    if position in ("top-left", "bottom-left"):
+        if h_margin < SAFE_AREA_TIKTOK_LEFT:
+            warnings.append(
+                f"TikTok left safe-area: margin {h_margin}px < recommended {SAFE_AREA_TIKTOK_LEFT}px"
+            )
+    if position in ("top-right", "bottom-right"):
+        if h_margin < SAFE_AREA_TIKTOK_RIGHT:
+            warnings.append(
+                f"TikTok right safe-area: margin {h_margin}px < recommended {SAFE_AREA_TIKTOK_RIGHT}px"
+            )
+
+    return warnings
 
 
 if __name__ == "__main__":
