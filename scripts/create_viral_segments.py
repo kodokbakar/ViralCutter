@@ -541,16 +541,16 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
     current_chunk_size = 15000
     model_name = ""
     
-if ai_mode == "gemini":
-    cfg_chunk = config["gemini"].get("ai_chunk_size") or config["gemini"].get("chunk_size", 15000)
-    current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
+    if ai_mode == "gemini":
+        cfg_chunk = config["gemini"].get("ai_chunk_size") or config["gemini"].get("chunk_size", 15000)
+        current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
         cfg_model = config["gemini"].get("model", "gemini-2.5-flash-lite-preview-09-2025")
         model_name = model_name_arg if model_name_arg else cfg_model
         if not api_key: api_key = config["gemini"].get("api_key", "")
             
-elif ai_mode == "g4f":
-    cfg_chunk = config["g4f"].get("ai_chunk_size") or config["g4f"].get("chunk_size", 2000)
-    current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
+    elif ai_mode == "g4f":
+        cfg_chunk = config["g4f"].get("ai_chunk_size") or config["g4f"].get("chunk_size", 2000)
+        current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
         cfg_model = config["g4f"].get("model", "gpt-4o-mini")
         model_name = model_name_arg if model_name_arg else cfg_model
 
