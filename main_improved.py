@@ -23,6 +23,7 @@ from scripts import (
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
+    watermark,
     compile_segments,
     save_json,
     organize_output,
@@ -153,6 +154,131 @@ def main():
     parser.add_argument("--crossfade", type=float, default=0.0, help="Crossfade duration between clips in seconds")
     parser.add_argument("--fade-to-black", action="store_true", help="Add fade transitions between clips")
     parser.add_argument("--segment-order", help="Comma-separated segment order for compilation, e.g. 3,1,2")
+    parser.add_argument(
+        "--watermark-mode",
+        choices=[
+            "disabled",
+            "image",
+            "text",
+        ],
+        default="disabled",
+        help="Watermark mode",
+    )
+    parser.add_argument(
+        "--watermark-image",
+        help="Path to the image logo used as watermark",
+    )
+    parser.add_argument(
+        "--watermark-text",
+        default="",
+        help="Text used for a text watermark",
+    )
+    parser.add_argument(
+        "--watermark-text-color",
+        default="#FFFFFF",
+        help="Text watermark color",
+    )
+    parser.add_argument(
+        "--watermark-background-color",
+        default="#000000",
+        help="Text watermark background color",
+    )
+    parser.add_argument(
+        "--watermark-background-opacity",
+        type=float,
+        default=0.35,
+        help=(
+            "Text watermark background opacity "
+            "from 0.0 to 1.0"
+        ),
+    )
+    parser.add_argument(
+        "--watermark-font-size",
+        type=int,
+        default=48,
+        help="Text watermark font size in pixels",
+    )
+    parser.add_argument(
+        "--watermark-position",
+        choices=[
+            "top_left",
+            "top_center",
+            "top_right",
+            "center",
+            "bottom_left",
+            "bottom_center",
+            "bottom_right",
+            "custom",
+        ],
+        default="top_right",
+        help="Watermark position",
+    )
+    parser.add_argument(
+        "--watermark-scale",
+        type=float,
+        default=12.0,
+        help=(
+            "Maximum watermark width as "
+            "percentage of video width"
+        ),
+    )
+    parser.add_argument(
+        "--watermark-opacity",
+        type=float,
+        default=0.85,
+        help="Watermark opacity from 0.0 to 1.0",
+    )
+    parser.add_argument(
+        "--watermark-h-margin",
+        type=int,
+        default=40,
+        help="Horizontal watermark margin in pixels",
+    )
+    parser.add_argument(
+        "--watermark-v-margin",
+        type=int,
+        default=40,
+        help="Vertical watermark margin in pixels",
+    )
+    parser.add_argument(
+        "--watermark-custom-x",
+        type=int,
+        default=40,
+        help="Custom watermark X position in pixels",
+    )
+    parser.add_argument(
+        "--watermark-custom-y",
+        type=int,
+        default=40,
+        help="Custom watermark Y position in pixels",
+    )
+    parser.add_argument(
+        "--watermark-start",
+        type=float,
+        default=0.0,
+        help="Watermark start time in seconds",
+    )
+    parser.add_argument(
+        "--watermark-end",
+        type=float,
+        default=0.0,
+        help=(
+            "Watermark end time in seconds; "
+            "0 means video end"
+        ),
+    )
+    parser.add_argument(
+        "--watermark-fade-in",
+        type=float,
+        default=0.5,
+        help="Watermark fade-in duration in seconds",
+    )
+    parser.add_argument(
+        "--watermark-fade-out",
+        type=float,
+        default=0.5,
+        help="Watermark fade-out duration in seconds",
+    )
 
     args = parser.parse_args()
     
@@ -459,7 +585,43 @@ def main():
             project_folder = os.path.dirname(input_video)
             
         print(f"Project Folder: {project_folder}")
-        
+
+        watermark_config = watermark.build_config(
+            mode=args.watermark_mode,
+            image_path=args.watermark_image,
+            text=args.watermark_text,
+            text_color=args.watermark_text_color,
+            background_color=(
+                args.watermark_background_color
+            ),
+            background_opacity=(
+                args.watermark_background_opacity
+            ),
+            font_size=args.watermark_font_size,
+            position=args.watermark_position,
+            scale_percent=args.watermark_scale,
+            opacity=args.watermark_opacity,
+            h_margin=args.watermark_h_margin,
+            v_margin=args.watermark_v_margin,
+            custom_x=args.watermark_custom_x,
+            custom_y=args.watermark_custom_y,
+            start_time=args.watermark_start,
+            end_time=args.watermark_end,
+            fade_in=args.watermark_fade_in,
+            fade_out=args.watermark_fade_out,
+        )
+
+        if (
+            workflow_choice != "2"
+            and watermark_config["mode"] == "image"
+        ):
+            watermark_config["image_path"] = (
+                watermark.persist_image_asset(
+                    watermark_config["image_path"],
+                    project_folder,
+                )
+            )
+
         # 2. Transcribe
         if workflow_choice == "3":
             print(i18n("Workflow 3: Skipping Transcribe."))
@@ -686,9 +848,17 @@ def main():
                          os.rename(old_tl_path, new_tl_path)
                          print(f"Renamed (Workflow 3): {old_tl_name} -> {new_base_name}_timeline.json")
 
-        # 6. Subtitles
-        burn_subtitles_option = True 
+        # 6. Branding and subtitles
+        burn_subtitles_option = True
+
         if burn_subtitles_option:
+            if watermark_config["mode"] != "disabled":
+                print(
+                    i18n(
+                        "Applying watermark before subtitles..."
+                    )
+                )
+
             print(i18n("Processing subtitles..."))
             # transcribe_cuts removido: JSON de legenda já é gerado no corte
             # transcribe_cuts.transcribe(project_folder=project_folder)
@@ -709,8 +879,15 @@ def main():
             
             # Passa o dicionário desempacotado como argumentos, mais o project_folder
             try:
-                adjust_subtitles.adjust(project_folder=project_folder, **sub_config)
-                burn_subtitles.burn(project_folder=project_folder)
+                adjust_subtitles.adjust(
+                    project_folder=project_folder,
+                    **sub_config,
+                )
+
+                burn_subtitles.burn(
+                    project_folder=project_folder,
+                    watermark_config=watermark_config,
+                )
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
                 print(i18n("Tip: If you are using Workflow 3 (Subtitles Only), ensure the 'subs' folder exists and contains valid JSON files."))
@@ -795,6 +972,7 @@ def main():
                     "max_duration": args.max_duration,
                     "whisper_model": args.model
                 },
+                "watermark_config": watermark_config,
                 "subtitle_config": current_sub_config
             }
 

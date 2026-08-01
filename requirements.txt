@@ -41,6 +41,7 @@ uvicorn
 psutil
 deep-translator
 tqdm
+pillow==11.3.0
 
 # Google Drive API
 google-api-python-client

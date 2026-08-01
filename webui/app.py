@@ -20,6 +20,7 @@ import subtitle_handler as subs # Module for Subtitles
 import subtitle_editor as editor # Module for Editor Logic
 import runtime_doctor
 import project_export
+import branding
 
 # Path to the main script
 MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
@@ -152,6 +153,7 @@ STAGE_RULES = [
     ("generated segment", "Video cutting"),
     ("face mode none selected", "Face processing"),
     ("editing video with", "Face processing"),
+    ("applying watermark", "Branding"),
     ("processing subtitles", "Subtitle processing"),
     ("adjusting subtitles", "Subtitle processing"),
     ("burning subtitles", "Subtitle processing"),
@@ -168,12 +170,13 @@ PIPELINE_STAGES = [
     ("Timing refinement", 5),
     ("Video cutting", 6),
     ("Face processing", 7),
-    ("Subtitle processing", 8),
-    ("Completed", 8),
+    ("Branding", 8),
+    ("Subtitle processing", 9),
+    ("Completed", 9),
 ]
 
 STAGE_TO_INDEX = {stage: index for stage, index in PIPELINE_STAGES}
-TOTAL_PIPELINE_STAGES = 8
+TOTAL_PIPELINE_STAGES = 9
 
 
 def format_progress(stage, stage_started_at, run_started_at):
@@ -480,6 +483,13 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
                      compile_mode, crossfade_duration, segment_order, face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
                      active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+                     watermark_mode, watermark_image, watermark_text, watermark_text_color,
+                     watermark_background_color, watermark_background_opacity, watermark_font_size,
+                     watermark_position, watermark_scale, watermark_opacity,
+                     watermark_h_margin, watermark_v_margin,
+                     watermark_custom_x, watermark_custom_y,
+                     watermark_start, watermark_end,
+                     watermark_fade_in, watermark_fade_out,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target):
     
@@ -612,9 +622,203 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
         if include_motion: cmd.append("--include-motion")
         if active_speaker_motion_threshold is not None: cmd.extend(["--active-speaker-motion-threshold", str(active_speaker_motion_threshold)])
         if active_speaker_motion_sensitivity is not None: cmd.extend(["--active-speaker-motion-sensitivity", str(active_speaker_motion_sensitivity)])
-        if active_speaker_decay is not None: cmd.extend(["--active-speaker-decay", str(active_speaker_decay)])
+        if active_speaker_decay is not None:
+            cmd.extend(
+                [
+                    "--active-speaker-decay",
+                    str(active_speaker_decay),
+                ]
+            )
 
-    cmd.append("--skip-prompts") # Always skip prompts in WebUI to prevent freezing
+    watermark_mode = (
+        watermark_mode
+        or "disabled"
+    )
+
+    cmd.extend(
+        [
+            "--watermark-mode",
+            watermark_mode,
+        ]
+    )
+
+    if watermark_mode == "image":
+        watermark_image = str(
+            watermark_image
+            or ""
+        )
+
+        if (
+            not watermark_image
+            or not os.path.isfile(
+                watermark_image
+            )
+        ):
+            yield (
+                i18n(
+                    "Error: Watermark image was not provided."
+                ),
+                "",
+                gr.update(
+                    value=i18n("Start Processing"),
+                    interactive=True,
+                ),
+                gr.update(visible=False),
+                None,
+                gr.update(
+                    value="",
+                    visible=False,
+                ),
+            )
+            return
+
+        cmd.extend(
+            [
+                "--watermark-image",
+                watermark_image,
+            ]
+        )
+
+    elif watermark_mode == "text":
+        watermark_text = str(
+            watermark_text
+            or ""
+        ).strip()
+
+        if not watermark_text:
+            yield (
+                i18n(
+                    "Error: Watermark text is empty."
+                ),
+                "",
+                gr.update(
+                    value=i18n("Start Processing"),
+                    interactive=True,
+                ),
+                gr.update(visible=False),
+                None,
+                gr.update(
+                    value="",
+                    visible=False,
+                ),
+            )
+            return
+
+        cmd.extend(
+            [
+                "--watermark-text",
+                watermark_text,
+                "--watermark-text-color",
+                str(
+                    watermark_text_color
+                    or "#FFFFFF"
+                ),
+                "--watermark-background-color",
+                str(
+                    watermark_background_color
+                    or "#000000"
+                ),
+                "--watermark-background-opacity",
+                str(
+                    float(
+                        watermark_background_opacity
+                        or 0
+                    )
+                    / 100.0
+                ),
+                "--watermark-font-size",
+                str(
+                    int(
+                        watermark_font_size
+                        or 48
+                    )
+                ),
+            ]
+        )
+
+    if watermark_mode != "disabled":
+        cmd.extend(
+            [
+                "--watermark-position",
+                str(
+                    watermark_position
+                    or "top_right"
+                ),
+                "--watermark-scale",
+                str(
+                    float(
+                        watermark_scale
+                        or 12
+                    )
+                ),
+                "--watermark-opacity",
+                str(
+                    float(
+                        watermark_opacity
+                        or 0
+                    )
+                    / 100.0
+                ),
+                "--watermark-h-margin",
+                str(
+                    int(
+                        watermark_h_margin
+                        or 0
+                    )
+                ),
+                "--watermark-v-margin",
+                str(
+                    int(
+                        watermark_v_margin
+                        or 0
+                    )
+                ),
+                "--watermark-custom-x",
+                str(
+                    int(
+                        watermark_custom_x
+                        or 0
+                    )
+                ),
+                "--watermark-custom-y",
+                str(
+                    int(
+                        watermark_custom_y
+                        or 0
+                    )
+                ),
+                "--watermark-start",
+                str(
+                    float(
+                        watermark_start
+                        or 0
+                    )
+                ),
+                "--watermark-end",
+                str(
+                    float(
+                        watermark_end
+                        or 0
+                    )
+                ),
+                "--watermark-fade-in",
+                str(
+                    float(
+                        watermark_fade_in
+                        or 0
+                    )
+                ),
+                "--watermark-fade-out",
+                str(
+                    float(
+                        watermark_fade_out
+                        or 0
+                    )
+                ),
+            ]
+        )
+
+    cmd.append("--skip-prompts")
 
     if use_custom_subs:
         subtitle_config = {
@@ -677,8 +881,40 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper language: {whisper_language or 'auto'}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"AI backend: {ai_backend}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, "Prompt template: WebUI override enabled", "CONFIG")
-    full_logs, logs = append_log_pair(full_logs, logs, f"Face model: {face_model} | Face mode: {face_mode} | No-face fallback: {no_face_mode}", "CONFIG")
-    full_logs, logs = append_log_pair(full_logs, logs, f"Compile: {bool(compile_mode)} | Crossfade: {float(crossfade_duration or 0)}s", "CONFIG")
+    full_logs, logs = append_log_pair(
+        full_logs,
+        logs,
+        (
+            f"Face model: {face_model} | "
+            f"Face mode: {face_mode} | "
+            f"No-face fallback: {no_face_mode}"
+        ),
+        "CONFIG",
+    )
+
+    full_logs, logs = append_log_pair(
+        full_logs,
+        logs,
+        (
+            f"Watermark: {watermark_mode} | "
+            f"Position: "
+            f"{watermark_position or 'top_right'} | "
+            f"Opacity: "
+            f"{float(watermark_opacity or 0):.0f}%"
+        ),
+        "CONFIG",
+    )
+
+    full_logs, logs = append_log_pair(
+        full_logs,
+        logs,
+        (
+            f"Compile: {bool(compile_mode)} | "
+            f"Crossfade: "
+            f"{float(crossfade_duration or 0)}s"
+        ),
+        "CONFIG",
+    )
     full_logs, logs = append_log_pair(full_logs, logs, f"Command: {command_for_log(cmd)}", "CMD")
 
     try:
@@ -1189,6 +1425,345 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             active_speaker_decay_input = gr.Slider(label=i18n("Switch Speed"), minimum=0.5, maximum=5.0, value=2.0, step=0.5, info=i18n("Speed to lose focus."))
 
                         experimental_preset_input.change(apply_experimental_preset, inputs=experimental_preset_input, outputs=[focus_active_speaker_input, active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input])
+             with gr.Accordion(
+                 i18n("Watermark"),
+                 open=False,
+             ):
+                watermark_mode_input = gr.Dropdown(
+                    choices=[
+                        (
+                            i18n("Disabled"),
+                            "disabled",
+                        ),
+                        (
+                            i18n("Image Logo"),
+                            "image",
+                        ),
+                        (
+                            i18n("Text Watermark"),
+                            "text",
+                        ),
+                    ],
+                    label=i18n(
+                        "Watermark Mode"
+                    ),
+                    value="disabled",
+                )
+
+                with gr.Group(
+                    visible=False
+                ) as watermark_image_group:
+                    watermark_image_input = gr.File(
+                        label=i18n(
+                            "Watermark Image"
+                        ),
+                        file_types=["image"],
+                        file_count="single",
+                        type="filepath",
+                    )
+
+                with gr.Group(
+                    visible=False
+                ) as watermark_text_group:
+                    watermark_text_input = gr.Textbox(
+                        label=i18n(
+                            "Watermark Text"
+                        ),
+                        placeholder=i18n(
+                            "Your brand name"
+                        ),
+                    )
+
+                    with gr.Row():
+                        watermark_font_size_input = (
+                            gr.Slider(
+                                minimum=8,
+                                maximum=160,
+                                value=48,
+                                step=1,
+                                label=i18n(
+                                    "Font Size"
+                                ),
+                            )
+                        )
+
+                        watermark_text_color_input = (
+                            gr.ColorPicker(
+                                label=i18n(
+                                    "Text Color"
+                                ),
+                                value="#FFFFFF",
+                            )
+                        )
+
+                    with gr.Row():
+                        watermark_background_color_input = (
+                            gr.ColorPicker(
+                                label=i18n(
+                                    "Background Color"
+                                ),
+                                value="#000000",
+                            )
+                        )
+
+                        watermark_background_opacity_input = (
+                            gr.Slider(
+                                minimum=0,
+                                maximum=100,
+                                value=35,
+                                step=1,
+                                label=i18n(
+                                    "Background Opacity (%)"
+                                ),
+                            )
+                        )
+
+                with gr.Group(
+                    visible=False
+                ) as watermark_settings_group:
+                    watermark_position_input = (
+                        gr.Dropdown(
+                            choices=[
+                                (
+                                    i18n("Top Left"),
+                                    "top_left",
+                                ),
+                                (
+                                    i18n("Top Center"),
+                                    "top_center",
+                                ),
+                                (
+                                    i18n("Top Right"),
+                                    "top_right",
+                                ),
+                                (
+                                    i18n("Center"),
+                                    "center",
+                                ),
+                                (
+                                    i18n("Bottom Left"),
+                                    "bottom_left",
+                                ),
+                                (
+                                    i18n("Bottom Center"),
+                                    "bottom_center",
+                                ),
+                                (
+                                    i18n("Bottom Right"),
+                                    "bottom_right",
+                                ),
+                                (
+                                    i18n("Custom X/Y"),
+                                    "custom",
+                                ),
+                            ],
+                            label=i18n("Position"),
+                            value="top_right",
+                        )
+                    )
+
+                    with gr.Row():
+                        watermark_scale_input = (
+                            gr.Slider(
+                                minimum=1,
+                                maximum=50,
+                                value=12,
+                                step=1,
+                                label=i18n(
+                                    "Maximum Width (% of video)"
+                                ),
+                            )
+                        )
+
+                        watermark_opacity_input = (
+                            gr.Slider(
+                                minimum=0,
+                                maximum=100,
+                                value=85,
+                                step=1,
+                                label=i18n(
+                                    "Opacity (%)"
+                                ),
+                            )
+                        )
+
+                    with gr.Row():
+                        watermark_h_margin_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "Horizontal Margin (px)"
+                                ),
+                                value=40,
+                                precision=0,
+                            )
+                        )
+
+                        watermark_v_margin_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "Vertical Margin (px)"
+                                ),
+                                value=40,
+                                precision=0,
+                            )
+                        )
+
+                    with gr.Group(
+                        visible=False
+                    ) as watermark_custom_group:
+                        with gr.Row():
+                            watermark_custom_x_input = (
+                                gr.Number(
+                                    label=i18n(
+                                        "Custom X (px)"
+                                    ),
+                                    value=40,
+                                    precision=0,
+                                )
+                            )
+
+                            watermark_custom_y_input = (
+                                gr.Number(
+                                    label=i18n(
+                                        "Custom Y (px)"
+                                    ),
+                                    value=40,
+                                    precision=0,
+                                )
+                            )
+
+                    with gr.Row():
+                        watermark_start_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "Start Time (s)"
+                                ),
+                                value=0.0,
+                            )
+                        )
+
+                        watermark_end_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "End Time (s)"
+                                ),
+                                value=0.0,
+                                info=i18n(
+                                    "Use 0 to keep the watermark until the video ends."
+                                ),
+                            )
+                        )
+
+                    with gr.Row():
+                        watermark_fade_in_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "Fade In (s)"
+                                ),
+                                value=0.5,
+                            )
+                        )
+
+                        watermark_fade_out_input = (
+                            gr.Number(
+                                label=i18n(
+                                    "Fade Out (s)"
+                                ),
+                                value=0.5,
+                            )
+                        )
+
+                    watermark_preview = gr.HTML(
+                        value=(
+                            branding
+                            .watermark_safe_area_preview(
+                                "disabled",
+                                "",
+                                "top_right",
+                                12,
+                                85,
+                                40,
+                                40,
+                                40,
+                                40,
+                            )
+                        )
+                    )
+
+                def update_watermark_mode(
+                    selected_mode,
+                ):
+                    enabled = (
+                        selected_mode
+                        in {"image", "text"}
+                    )
+
+                    return (
+                        gr.update(
+                            visible=(
+                                selected_mode
+                                == "image"
+                            )
+                        ),
+                        gr.update(
+                            visible=(
+                                selected_mode
+                                == "text"
+                            )
+                        ),
+                        gr.update(
+                            visible=enabled
+                        ),
+                    )
+
+                watermark_mode_input.change(
+                    update_watermark_mode,
+                    inputs=watermark_mode_input,
+                    outputs=[
+                        watermark_image_group,
+                        watermark_text_group,
+                        watermark_settings_group,
+                    ],
+                )
+
+                watermark_position_input.change(
+                    lambda selected_position: (
+                        gr.update(
+                            visible=(
+                                selected_position
+                                == "custom"
+                            )
+                        )
+                    ),
+                    inputs=watermark_position_input,
+                    outputs=watermark_custom_group,
+                )
+
+                watermark_preview_inputs = [
+                    watermark_mode_input,
+                    watermark_text_input,
+                    watermark_position_input,
+                    watermark_scale_input,
+                    watermark_opacity_input,
+                    watermark_h_margin_input,
+                    watermark_v_margin_input,
+                    watermark_custom_x_input,
+                    watermark_custom_y_input,
+                ]
+
+                for watermark_preview_input in (
+                    watermark_preview_inputs
+                ):
+                    watermark_preview_input.change(
+                        (
+                            branding
+                            .watermark_safe_area_preview
+                        ),
+                        inputs=(
+                            watermark_preview_inputs
+                        ),
+                        outputs=watermark_preview,
+                    )
              with gr.Accordion(i18n("Subtitle Settings (alpha)"), open=False):
                 preset_input = gr.Dropdown(choices=[(i18n("Manual"), "Manual")] + [(i18n(k), k) for k in subs.SUBTITLE_PRESETS.keys()], label=i18n("Quick Presets"), value="Hormozi (Classic)")
                 use_custom_subs = gr.Checkbox(label=i18n("Enable Subtitle Customization (Includes Preset)"), value=True)
@@ -1319,8 +1894,33 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  transcription_preset_input, model_input, whisper_language_input, whisper_batch_size_input, whisper_chunk_size_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, compile_mode_input, crossfade_duration_input, segment_order_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
-                 active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
-                 use_custom_subs, 
+                 active_speaker_mar_input,
+                 active_speaker_score_diff_input,
+                 include_motion_input,
+                 active_speaker_motion_threshold_input,
+                 active_speaker_motion_sensitivity_input,
+                 active_speaker_decay_input,
+
+                 watermark_mode_input,
+                 watermark_image_input,
+                 watermark_text_input,
+                 watermark_text_color_input,
+                 watermark_background_color_input,
+                 watermark_background_opacity_input,
+                 watermark_font_size_input,
+                 watermark_position_input,
+                 watermark_scale_input,
+                 watermark_opacity_input,
+                 watermark_h_margin_input,
+                 watermark_v_margin_input,
+                 watermark_custom_x_input,
+                 watermark_custom_y_input,
+                 watermark_start_input,
+                 watermark_end_input,
+                 watermark_fade_in_input,
+                 watermark_fade_out_input,
+
+                 use_custom_subs,
                  # Expanded Manual Inputs mapping
                  font_name_input, font_size_input, font_color_input, highlight_color_input, 
                  outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input, 
