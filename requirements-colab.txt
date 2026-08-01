@@ -1,10 +1,11 @@
-# Packages installed separately in the notebook:
+# Installed separately in ViralCutter.ipynb:
 # torch, torchvision, torchaudio
 # whisperx, faster-whisper, ctranslate2
+# transformers, tokenizers, accelerate
 # mediapipe, insightface, onnxruntime-gpu
-# transformers, accelerate
 
-numpy<2.0
+numpy==1.26.4
+pandas<3
 
 g4f
 yt-dlp
@@ -16,14 +17,13 @@ google-genai
 google-generativeai
 
 gradio
-opencv-python
+opencv-python==4.11.0.86
 psutil
 fastapi
 uvicorn
 
 deep-translator
 tqdm
-pandas
 
 google-api-python-client
 google-auth
