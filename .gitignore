@@ -7,3 +7,8 @@ token_drive.json
 *pycache*
 AGENTS.md
 .omo
+
+# all pycache files
+__pycache__/
+*.pyc
+

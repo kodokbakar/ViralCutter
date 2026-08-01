@@ -520,6 +520,28 @@ def apply_experimental_preset(preset_name):
     p = EXPERIMENTAL_PRESETS[preset_name]
     return p["focus"], p["mar"], p["score"], p["motion"], p["motion_th"], p["motion_sens"], p["decay"]
 
+def validate_segments(value):
+    if value is None or value < 1:
+        return gr.update(value=1, info="Must be >= 1")
+    return gr.update(info="")
+
+def validate_duration(min_val, max_val):
+    if min_val < 1:
+        return gr.update(info="Must be >= 1"), gr.update()
+    if max_val < min_val:
+        return gr.update(), gr.update(info="Must be >= min duration")
+    return gr.update(info=""), gr.update(info="")
+
+def validate_whisper_batch(value):
+    if value is not None and value < 1:
+        return gr.update(value=1, info="Must be >= 1")
+    return gr.update(info="")
+
+def validate_whisper_chunk(value):
+    if value is not None and value < 100:
+        return gr.update(value=100, info="Must be >= 100")
+    return gr.update(info="")
+
 # Subtitle logic moved to subtitle_handler.py
 
 
@@ -1056,7 +1078,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Row():
                         ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("AI Model"), value=GEMINI_MODELS[1], allow_custom_value=True, visible=True, scale=5)
                         refresh_models_btn = gr.Button("🔄", size="sm", visible=False, scale=0, min_width=50) # Only local
-                        chunk_size_input = gr.Number(label=i18n("Chunk Size"), value=70000, precision=0, scale=2)
+                        chunk_size_input = gr.Number(label=i18n("AI Chunk Size (Text)"), value=70000, precision=0, scale=2)
                     
                     # Update listeners with logic to hide/show API key
                     def update_ai_ui(backend):
@@ -1486,8 +1508,13 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                  video_quality_input, use_youtube_subs_input, translate_input,
                  watermark_enabled, watermark_logo, watermark_position, watermark_scale, watermark_opacity,
                  watermark_h_margin, watermark_v_margin, watermark_custom_x, watermark_custom_y
-             ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
+              ], outputs=[logs_output, progress_output, start_btn, stop_btn, results_html, compilation_output])
 
+             segments_input.change(validate_segments, inputs=segments_input, outputs=segments_input)
+             min_dur_input.change(validate_duration, inputs=[min_dur_input, max_dur_input], outputs=[min_dur_input, max_dur_input])
+             max_dur_input.change(validate_duration, inputs=[min_dur_input, max_dur_input], outputs=[min_dur_input, max_dur_input])
+             whisper_batch_size_input.change(validate_whisper_batch, inputs=whisper_batch_size_input, outputs=whisper_batch_size_input)
+             whisper_chunk_size_input.change(validate_whisper_chunk, inputs=whisper_chunk_size_input, outputs=whisper_chunk_size_input)
 
         with gr.Tab(i18n("Subtitle Editor")):
             gr.Markdown(f"### {i18n('Edit Subtitles (Smart Mode)')}")

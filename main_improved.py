@@ -164,6 +164,13 @@ def main():
 
     args = parser.parse_args()
     
+    from scripts.pipeline_validation import validate_args
+    try:
+        validate_args(args)
+    except ValueError as e:
+        print(f"Error: Invalid configuration:\n{e}")
+        sys.exit(1)
+
     # Workflow Logic
     workflow_choice = args.workflow
     
