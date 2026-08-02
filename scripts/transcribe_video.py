@@ -407,7 +407,6 @@ def transcribe(
                 device,
                 compute_type=compute_type,
                 language=selected_language,
-                asr_options={"hotwords": None},
             )
             log_step(f"WhisperX model loaded in {time.time() - model_load_start:.2f}s")
 
