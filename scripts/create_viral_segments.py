@@ -16,9 +16,10 @@ if sys.stdout and hasattr(sys.stdout, 'buffer'):
 
 # Tenta importar bibliotecas de IA opcionalmente
 try:
-    import google.generativeai as genai
+    from google import genai
     HAS_GEMINI = True
 except ImportError:
+    genai = None
     HAS_GEMINI = False
 
 try:
@@ -196,38 +197,199 @@ def preprocess_transcript_for_ai(segments):
 
     return full_text.strip()
 
-def call_gemini(prompt, api_key, model_name='gemini-2.5-flash-lite-preview-09-2025'):
+def call_gemini(
+    prompt,
+    api_key,
+    model_name="gemini-2.5-flash-lite-preview-09-2025",
+):
     if not HAS_GEMINI:
-        raise ImportError("A biblioteca 'google-generativeai' não está instalada. Instale com: pip install google-generativeai")
-    
-    genai.configure(api_key=api_key)
-    # Usando modelo definido na config ou o padrão
-    model = genai.GenerativeModel(model_name) 
-    
+        raise ImportError(
+            "The 'google-genai' package is not installed. "
+            "Install it with: pip install google-genai"
+        )
+
+    api_key = str(api_key or "").strip()
+    model_name = str(model_name or "").strip()
+    prompt = str(prompt or "").strip()
+
+    if not api_key:
+        raise ValueError(
+            "Gemini API key is empty."
+        )
+
+    if not model_name:
+        raise ValueError(
+            "Gemini model name is empty."
+        )
+
+    if not prompt:
+        raise ValueError(
+            "Gemini prompt is empty."
+        )
+
     max_retries = 5
     base_wait = 30
 
-    for attempt in range(max_retries):
+    retryable_status_codes = {
+        429,
+        500,
+        502,
+        503,
+        504,
+    }
+
+    retryable_messages = (
+        "429",
+        "resource_exhausted",
+        "quota exceeded",
+        "rate limit",
+        "too many requests",
+        "500",
+        "502",
+        "503",
+        "504",
+        "internal server error",
+        "service unavailable",
+        "deadline exceeded",
+        "temporarily unavailable",
+    )
+
+    for attempt in range(
+        1,
+        max_retries + 1,
+    ):
         try:
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            error_str = str(e)
-            if "429" in error_str or "Quota exceeded" in error_str:
-                wait_time = base_wait * (attempt + 1)
-                
-                match = re.search(r"retry in (\d+(\.\d+)?)s", error_str)
-                if match:
-                    wait_time = float(match.group(1)) + 5.0
-                
-                print(f"[429] Quota Exceeded. Waiting {wait_time:.2f}s before retry {attempt+1}/{max_retries}...", flush=True)
+            with genai.Client(
+                api_key=api_key
+            ) as client:
+                response = (
+                    client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                    )
+                )
+
+            response_text = getattr(
+                response,
+                "text",
+                None,
+            )
+
+            if not response_text:
+                raise ValueError(
+                    "Gemini returned an empty response."
+                )
+
+            response_text = (
+                str(response_text).strip()
+            )
+
+            if not response_text:
+                raise ValueError(
+                    "Gemini returned empty text."
+                )
+
+            return response_text
+
+        except Exception as error:
+            error_text = str(error)
+            error_lower = error_text.lower()
+
+            status_code = getattr(
+                error,
+                "status_code",
+                None,
+            )
+
+            if status_code is None:
+                status_code = getattr(
+                    error,
+                    "code",
+                    None,
+                )
+
+            retryable = (
+                status_code
+                in retryable_status_codes
+                or any(
+                    message in error_lower
+                    for message
+                    in retryable_messages
+                )
+            )
+
+            if (
+                retryable
+                and attempt < max_retries
+            ):
+                wait_time = (
+                    base_wait * attempt
+                )
+
+                retry_match = re.search(
+                    (
+                        r"(?:retry|try again)"
+                        r"(?:\s+in| after)?"
+                        r"\s+(\d+(?:\.\d+)?)"
+                        r"\s*s"
+                    ),
+                    error_lower,
+                )
+
+                if retry_match:
+                    wait_time = (
+                        float(
+                            retry_match.group(1)
+                        )
+                        + 5.0
+                    )
+
+                print(
+                    (
+                        "[GEMINI RETRY] "
+                        f"Attempt {attempt}/"
+                        f"{max_retries} failed: "
+                        f"{error_text}"
+                    ),
+                    flush=True,
+                )
+                print(
+                    (
+                        "[GEMINI RETRY] "
+                        f"Waiting {wait_time:.2f}s..."
+                    ),
+                    flush=True,
+                )
+
                 time.sleep(wait_time)
                 continue
-            else:
-                print(f"Erro na API do Gemini: {e}")
-                return "{}"
-    
-    print("Falha após max retries no Gemini.")
+
+            print(
+                (
+                    "[GEMINI ERROR] "
+                    f"Model: {model_name}"
+                ),
+                flush=True,
+            )
+            print(
+                (
+                    "[GEMINI ERROR] "
+                    f"{type(error).__name__}: "
+                    f"{error_text}"
+                ),
+                flush=True,
+            )
+
+            return "{}"
+
+    print(
+        (
+            "[GEMINI ERROR] "
+            "Maximum retry count reached."
+        ),
+        flush=True,
+    )
+
     return "{}"
 
 def call_g4f(prompt, model_name="gpt-4o-mini"):

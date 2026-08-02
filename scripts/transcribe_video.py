@@ -8,6 +8,12 @@ import re
 from i18n.i18n import I18nAuto
 
 i18n = I18nAuto()
+CUSTOM_ALIGNMENT_MODELS = {
+    "id": (
+        "cahya/"
+        "wav2vec2-large-xlsr-indonesian"
+    ),
+}
 
 def log_step(message):
     print(f"[TRANSCRIBE {time.strftime('%H:%M:%S')}] {message}", flush=True)
@@ -447,8 +453,36 @@ def transcribe(
         
         try:
             align_load_start = time.time()
-            model_a, metadata = whisperx.load_align_model(language_code=detected_language, device=device)
-            log_step(f"Alignment model loaded in {time.time() - align_load_start:.2f}s")
+
+            alignment_model_name = (
+                CUSTOM_ALIGNMENT_MODELS.get(
+                    detected_language
+                )
+            )
+
+            if alignment_model_name:
+                log_step(
+                    (
+                        "Using custom alignment model "
+                        f"for {detected_language}: "
+                        f"{alignment_model_name}"
+                    )
+                )
+
+            model_a, metadata = (
+                whisperx.load_align_model(
+                    language_code=detected_language,
+                    device=device,
+                    model_name=alignment_model_name,
+                )
+            )
+
+            log_step(
+                (
+                    "Alignment model loaded in "
+                    f"{time.time() - align_load_start:.2f}s"
+                )
+            )
 
             if device == "cuda":
                 log_gpu_state("after load_align_model")
