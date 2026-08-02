@@ -270,7 +270,15 @@ def render_specific_video(json_full_path):
         adjust.generate_ass_from_file(json_full_path, ass_path, project_folder, **config, face_modes=face_modes)
         
         # 2. Burn Video
-        success, msg = burn.burn_video_file(video_candidate, ass_path, output_video_path)
+        (
+            success,
+            msg,
+            _validation,
+        ) = burn.burn_video_file(
+            video_candidate,
+            ass_path,
+            output_video_path,
+        )
         
         if success:
              return f"Success! Rendered: {os.path.basename(output_video_path)}"

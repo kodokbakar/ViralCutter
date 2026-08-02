@@ -2,7 +2,10 @@ import os
 import shlex
 import subprocess
 
-from scripts import watermark
+from scripts import (
+    subtitle_fonts,
+    watermark,
+)
 
 
 def _escape_filter_path(path):
@@ -13,6 +16,22 @@ def _escape_filter_path(path):
         .replace("'", "\\'")
     )
 
+def _build_subtitle_filter(
+    subtitle_path,
+):
+    subtitle_file = _escape_filter_path(
+        subtitle_path
+    )
+    fonts_directory = _escape_filter_path(
+        subtitle_fonts.get_fonts_dir()
+    )
+
+    return (
+        "subtitles="
+        f"'{subtitle_file}':"
+        "fontsdir="
+        f"'{fonts_directory}'"
+    )
 
 def _probe_duration(path):
     result = subprocess.run(
@@ -109,8 +128,8 @@ def burn_video_file(
         -> ASS subtitles
         -> encoded MP4
     """
-    subtitle_file_ffmpeg = (
-        _escape_filter_path(
+    subtitle_filter = (
+        _build_subtitle_filter(
             subtitle_path
         )
     )
@@ -158,8 +177,7 @@ def burn_video_file(
 
             filter_complex += (
                 ";[watermarked]"
-                f"subtitles="
-                f"'{subtitle_file_ffmpeg}'"
+                f"{subtitle_filter}"
                 "[video_out]"
             )
 
@@ -203,10 +221,7 @@ def burn_video_file(
             command.extend(
                 [
                     "-vf",
-                    (
-                        "subtitles="
-                        f"'{subtitle_file_ffmpeg}'"
-                    ),
+                    subtitle_filter,
                 ]
             )
 
@@ -392,6 +407,29 @@ def burn(
             "ASS subtitle folder not found: "
             f"{subs_folder}"
         )
+
+    bundled_fonts = (
+        subtitle_fonts
+        .validate_font_assets()
+    )
+
+    print(
+        "Bundled subtitle fonts: "
+        + ", ".join(
+            (
+                f"{entry['label']} "
+                f"({entry['family']})"
+            )
+            for entry in bundled_fonts
+        ),
+        flush=True,
+    )
+
+    print(
+        "Subtitle fonts directory: "
+        f"{subtitle_fonts.get_fonts_dir()}",
+        flush=True,
+    )
 
     config = (
         watermark_config

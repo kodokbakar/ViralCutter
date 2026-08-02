@@ -1786,7 +1786,19 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 with gr.Accordion(i18n("Advanced Settings"), open=False):
                     gr.Markdown(f"### {i18n('Appearance')}")
                     with gr.Row():
-                        font_name_input = gr.Textbox(label=i18n("Font Name"), value="Montserrat-Regular")
+                        font_name_input = gr.Dropdown(
+                            choices=subs.FONT_CHOICES,
+                            value=subs.DEFAULT_FONT_ID,
+                            label=i18n(
+                                "Built-in Subtitle Font"
+                            ),
+                            interactive=True,
+                            allow_custom_value=False,
+                            info=i18n(
+                                "Bundled locally and used by both "
+                                "preview and final FFmpeg rendering."
+                            ),
+                        )
                         font_size_input = gr.Slider(label=i18n("Font Size (Base)"), minimum=8, maximum=80, value=12)
                         highlight_size_input = gr.Slider(label=i18n("Highlight Size"), minimum=8, maximum=80, value=14)
                     

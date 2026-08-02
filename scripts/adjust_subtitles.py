@@ -2,6 +2,8 @@ import json
 import re
 import os
 
+from scripts import subtitle_fonts
+
 def format_time_ass(time_seconds):
     hours = int(time_seconds // 3600)
     minutes = int((time_seconds % 3600) // 60)
@@ -9,16 +11,30 @@ def format_time_ass(time_seconds):
     centiseconds = int((time_seconds % 1) * 100)
     return f"{hours:01}:{minutes:02}:{seconds:02}.{centiseconds:02}"
 
-def generate_ass_from_file(input_path, output_path, project_folder, 
-                           base_color, base_size, highlight_size, highlight_color, 
-                           words_per_block, gap_limit, mode, vertical_position, alignment, 
-                           font, outline_color, shadow_color, bold, italic, underline, 
+def generate_ass_from_file(input_path, output_path, project_folder,
+                           base_color, base_size, highlight_size, highlight_color,
+                           words_per_block, gap_limit, mode, vertical_position, alignment,
+                           font, outline_color, shadow_color, bold, italic, underline,
                             strikeout, border_style, outline_thickness, shadow_size, uppercase,
                             face_modes={}, remove_punctuation=True):
     """
     Generates a single ASS file from a JSON input.
     """
-    
+
+    font_entry = subtitle_fonts.resolve_font(
+        font
+    )
+    ass_font_name = font_entry["family"]
+
+    print(
+        "Subtitle font selected: "
+        f"id={font_entry['id']} "
+        f"family={ass_font_name!r} "
+        f"style={font_entry['style']!r} "
+        f"file={font_entry['filename']}",
+        flush=True,
+    )
+
     # 1. Load Timeline Data (if exists)
     # 1. Load Timeline Data (if exists)
     filename = os.path.basename(input_path)
@@ -37,7 +53,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
              with open(renamed_timeline_path, "r") as tf:
                  timeline_data = json.load(tf)
         except: pass
-    
+
     # Check for Index (outputXXX or XXX_Title)
     match_output = re.search(r"output(\d+)", filename)
     match_index = re.search(r"^(\d{3})_", filename)
@@ -61,20 +77,20 @@ def generate_ass_from_file(input_path, output_path, project_folder,
     key = base_name
     if idx is not None:
         key = f"output{str(idx).zfill(3)}"
-    
+
     current_alignment = alignment
     current_vertical_position = vertical_position
-    
+
     mode_face = face_modes.get(key)
     if mode_face == "2" and not timeline_data: # Only use static if no timeline
-        current_alignment = 5 
-        current_vertical_position = 0 
+        current_alignment = 5
+        current_vertical_position = 0
 
     # 3. Load JSON
     try:
         with open(input_path, "r", encoding="utf-8") as file:
             json_data = json.load(file)
-        
+
         segments_count = len(json_data.get('segments', []))
         print(f"[DEBUG] Loaded {input_path}: Found {segments_count} segments.")
     except Exception as e:
@@ -91,12 +107,12 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
     [V4+ Styles]
     Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-    Style: Default,{font},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1
+    Style: Default,{ass_font_name},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1
 
     [Events]
     Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     """
-    
+
     total_lines_written = 0
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(header_ass)
@@ -140,7 +156,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
                 start_times = [word.get('start', 0) for word in block]
                 end_times = [word.get('end', 0) for word in block]
-                
+
                 if not start_times: continue
 
                 for j in range(len(block)):
@@ -157,7 +173,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
                     start_time_ass = format_time_ass(start_sec)
                     end_time_ass = format_time_ass(end_sec)
-                    
+
                     last_end_time = end_sec
 
                     line = ""
@@ -172,19 +188,25 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
                         line = line.strip()
 
-                    elif mode == "no_highlight" or mode == "sem_higlight": 
+                    elif mode == "no_highlight" or mode == "sem_higlight":
                         line = " ".join(word_data['word'] for word_data in block).strip()
 
-                    elif mode == "palavra_por_palavra": 
-                        line = block[j]['word'].strip()
-                    
+                    elif mode in {
+                        "word_by_word",
+                        "palavra_por_palavra",
+                    }:
+                        line = (
+                            block[j]["word"]
+                            .strip()
+                        )
+
                     else:
                         # Fallback / No Highlight
                         line = " ".join(word_data['word'] for word_data in block).strip()
 
                     # Check dynamic timeline for this specific time
                     pos_tag = ""
-                    
+
                     if timeline_data:
                         # Verify if middle of subtitle is in a '2' mode segment
                         mid_time = (start_sec + end_sec) / 2
@@ -193,13 +215,13 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                             if seg['start'] <= mid_time <= seg['end']:
                                 found_mode = seg['mode']
                                 break
-                        
+
                         if found_mode == "2":
                              # Force Center (Relative to PlayRes 360x640)
                              x_pos = 360 // 2  # 180
                              y_pos = 640 // 2  # 320
                              current_line_alignment = 5 # Center
-                             
+
                              # Apply Override Tags: {\an5\pos(x,y)}
                              pos_tag = f"{{\\an{current_line_alignment}\\pos({x_pos},{y_pos})}}"
                              final_line = f"{pos_tag}{line}"
@@ -211,7 +233,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
                     f.write(f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{final_line}\n")
                     total_lines_written += 1
-    
+
     if total_lines_written == 0:
         print(f"[WARN] No dialogue lines written for {input_path}")
     else:
@@ -219,7 +241,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
 
 def adjust(base_color, base_size, highlight_size, highlight_color, words_per_block, gap_limit, mode, vertical_position, alignment, font, outline_color, shadow_color, bold, italic, underline, strikeout, border_style, outline_thickness, shadow_size, uppercase=False, project_folder="tmp", **kwargs):
-    
+
     # Input and Output Directories
     input_dir = os.path.join(project_folder, "subs")
     output_dir = os.path.join(project_folder, "subs_ass")
@@ -251,11 +273,11 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
             input_path = os.path.join(input_dir, filename)
             output_filename = os.path.splitext(filename)[0] + ".ass"
             output_path = os.path.join(output_dir, output_filename)
-            
-            generate_ass_from_file(input_path, output_path, project_folder, 
-                           base_color, base_size, highlight_size, highlight_color, 
-                           words_per_block, gap_limit, mode, vertical_position, alignment, 
-                           font, outline_color, shadow_color, bold, italic, underline, 
+
+            generate_ass_from_file(input_path, output_path, project_folder,
+                           base_color, base_size, highlight_size, highlight_color,
+                           words_per_block, gap_limit, mode, vertical_position, alignment,
+                           font, outline_color, shadow_color, bold, italic, underline,
                            strikeout, border_style, outline_thickness, shadow_size, uppercase,
                            face_modes, remove_punctuation)
 

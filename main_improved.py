@@ -23,6 +23,7 @@ from scripts import (
     transcribe_cuts,
     adjust_subtitles,
     burn_subtitles,
+    subtitle_fonts,
     watermark,
     compile_segments,
     save_json,
@@ -57,7 +58,10 @@ def get_subtitle_config(config_path=None):
     shadow_color_transparency = "00"
     
     config = {
-        "font": "Montserrat-Regular",
+        "font": (
+            subtitle_fonts
+            .DEFAULT_FONT_ID
+        ),
         "base_size": 30,
         "base_color": f"&H{base_color_transparency}{COLORS['white']}&",
         "highlight_size": 35,
@@ -87,7 +91,26 @@ def get_subtitle_config(config_path=None):
                 print(i18n("Loaded subtitle config from {}").format(config_path))
         except Exception as e:
             print(i18n("Error loading subtitle config: {}. Using defaults.").format(e))
-    
+
+    resolved_font = (
+        subtitle_fonts.resolve_font(
+            config.get("font")
+        )
+    )
+
+    config["font"] = (
+        resolved_font["id"]
+    )
+
+    print(
+        "Subtitle font configuration: "
+        f"id={resolved_font['id']} "
+        f"family="
+        f"{resolved_font['family']!r} "
+        f"file="
+        f"{resolved_font['filename']}",
+        flush=True,
+    )
     return config
 
 def interactive_input_int(prompt_text):

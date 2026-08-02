@@ -1,14 +1,32 @@
-
+import html as html_lib
 import os
 import re
 import subprocess
-import gradio as gr
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-WORKING_DIR = os.path.dirname(CURRENT_DIR) # ViralCutter root
 import sys
+
+import gradio as gr
+
+CURRENT_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+WORKING_DIR = os.path.dirname(
+    CURRENT_DIR
+)
+
 sys.path.append(WORKING_DIR)
+
 from i18n.i18n import I18nAuto
+from scripts import subtitle_fonts
+
+
 i18n = I18nAuto()
+
+FONT_CHOICES = (
+    subtitle_fonts.get_font_choices()
+)
+DEFAULT_FONT_ID = (
+    subtitle_fonts.DEFAULT_FONT_ID
+)
 
 # Subtitle Presets
 SUBTITLE_PRESETS = {
@@ -283,6 +301,20 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
     # Debug inputs
     #print(f"DEBUG_HTML: Inputs - Color: {color}, Highlight: {highlight}, Outline: {outline}")
 
+    font_entry, font_face_css = (
+        subtitle_fonts
+        .build_preview_font_css(font)
+    )
+
+    preview_family = (
+        subtitle_fonts
+        .PREVIEW_CSS_FAMILY
+    )
+
+    font_label = html_lib.escape(
+        font_entry["label"]
+    )
+
     def sanitize_color(c):
         if not c: return "#FFFFFF"
         clean = c.lstrip('#').strip()
@@ -317,7 +349,10 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
     
     #print(f"DEBUG_HTML: Final Colors - Color: {color}, Highlight: {highlight}")
 
-    weight = "bold" if bold else "normal"
+    preview_weight = max(
+        font_entry["weight"],
+        700 if bold else 400,
+    )
     style = "italic" if italic else "normal"
     transform = "uppercase" if upper else "none"
     decorations = []
@@ -356,7 +391,12 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         content_html = i18n("This is a {} of your subtitles").format(span_html)
 
     html = f"""
+    <style>
+        {font_face_css}
+    </style>
+
     <div style="
+        position: relative;
         background-color: #222; 
         background-image: linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a), 
                           linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a);
@@ -365,7 +405,10 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         padding: 40px; 
         border-radius: 8px; 
         text-align: center; 
-        font-family: '{font}', sans-serif;
+        font-family:
+            '{preview_family}',
+            sans-serif;
+        font-weight: {preview_weight};
         margin-bottom: 10px;
         border: 1px solid #444;
         display: flex;
@@ -376,7 +419,7 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         <span style="
             font-size: {base_preview_px}px;
             color: {color};
-            font-weight: {weight};
+            font-weight: {preview_weight};
             font-style: {style};
             text-transform: {transform};
             text-decoration: {decoration};
@@ -387,6 +430,15 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
         ">
             {content_html}
         </span>
+        <div style="
+            position:absolute;
+            right:10px;
+            bottom:8px;
+            color:#999;
+            font:11px sans-serif;
+        ">
+            {font_label}
+        </div>
     </div>
     """
     return html
@@ -394,8 +446,19 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
 def apply_preset(preset):
     if preset in SUBTITLE_PRESETS:
         p = SUBTITLE_PRESETS[preset]
+
+        font_id = (
+            subtitle_fonts
+            .resolve_font(
+                p["font_name"]
+            )["id"]
+        )
+
         return (
-            p["font_name"], p["font_size"], p["base_color"], p["highlight_color"], 
+            font_id,
+            p["font_size"],
+            p["base_color"],
+            p["highlight_color"],
             p["outline_color"], p["outline_thickness"], p["shadow_color"], 
             p["shadow_size"], p["bold"], p["italic"], p["uppercase"],
             p["highlight_size"], p["words_per_block"], p["gap_limit"], p["mode"],
@@ -470,6 +533,10 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
     try:
         # Generate ASS from JSON using the shared script logic
         # this ensures consistency with the actual video generation
+        font_entry = (
+            subtitle_fonts
+            .resolve_font(font)
+        )
         adjust.generate_ass_from_file(
             input_path=json_template,
             output_path=ass_path,
@@ -483,7 +550,7 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
             mode=mode,
             vertical_position=vert_pos,
             alignment=align,
-            font=font,
+            font=font_entry["id"],
             outline_color=out_c,
             shadow_color=shad_c,
             bold=bold_val,
@@ -499,7 +566,25 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
         )
         
         # Prepare safe path for ffmpeg filter: escape windows backslashes and colon
-        safe_ass_path = ass_path.replace('\\', '/').replace(':', '\\:')
+        def escape_filter_path(path):
+            return (
+                os.path.abspath(path)
+                .replace("\\", "/")
+                .replace(":", "\\:")
+                .replace("'", "\\'")
+            )
+
+        safe_ass_path = (
+            escape_filter_path(
+                ass_path
+            )
+        )
+        safe_fonts_dir = (
+            escape_filter_path(
+                subtitle_fonts
+                .get_fonts_dir()
+            )
+        )
         
         # Render with ffmpeg
         # Background color #333333 to match UI roughly. 
@@ -507,12 +592,32 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
         cmd = [
             "ffmpeg", "-y", 
             "-f", "lavfi", "-i", "color=c=0x333333:s=480x854:d=2.4",
-            "-vf", f"ass='{safe_ass_path}'",
+            "-vf",
+            (
+                f"ass='{safe_ass_path}':"
+                f"fontsdir="
+                f"'{safe_fonts_dir}'"
+            ),
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an",
             out_vid_path
         ]
 
-        subprocess.run(cmd, cwd=WORKING_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        preview_result = subprocess.run(
+            cmd,
+            cwd=WORKING_DIR,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if preview_result.returncode != 0:
+            print(
+                "Subtitle preview FFmpeg error: "
+                f"{preview_result.stderr}",
+                flush=True,
+            )
+            return None
         
         if os.path.exists(out_vid_path):
             import shutil
