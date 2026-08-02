@@ -1,10 +1,18 @@
 import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+from PIL import Image, ImageOps
+
+
+IMAGE_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+}
 
 POSITION_EXPRESSIONS = {
     "top_left": (
@@ -43,22 +51,32 @@ POSITION_EXPRESSIONS = {
 
 
 def clamp(value, minimum, maximum):
-    return max(minimum, min(maximum, value))
+    return max(
+        minimum,
+        min(maximum, value),
+    )
 
 
-def normalize_hex_color(value, default):
+def normalize_hex_color(
+    value,
+    default,
+):
     value = str(value or "").strip()
 
     if value.startswith("#"):
         value = value[1:]
 
     if len(value) == 3:
-        value = "".join(character * 2 for character in value)
+        value = "".join(
+            character * 2
+            for character in value
+        )
 
     valid = (
         len(value) == 6
         and all(
-            character in "0123456789abcdefABCDEF"
+            character
+            in "0123456789abcdefABCDEF"
             for character in value
         )
     )
@@ -90,16 +108,23 @@ def build_config(
     fade_in=0.5,
     fade_out=0.5,
 ):
-    mode = str(mode or "disabled").lower()
+    mode = str(
+        mode or "disabled"
+    ).lower()
 
-    if mode not in {"disabled", "image", "text"}:
+    if mode not in {
+        "disabled",
+        "image",
+        "text",
+    }:
         raise ValueError(
             f"Unsupported watermark mode: {mode}"
         )
 
     if position not in POSITION_EXPRESSIONS:
         raise ValueError(
-            f"Unsupported watermark position: {position}"
+            f"Unsupported watermark position: "
+            f"{position}"
         )
 
     start_time = max(
@@ -111,10 +136,13 @@ def build_config(
         float(end_time or 0.0),
     )
 
-    if end_time > 0 and end_time <= start_time:
+    if (
+        end_time > 0
+        and end_time <= start_time
+    ):
         raise ValueError(
-            "Watermark end time must be greater than "
-            "start time, or 0 for video end."
+            "Watermark end time must be greater "
+            "than start time, or 0 for video end."
         )
 
     text = str(text or "").strip()
@@ -136,12 +164,17 @@ def build_config(
             text_color,
             "#FFFFFF",
         ),
-        "background_color": normalize_hex_color(
-            background_color,
-            "#000000",
+        "background_color": (
+            normalize_hex_color(
+                background_color,
+                "#000000",
+            )
         ),
         "background_opacity": clamp(
-            float(background_opacity or 0.0),
+            float(
+                background_opacity
+                or 0.0
+            ),
             0.0,
             1.0,
         ),
@@ -151,12 +184,18 @@ def build_config(
         ),
         "position": position,
         "scale_percent": clamp(
-            float(scale_percent or 12.0),
+            float(
+                scale_percent
+                or 12.0
+            ),
             1.0,
             100.0,
         ),
         "opacity": clamp(
-            float(opacity or 0.85),
+            float(
+                opacity
+                or 0.85
+            ),
             0.0,
             1.0,
         ),
@@ -189,17 +228,30 @@ def build_config(
     }
 
 
-def persist_image_asset(
-    image_path,
-    project_folder,
-):
-    if not image_path:
+def _visible_bounds(image):
+    alpha = image.getchannel("A")
+    bounds = alpha.getbbox()
+
+    if bounds is None:
         raise ValueError(
-            "Image watermark mode requires an image file."
+            "Watermark image is fully transparent. "
+            "Upload an image with visible pixels."
         )
 
+    return bounds
+
+
+def normalize_image_asset(
+    source_path,
+    destination_path,
+):
     source = (
-        Path(image_path)
+        Path(source_path)
+        .expanduser()
+        .resolve()
+    )
+    destination = (
+        Path(destination_path)
         .expanduser()
         .resolve()
     )
@@ -209,33 +261,170 @@ def persist_image_asset(
             f"Watermark image not found: {source}"
         )
 
-    if source.suffix.lower() not in IMAGE_EXTENSIONS:
+    if (
+        source.suffix.lower()
+        not in IMAGE_EXTENSIONS
+    ):
         raise ValueError(
             "Unsupported watermark image format. "
             "Use PNG, JPG, JPEG, WEBP, or BMP."
+        )
+
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    try:
+        with Image.open(source) as opened:
+            oriented = (
+                ImageOps.exif_transpose(
+                    opened
+                )
+            )
+            rgba = oriented.convert("RGBA")
+            original_size = rgba.size
+
+            bounds = _visible_bounds(rgba)
+            cropped = rgba.crop(bounds)
+
+            # Keep a very small transparent margin for
+            # antialiased pixels while removing large
+            # transparent borders from uploaded logos.
+            padding = max(
+                2,
+                round(
+                    max(cropped.size)
+                    * 0.01
+                ),
+            )
+
+            normalized = ImageOps.expand(
+                cropped,
+                border=padding,
+                fill=(0, 0, 0, 0),
+            )
+
+            normalized.save(
+                destination,
+                format="PNG",
+                optimize=True,
+            )
+
+    except (
+        OSError,
+        ValueError,
+    ) as error:
+        raise ValueError(
+            "Invalid watermark image "
+            f"'{source.name}': {error}"
+        ) from error
+
+    info = describe_asset(destination)
+
+    info.update(
+        {
+            "source_path": str(source),
+            "source_width": (
+                original_size[0]
+            ),
+            "source_height": (
+                original_size[1]
+            ),
+            "visible_bounds": list(
+                bounds
+            ),
+        }
+    )
+
+    return str(destination), info
+
+
+def persist_image_asset(
+    image_path,
+    project_folder,
+):
+    if not image_path:
+        raise ValueError(
+            "Image watermark mode requires "
+            "an image file."
         )
 
     assets_folder = (
         Path(project_folder).resolve()
         / "assets"
     )
-    assets_folder.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
     destination = (
         assets_folder
-        / f"watermark{source.suffix.lower()}"
+        / "watermark.png"
     )
 
-    if source != destination:
-        shutil.copy2(
-            source,
-            destination,
+    (
+        normalized_path,
+        info,
+    ) = normalize_image_asset(
+        image_path,
+        destination,
+    )
+
+    print(
+        "Watermark image normalized: "
+        f"source="
+        f"{info['source_width']}x"
+        f"{info['source_height']} "
+        f"visible_bounds="
+        f"{tuple(info['visible_bounds'])} "
+        f"output="
+        f"{info['width']}x"
+        f"{info['height']} "
+        f"path={normalized_path}",
+        flush=True,
+    )
+
+    return normalized_path
+
+
+def describe_asset(image_path):
+    path = (
+        Path(image_path)
+        .expanduser()
+        .resolve()
+    )
+
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Watermark asset not found: {path}"
         )
 
-    return str(destination)
+    with Image.open(path) as image:
+        rgba = image.convert("RGBA")
+        alpha = rgba.getchannel("A")
+        alpha_bounds = alpha.getbbox()
+
+        if alpha_bounds is None:
+            raise ValueError(
+                "Watermark asset is fully "
+                f"transparent: {path}"
+            )
+
+        alpha_extrema = (
+            alpha.getextrema()
+        )
+
+        return {
+            "path": str(path),
+            "width": int(rgba.width),
+            "height": int(rgba.height),
+            "alpha_min": int(
+                alpha_extrema[0]
+            ),
+            "alpha_max": int(
+                alpha_extrema[1]
+            ),
+            "visible_bounds": list(
+                alpha_bounds
+            ),
+        }
 
 
 def get_video_info(video_path):
@@ -247,7 +436,10 @@ def get_video_info(video_path):
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height:format=duration",
+            (
+                "stream=width,height:"
+                "format=duration"
+            ),
             "-of",
             "json",
             str(video_path),
@@ -258,15 +450,23 @@ def get_video_info(video_path):
     )
 
     payload = json.loads(result.stdout)
-    streams = payload.get("streams") or []
+    streams = (
+        payload.get("streams")
+        or []
+    )
 
     if not streams:
         raise ValueError(
-            f"No video stream found: {video_path}"
+            "No video stream found: "
+            f"{video_path}"
         )
 
-    width = int(streams[0]["width"])
-    height = int(streams[0]["height"])
+    width = int(
+        streams[0]["width"]
+    )
+    height = int(
+        streams[0]["height"]
+    )
     duration = float(
         payload
         .get("format", {})
@@ -280,7 +480,8 @@ def get_video_info(video_path):
         or duration <= 0
     ):
         raise ValueError(
-            f"Invalid video metadata: {video_path}"
+            "Invalid video metadata: "
+            f"{video_path}"
         )
 
     return width, height, duration
@@ -294,7 +495,8 @@ def resolve_font_file():
         ),
         (
             "/usr/share/fonts/truetype/"
-            "liberation2/LiberationSans-Bold.ttf"
+            "liberation2/"
+            "LiberationSans-Bold.ttf"
         ),
         "C:/Windows/Fonts/arialbd.ttf",
         "C:/Windows/Fonts/arial.ttf",
@@ -317,7 +519,9 @@ def resolve_font_file():
             text=True,
         )
 
-        matched = result.stdout.strip()
+        matched = (
+            result.stdout.strip()
+        )
 
         if (
             matched
@@ -348,7 +552,11 @@ def hex_to_rgba(
         int(color[2:4], 16),
         int(color[4:6], 16),
         round(
-            clamp(alpha, 0.0, 1.0)
+            clamp(
+                alpha,
+                0.0,
+                1.0,
+            )
             * 255
         ),
     )
@@ -359,7 +567,6 @@ def create_text_asset(
     output_path,
 ):
     from PIL import (
-        Image,
         ImageDraw,
         ImageFont,
     )
@@ -373,7 +580,9 @@ def create_text_asset(
             config["font_size"],
         )
     else:
-        font = ImageFont.load_default()
+        font = (
+            ImageFont.load_default()
+        )
 
     padding_x = max(
         12,
@@ -404,23 +613,31 @@ def create_text_asset(
 
     width = max(
         1,
-        bounds[2]
-        - bounds[0]
-        + padding_x * 2,
+        (
+            bounds[2]
+            - bounds[0]
+            + padding_x * 2
+        ),
     )
     height = max(
         1,
-        bounds[3]
-        - bounds[1]
-        + padding_y * 2,
+        (
+            bounds[3]
+            - bounds[1]
+            + padding_y * 2
+        ),
     )
 
     image = Image.new(
         "RGBA",
         (width, height),
         hex_to_rgba(
-            config["background_color"],
-            config["background_opacity"],
+            config[
+                "background_color"
+            ],
+            config[
+                "background_opacity"
+            ],
         ),
     )
 
@@ -438,10 +655,19 @@ def create_text_asset(
             1.0,
         ),
         stroke_width=stroke_width,
-        stroke_fill=(0, 0, 0, 210),
+        stroke_fill=(
+            0,
+            0,
+            0,
+            210,
+        ),
     )
 
-    image.save(output_path)
+    image.save(
+        output_path,
+        format="PNG",
+        optimize=True,
+    )
 
     return str(output_path)
 
@@ -471,6 +697,7 @@ def prepare_asset(
                 f"{image_path}"
             )
 
+        describe_asset(image_path)
         return str(image_path)
 
     runtime_folder = (
@@ -494,11 +721,12 @@ def prepare_asset(
 
 
 def resolve_position(config):
-    x_expression, y_expression = (
-        POSITION_EXPRESSIONS[
-            config["position"]
-        ]
-    )
+    (
+        x_expression,
+        y_expression,
+    ) = POSITION_EXPRESSIONS[
+        config["position"]
+    ]
 
     return (
         x_expression.format(**config),
@@ -510,9 +738,11 @@ def build_filter(
     config,
     video_path,
 ):
-    width, _height, duration = (
-        get_video_info(video_path)
-    )
+    (
+        width,
+        height,
+        duration,
+    ) = get_video_info(video_path)
 
     start = min(
         config["start_time"],
@@ -529,8 +759,8 @@ def build_filter(
 
     if end <= start:
         raise ValueError(
-            "Watermark time range is empty for "
-            f"{os.path.basename(video_path)}: "
+            "Watermark time range is empty "
+            f"for {os.path.basename(video_path)}: "
             f"start={start:.3f}, "
             f"end={end:.3f}."
         )
@@ -555,17 +785,29 @@ def build_filter(
         ),
     )
 
-    if config["mode"] == "image":
-        scale_filter = (
-            f"scale={target_width}:-1"
-        )
-    else:
-        scale_filter = (
-            "scale="
-            f"'min(iw,{target_width})':-1"
-        )
+    # Prevent unusually tall images from
+    # overflowing the video frame.
+    target_height = max(
+        1,
+        round(height * 0.90),
+    )
 
+    scale_filter = (
+        f"scale=w={target_width}:"
+        f"h={target_height}:"
+        "force_original_aspect_ratio=decrease"
+    )
+
+    # Turn the normalized PNG into a finite
+    # 30 FPS stream matching the source video.
+    # This makes fade timing deterministic.
     watermark_filters = [
+        "loop=loop=-1:size=1:start=0",
+        (
+            "trim=duration="
+            f"{duration:.6f}"
+        ),
+        "setpts=N/(30*TB)",
         scale_filter,
         "format=rgba",
         (
@@ -595,9 +837,10 @@ def build_filter(
             "alpha=1"
         )
 
-    x_expression, y_expression = (
-        resolve_position(config)
-    )
+    (
+        x_expression,
+        y_expression,
+    ) = resolve_position(config)
 
     enable_expression = (
         "between("
@@ -605,14 +848,32 @@ def build_filter(
         ")"
     )
 
-    return (
-        f"[1:v]{','.join(watermark_filters)}"
+    filter_complex = (
+        f"[1:v]"
+        f"{','.join(watermark_filters)}"
         "[watermark];"
         "[0:v][watermark]"
         "overlay="
         f"x='{x_expression}':"
         f"y='{y_expression}':"
         f"enable='{enable_expression}':"
+        "eof_action=pass:"
         "shortest=1"
         "[watermarked]"
     )
+
+    return filter_complex, {
+        "video_width": width,
+        "video_height": height,
+        "video_duration": duration,
+        "target_width": target_width,
+        "target_height": target_height,
+        "start": start,
+        "end": end,
+        "fade_in": fade_in,
+        "fade_out": fade_out,
+        "position": (
+            config["position"]
+        ),
+        "opacity": config["opacity"],
+    }

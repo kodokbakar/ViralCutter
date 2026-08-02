@@ -1,4 +1,10 @@
+import base64
 import html
+import io
+from pathlib import Path
+
+from PIL import Image, ImageOps
+
 
 CANVAS_WIDTH = 270
 CANVAS_HEIGHT = 480
@@ -6,16 +12,157 @@ CANVAS_HEIGHT = 480
 SOURCE_WIDTH = 1080
 SOURCE_HEIGHT = 1920
 
+MAX_PREVIEW_IMAGE_SIZE = 768
+
 
 def _clamp(
     value,
     minimum,
     maximum,
 ):
+    try:
+        numeric = float(value)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        numeric = minimum
+
     return max(
         minimum,
-        min(maximum, value),
+        min(maximum, numeric),
     )
+
+
+def _resolve_file_path(value):
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        value = (
+            value.get("path")
+            or value.get("name")
+        )
+
+    elif hasattr(value, "name"):
+        value = value.name
+
+    value = str(value or "").strip()
+
+    return value or None
+
+
+def _load_preview_image(
+    image_value,
+):
+    image_path = _resolve_file_path(
+        image_value
+    )
+
+    if not image_path:
+        return (
+            None,
+            None,
+            "Upload an image to preview it.",
+        )
+
+    path = (
+        Path(image_path)
+        .expanduser()
+    )
+
+    if not path.is_file():
+        return (
+            None,
+            None,
+            (
+                "The uploaded image is no "
+                "longer available."
+            ),
+        )
+
+    try:
+        with Image.open(path) as opened:
+            image = (
+                ImageOps.exif_transpose(
+                    opened
+                )
+                .convert("RGBA")
+            )
+
+            alpha_bounds = (
+                image
+                .getchannel("A")
+                .getbbox()
+            )
+
+            if alpha_bounds is None:
+                return (
+                    None,
+                    None,
+                    (
+                        "The uploaded image is "
+                        "fully transparent."
+                    ),
+                )
+
+            # Match backend normalization by
+            # ignoring transparent padding.
+            image = image.crop(
+                alpha_bounds
+            )
+
+            (
+                original_width,
+                original_height,
+            ) = image.size
+
+            preview_image = image.copy()
+
+            preview_image.thumbnail(
+                (
+                    MAX_PREVIEW_IMAGE_SIZE,
+                    MAX_PREVIEW_IMAGE_SIZE,
+                ),
+                Image.Resampling.LANCZOS,
+            )
+
+            buffer = io.BytesIO()
+
+            preview_image.save(
+                buffer,
+                format="PNG",
+                optimize=True,
+            )
+
+            encoded = base64.b64encode(
+                buffer.getvalue()
+            ).decode("ascii")
+
+            return (
+                (
+                    "data:image/png;base64,"
+                    f"{encoded}"
+                ),
+                (
+                    original_width
+                    / original_height
+                ),
+                None,
+            )
+
+    except (
+        OSError,
+        ValueError,
+    ) as error:
+        return (
+            None,
+            None,
+            (
+                "Cannot preview image: "
+                f"{error}"
+            ),
+        )
 
 
 def _position_box(
@@ -37,22 +184,22 @@ def _position_box(
     )
 
     h_margin = max(
-        0,
+        0.0,
         float(h_margin or 0),
     ) * scale_x
 
     v_margin = max(
-        0,
+        0.0,
         float(v_margin or 0),
     ) * scale_y
 
     custom_x = max(
-        0,
+        0.0,
         float(custom_x or 0),
     ) * scale_x
 
     custom_y = max(
-        0,
+        0.0,
         float(custom_y or 0),
     ) * scale_y
 
@@ -65,7 +212,8 @@ def _position_box(
             (
                 CANVAS_WIDTH
                 - box_width
-            ) / 2,
+            )
+            / 2,
             v_margin,
         ),
         "top_right": (
@@ -78,11 +226,13 @@ def _position_box(
             (
                 CANVAS_WIDTH
                 - box_width
-            ) / 2,
+            )
+            / 2,
             (
                 CANVAS_HEIGHT
                 - box_height
-            ) / 2,
+            )
+            / 2,
         ),
         "bottom_left": (
             h_margin,
@@ -94,7 +244,8 @@ def _position_box(
             (
                 CANVAS_WIDTH
                 - box_width
-            ) / 2,
+            )
+            / 2,
             CANVAS_HEIGHT
             - box_height
             - v_margin,
@@ -113,7 +264,10 @@ def _position_box(
         ),
     }
 
-    left, top = positions.get(
+    (
+        left,
+        top,
+    ) = positions.get(
         position,
         positions["top_right"],
     )
@@ -122,18 +276,205 @@ def _position_box(
         _clamp(
             left,
             0,
-            CANVAS_WIDTH - box_width,
+            max(
+                0,
+                CANVAS_WIDTH
+                - box_width,
+            ),
         ),
         _clamp(
             top,
             0,
-            CANVAS_HEIGHT - box_height,
+            max(
+                0,
+                CANVAS_HEIGHT
+                - box_height,
+            ),
         ),
     )
 
 
+def _image_mark_html(
+    image_value,
+    position,
+    scale_percent,
+    opacity,
+    h_margin,
+    v_margin,
+    custom_x,
+    custom_y,
+):
+    (
+        data_url,
+        aspect_ratio,
+        error,
+    ) = _load_preview_image(
+        image_value
+    )
+
+    if error:
+        return f"""
+        <div style="
+            position:absolute;
+            left:18px;
+            right:18px;
+            top:210px;
+            padding:10px;
+            border:1px dashed
+                rgba(255,170,90,.9);
+            border-radius:7px;
+            background:rgba(0,0,0,.55);
+            color:#ffd39a;
+            font:600 11px/1.35 sans-serif;
+            text-align:center;
+        ">
+            {html.escape(error)}
+        </div>
+        """
+
+    max_width = (
+        CANVAS_WIDTH
+        * scale_percent
+        / 100.0
+    )
+    max_height = (
+        CANVAS_HEIGHT
+        * 0.90
+    )
+
+    box_width = max_width
+    box_height = (
+        box_width
+        / aspect_ratio
+    )
+
+    if box_height > max_height:
+        box_height = max_height
+        box_width = (
+            box_height
+            * aspect_ratio
+        )
+
+    box_width = max(
+        1,
+        box_width,
+    )
+    box_height = max(
+        1,
+        box_height,
+    )
+
+    (
+        left,
+        top,
+    ) = _position_box(
+        position,
+        box_width,
+        box_height,
+        h_margin,
+        v_margin,
+        custom_x,
+        custom_y,
+    )
+
+    return f"""
+    <img
+        src="{data_url}"
+        alt="Watermark preview"
+        style="
+            position:absolute;
+            left:{left:.1f}px;
+            top:{top:.1f}px;
+            width:{box_width:.1f}px;
+            height:{box_height:.1f}px;
+            object-fit:contain;
+            opacity:{opacity:.3f};
+            pointer-events:none;
+            filter:drop-shadow(
+                0 1px 2px
+                rgba(0,0,0,.35)
+            );
+        "
+    />
+    """
+
+
+def _text_mark_html(
+    text,
+    position,
+    scale_percent,
+    opacity,
+    h_margin,
+    v_margin,
+    custom_x,
+    custom_y,
+):
+    label = html.escape(
+        str(
+            text
+            or "WATERMARK"
+        )
+    )
+
+    box_width = _clamp(
+        max(
+            (
+                CANVAS_WIDTH
+                * scale_percent
+                / 100.0
+            ),
+            min(
+                170,
+                16 + len(label) * 7,
+            ),
+        ),
+        45,
+        170,
+    )
+    box_height = 28
+
+    (
+        left,
+        top,
+    ) = _position_box(
+        position,
+        box_width,
+        box_height,
+        h_margin,
+        v_margin,
+        custom_x,
+        custom_y,
+    )
+
+    return f"""
+    <div style="
+        position:absolute;
+        left:{left:.1f}px;
+        top:{top:.1f}px;
+        width:{box_width:.1f}px;
+        min-height:{box_height:.1f}px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:4px 7px;
+        box-sizing:border-box;
+        border-radius:5px;
+        background:rgba(0,0,0,.45);
+        color:white;
+        font:700 11px/1.1 sans-serif;
+        opacity:{opacity:.3f};
+        overflow:hidden;
+        text-align:center;
+        word-break:break-word;
+    ">
+        {label}
+    </div>
+    """
+
+
 def watermark_safe_area_preview(
     mode,
+    image_path,
     text,
     position,
     scale_percent,
@@ -143,104 +484,61 @@ def watermark_safe_area_preview(
     custom_x,
     custom_y,
 ):
-    mode = mode or "disabled"
+    mode = str(
+        mode
+        or "disabled"
+    ).lower()
+
+    position = str(
+        position
+        or "top_right"
+    )
 
     scale_percent = _clamp(
-        float(scale_percent or 12),
+        scale_percent or 12,
         1,
         100,
     )
 
     opacity = (
         _clamp(
-            float(opacity_percent or 85),
+            opacity_percent or 85,
             0,
             100,
         )
-        / 100
+        / 100.0
     )
 
-    if mode == "disabled":
-        mark_html = ""
+    if mode == "image":
+        mark_html = (
+            _image_mark_html(
+                image_path,
+                position,
+                scale_percent,
+                opacity,
+                h_margin,
+                v_margin,
+                custom_x,
+                custom_y,
+            )
+        )
+
+    elif mode == "text":
+        mark_html = (
+            _text_mark_html(
+                text,
+                position,
+                scale_percent,
+                opacity,
+                h_margin,
+                v_margin,
+                custom_x,
+                custom_y,
+            )
+        )
 
     else:
-        if mode == "image":
-            label = "LOGO"
-        else:
-            label = html.escape(
-                str(
-                    text
-                    or "WATERMARK"
-                )
-            )
-
-        box_width = _clamp(
-            (
-                CANVAS_WIDTH
-                * scale_percent
-                / 100
-            ),
-            30,
-            170,
-        )
-
-        if mode == "text":
-            text_width = min(
-                170,
-                16 + len(label) * 7,
-            )
-
-            box_width = _clamp(
-                max(
-                    box_width,
-                    text_width,
-                ),
-                45,
-                170,
-            )
-
-        if mode == "text":
-            box_height = 28
-        else:
-            box_height = max(
-                24,
-                box_width * 0.45,
-            )
-
-        left, top = _position_box(
-            position,
-            box_width,
-            box_height,
-            h_margin,
-            v_margin,
-            custom_x,
-            custom_y,
-        )
-
-        mark_html = f"""
-        <div style="
-            position:absolute;
-            left:{left:.1f}px;
-            top:{top:.1f}px;
-            width:{box_width:.1f}px;
-            height:{box_height:.1f}px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:3px;
-            box-sizing:border-box;
-            border:1px solid rgba(255,255,255,.9);
-            border-radius:5px;
-            background:rgba(0,0,0,.45);
-            color:white;
-            font:700 11px/1.1 sans-serif;
-            opacity:{opacity:.3f};
-            overflow:hidden;
-            text-align:center;
-        ">
-            {label}
-        </div>
-        """
+        mark_html = ""
 
     return f"""
     <div style="
@@ -345,10 +643,12 @@ def watermark_safe_area_preview(
           font:13px/1.45 sans-serif;
           padding-top:8px;
       ">
-        Keep important branding inside the green guide.
-        The red and amber areas approximate controls,
-        captions, profile information, and navigation
-        used by TikTok, Instagram Reels, and YouTube Shorts.
+        The preview uses the uploaded image,
+        its real aspect ratio, selected opacity,
+        scale, position, and margins. Transparent
+        padding is ignored so the preview matches
+        the normalized asset used during final
+        rendering.
       </div>
     </div>
     """

@@ -1,4 +1,5 @@
 import os
+import shlex
 import subprocess
 
 from scripts import watermark
@@ -13,6 +14,84 @@ def _escape_filter_path(path):
     )
 
 
+def _probe_duration(path):
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            (
+                "default="
+                "noprint_wrappers=1:"
+                "nokey=1"
+            ),
+            path,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    return float(
+        result.stdout.strip()
+    )
+
+
+def _validate_render(
+    input_path,
+    output_path,
+):
+    if not os.path.isfile(output_path):
+        raise RuntimeError(
+            "Rendered output was not created: "
+            f"{output_path}"
+        )
+
+    output_size = os.path.getsize(
+        output_path
+    )
+
+    if output_size <= 0:
+        raise RuntimeError(
+            "Rendered output is empty: "
+            f"{output_path}"
+        )
+
+    input_duration = _probe_duration(
+        input_path
+    )
+    output_duration = _probe_duration(
+        output_path
+    )
+
+    tolerance = max(
+        0.75,
+        input_duration * 0.01,
+    )
+
+    if (
+        abs(
+            input_duration
+            - output_duration
+        )
+        > tolerance
+    ):
+        raise RuntimeError(
+            "Rendered output duration mismatch: "
+            f"input={input_duration:.3f}s, "
+            f"output={output_duration:.3f}s, "
+            f"file={output_path}"
+        )
+
+    return {
+        "size": output_size,
+        "duration": output_duration,
+    }
+
+
 def burn_video_file(
     video_path,
     subtitle_path,
@@ -22,19 +101,29 @@ def burn_video_file(
     watermark_asset=None,
 ):
     """
-    Burn ASS subtitles into one video.
+    Render one final clip.
 
-    When watermarking is enabled, FFmpeg applies
-    the watermark first and subtitles second.
+    Visual order:
+        source video
+        -> watermark
+        -> ASS subtitles
+        -> encoded MP4
     """
     subtitle_file_ffmpeg = (
-        _escape_filter_path(subtitle_path)
+        _escape_filter_path(
+            subtitle_path
+        )
     )
 
     watermark_enabled = bool(
         watermark_config
-        and watermark_config.get("mode")
-        in {"image", "text"}
+        and watermark_config.get(
+            "mode"
+        )
+        in {
+            "image",
+            "text",
+        }
     )
 
     def run_ffmpeg(
@@ -54,26 +143,49 @@ def burn_video_file(
         if watermark_enabled:
             command.extend(
                 [
-                    "-loop",
-                    "1",
-                    "-framerate",
-                    "30",
                     "-i",
                     watermark_asset,
                 ]
             )
 
-            filter_complex = (
-                watermark.build_filter(
-                    watermark_config,
-                    video_path,
-                )
+            (
+                filter_complex,
+                filter_summary,
+            ) = watermark.build_filter(
+                watermark_config,
+                video_path,
             )
 
             filter_complex += (
                 ";[watermarked]"
-                f"subtitles='{subtitle_file_ffmpeg}'"
+                f"subtitles="
+                f"'{subtitle_file_ffmpeg}'"
                 "[video_out]"
+            )
+
+            print(
+                "Watermark render settings: "
+                f"asset={watermark_asset} "
+                f"video="
+                f"{filter_summary['video_width']}x"
+                f"{filter_summary['video_height']} "
+                f"target_max="
+                f"{filter_summary['target_width']}x"
+                f"{filter_summary['target_height']}px "
+                f"position="
+                f"{filter_summary['position']} "
+                f"opacity="
+                f"{filter_summary['opacity']:.2f} "
+                f"range="
+                f"{filter_summary['start']:.2f}-"
+                f"{filter_summary['end']:.2f}s",
+                flush=True,
+            )
+
+            print(
+                "Watermark filter: "
+                f"{filter_complex}",
+                flush=True,
             )
 
             command.extend(
@@ -104,19 +216,41 @@ def burn_video_file(
                 encoder,
                 "-preset",
                 preset,
-                "-b:v",
-                "5M",
+            ]
+        )
+
+        if encoder == "h264_nvenc":
+            command.extend(
+                [
+                    "-b:v",
+                    "5M",
+                ]
+            )
+        else:
+            command.extend(
+                [
+                    "-crf",
+                    "20",
+                ]
+            )
+
+        command.extend(
+            [
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",
                 "copy",
+                "-movflags",
+                "+faststart",
+                output_path,
             ]
         )
 
-        if watermark_enabled:
-            command.append("-shortest")
-
-        command.append(output_path)
+        print(
+            "FFmpeg command: "
+            + shlex.join(command),
+            flush=True,
+        )
 
         subprocess.run(
             command,
@@ -125,59 +259,104 @@ def burn_video_file(
             text=True,
         )
 
+        return _validate_render(
+            video_path,
+            output_path,
+        )
+
     try:
-        run_ffmpeg(
+        validation = run_ffmpeg(
             "h264_nvenc",
             "p1",
         )
 
-        return True, "NVENC Success"
-
-    except subprocess.CalledProcessError as nvenc_error:
-        print(
-            f"NVENC failed ({nvenc_error}). "
-            "Falling back to libx264..."
+        return (
+            True,
+            "NVENC Success",
+            validation,
         )
 
-        try:
-            run_ffmpeg(
-                "libx264",
-                "ultrafast",
-            )
+    except Exception as nvenc_error:
+        if isinstance(
+            nvenc_error,
+            subprocess.CalledProcessError,
+        ):
+            nvenc_detail = (
+                nvenc_error.stderr
+                or ""
+            ).strip()
+        else:
+            nvenc_detail = str(
+                nvenc_error
+            ).strip()
 
-            return True, "CPU Success"
+        print(
+            "NVENC render failed. "
+            "Falling back to libx264."
+            + (
+                f" Details: {nvenc_detail}"
+                if nvenc_detail
+                else ""
+            ),
+            flush=True,
+        )
 
-        except subprocess.CalledProcessError as cpu_error:
-            ffmpeg_log = (
+    try:
+        validation = run_ffmpeg(
+            "libx264",
+            "ultrafast",
+        )
+
+        return (
+            True,
+            "CPU Success",
+            validation,
+        )
+
+    except Exception as cpu_error:
+        if isinstance(
+            cpu_error,
+            subprocess.CalledProcessError,
+        ):
+            cpu_detail = (
                 cpu_error.stderr
                 or ""
             ).strip()
+        else:
+            cpu_detail = str(
+                cpu_error
+            ).strip()
 
-            message = (
-                "Failed to render subtitles for "
-                f"{os.path.basename(video_path)}: "
-                f"{cpu_error}"
+        message = (
+            "Failed to render final video "
+            f"{os.path.basename(video_path)}"
+        )
+
+        if cpu_detail:
+            message += (
+                f" | FFmpeg: {cpu_detail}"
             )
 
-            if ffmpeg_log:
-                message += (
-                    f" | FFmpeg: {ffmpeg_log}"
-                )
+        print(
+            message,
+            flush=True,
+        )
 
-            print(message)
-
-            return False, message
-
-    except Exception as error:
-        return False, str(error)
+        return (
+            False,
+            message,
+            None,
+        )
 
 
 def burn(
     project_folder="tmp",
     watermark_config=None,
 ):
-    project_folder_abs = os.path.abspath(
-        project_folder
+    project_folder_abs = (
+        os.path.abspath(
+            project_folder
+        )
     )
 
     subs_folder = os.path.join(
@@ -198,13 +377,17 @@ def burn(
         exist_ok=True,
     )
 
-    if not os.path.isdir(videos_folder):
+    if not os.path.isdir(
+        videos_folder
+    ):
         raise FileNotFoundError(
             "Final video folder not found: "
             f"{videos_folder}"
         )
 
-    if not os.path.isdir(subs_folder):
+    if not os.path.isdir(
+        subs_folder
+    ):
         raise FileNotFoundError(
             "ASS subtitle folder not found: "
             f"{subs_folder}"
@@ -225,8 +408,28 @@ def burn(
     )
 
     watermark_enabled = (
-        config["mode"] != "disabled"
+        config["mode"]
+        != "disabled"
     )
+
+    if watermark_enabled:
+        asset_info = (
+            watermark.describe_asset(
+                watermark_asset
+            )
+        )
+
+        print(
+            "Watermark asset ready: "
+            f"path={asset_info['path']} "
+            f"size="
+            f"{asset_info['width']}x"
+            f"{asset_info['height']} "
+            f"alpha="
+            f"{asset_info['alpha_min']}-"
+            f"{asset_info['alpha_max']}",
+            flush=True,
+        )
 
     files = sorted(
         os.listdir(videos_folder)
@@ -268,9 +471,14 @@ def burn(
         if not os.path.exists(
             subtitle_file
         ):
-            processed_candidate = os.path.join(
-                subs_folder,
-                f"{video_name}_processed.ass",
+            processed_candidate = (
+                os.path.join(
+                    subs_folder,
+                    (
+                        f"{video_name}"
+                        "_processed.ass"
+                    ),
+                )
             )
 
             if os.path.exists(
@@ -286,7 +494,8 @@ def burn(
             print(
                 "Subtitle not found for "
                 f"{video_name}: "
-                f"{subtitle_file}"
+                f"{subtitle_file}",
+                flush=True,
             )
             continue
 
@@ -296,26 +505,39 @@ def burn(
         )
         output_file = os.path.join(
             output_folder,
-            f"{video_name}_subtitled.mp4",
+            (
+                f"{video_name}"
+                "_subtitled.mp4"
+            ),
         )
 
         if watermark_enabled:
-            print(
-                "Applying watermark before "
-                f"subtitles: {video_name}..."
+            action = (
+                "Applying watermark "
+                "before subtitles"
             )
         else:
-            print(
-                f"Burning subtitles: "
-                f"{video_name}..."
+            action = (
+                "Burning subtitles"
             )
 
-        success, message = burn_video_file(
+        print(
+            f"{action}: {video_name}...",
+            flush=True,
+        )
+
+        (
+            success,
+            message,
+            validation,
+        ) = burn_video_file(
             input_file,
             subtitle_file,
             output_file,
             watermark_config=config,
-            watermark_asset=watermark_asset,
+            watermark_asset=(
+                watermark_asset
+            ),
         )
 
         if not success:
@@ -324,14 +546,18 @@ def burn(
         rendered_count += 1
 
         print(
-            f"Done: {output_file}"
+            "Done: "
+            f"{output_file} "
+            f"({validation['size']} bytes, "
+            f"{validation['duration']:.2f}s)",
+            flush=True,
         )
 
     if rendered_count == 0:
         raise FileNotFoundError(
             "No videos were rendered because "
-            "matching ASS subtitle files "
-            "were not found."
+            "matching ASS subtitle files were "
+            "not found."
         )
 
     return output_folder

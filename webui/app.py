@@ -1457,7 +1457,13 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         label=i18n(
                             "Watermark Image"
                         ),
-                        file_types=["image"],
+                        file_types=[
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                            ".webp",
+                            ".bmp",
+                        ],
                         file_count="single",
                         type="filepath",
                     )
@@ -1673,22 +1679,23 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             )
                         )
 
-                    watermark_preview = gr.HTML(
-                        value=(
-                            branding
-                            .watermark_safe_area_preview(
-                                "disabled",
-                                "",
-                                "top_right",
-                                12,
-                                85,
-                                40,
-                                40,
-                                40,
-                                40,
+                        watermark_preview = gr.HTML(
+                            value=(
+                                branding
+                                .watermark_safe_area_preview(
+                                    "disabled",
+                                    None,
+                                    "",
+                                    "top_right",
+                                    12,
+                                    85,
+                                    40,
+                                    40,
+                                    40,
+                                    40,
+                                )
                             )
                         )
-                    )
 
                 def update_watermark_mode(
                     selected_mode,
@@ -1741,6 +1748,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
 
                 watermark_preview_inputs = [
                     watermark_mode_input,
+                    watermark_image_input,
                     watermark_text_input,
                     watermark_position_input,
                     watermark_scale_input,
