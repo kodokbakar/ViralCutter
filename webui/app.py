@@ -478,7 +478,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, transcription_preset, model, whisper_language, whisper_batch_size, whisper_chunk_size, prompt_template, 
+def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, smart_clipping, smart_clipping_mode, smart_snap_margin, transcription_preset, model, whisper_language, whisper_batch_size, whisper_chunk_size, prompt_template, 
                      ai_backend, api_key, ai_model_name, chunk_size, workflow, 
                      face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
@@ -574,6 +574,10 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     cmd.extend(["--max-duration", str(int(max_duration))])
     cmd.extend(["--pre-roll", str(float(pre_roll))])
     cmd.extend(["--post-roll", str(float(post_roll))])
+    if smart_clipping:
+        cmd.append("--smart-clipping")
+        cmd.extend(["--smart-clipping-mode", str(smart_clipping_mode)])
+        cmd.extend(["--smart-snap-margin", str(float(smart_snap_margin or 0.05))])
     cmd.extend(["--model", model])
     cmd.extend(["--language", whisper_language or "auto"])
     cmd.extend(["--whisper-preset", transcription_preset or "custom"])
@@ -868,6 +872,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     full_logs, logs = append_log_pair(full_logs, logs, f"Workflow: {workflow}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Segments: {int(segments)} | Viral mode: {bool(viral)}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Duration: {int(min_duration)}s-{int(max_duration)}s | Pre-roll: {float(pre_roll)}s | Post-roll: {float(post_roll)}s", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"Smart-Clipping: {bool(smart_clipping)} | Mode: {smart_clipping_mode} | Snap: {float(smart_snap_margin or 0.05)}s", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper preset: {transcription_preset or 'custom'}", "CONFIG")
     whisper_batch_display = int(whisper_batch_size) if whisper_batch_size else "default"
     whisper_chunk_display = int(whisper_chunk_size) if whisper_chunk_size else "default"
@@ -1203,6 +1208,24 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     with gr.Row():
                         pre_roll_input = gr.Number(label=i18n("Pre-roll (s)"), value=1.25)
                         post_roll_input = gr.Number(label=i18n("Post-roll (s)"), value=0.75)
+                    with gr.Group():
+                        smart_clipping_input = gr.Checkbox(label=i18n("Automated Smart-Clipping (Experimental)"), value=False)
+                        with gr.Row(visible=False) as smart_clipping_options:
+                            smart_clipping_mode_input = gr.Dropdown(
+                                choices=[
+                                    (i18n("Multi-Segment Splice (Hook + Core + Payoff)"), "splice"),
+                                    (i18n("Single Continuous Topic"), "continuous")
+                                ],
+                                value="splice",
+                                label=i18n("Smart-Clipping Mode")
+                            )
+                            smart_snap_margin_input = gr.Number(label=i18n("Word Snap Margin (s)"), value=0.05, precision=2)
+
+                    smart_clipping_input.change(
+                        lambda enabled: gr.update(visible=enabled),
+                        inputs=smart_clipping_input,
+                        outputs=smart_clipping_options
+                    )
                 with gr.Column(scale=1):
                     with gr.Row():
                         ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value="gemini", scale=2)
@@ -1873,7 +1896,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input,
+                 input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input, smart_clipping_input, smart_clipping_mode_input, smart_snap_margin_input,
                  transcription_preset_input, model_input, whisper_language_input, whisper_batch_size_input, whisper_chunk_size_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 

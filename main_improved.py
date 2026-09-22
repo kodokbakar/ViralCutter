@@ -28,6 +28,7 @@ from scripts import (
     save_json,
     organize_output,
     translate_json,
+    smart_clipping,
 )
 from i18n.i18n import I18nAuto
 
@@ -172,6 +173,9 @@ def main():
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
     parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
+    parser.add_argument("--smart-clipping", action="store_true", help="Enable Automated Smart-Clipping")
+    parser.add_argument("--smart-clipping-mode", choices=["splice", "continuous"], default="splice", help="Smart-clipping mode: 'splice' (Hook+Core+Payoff) or 'continuous'")
+    parser.add_argument("--smart-snap-margin", type=float, default=0.05, help="Word snapping safety margin in seconds (default: 0.05)")
     parser.add_argument(
         "--watermark-mode",
         choices=[
@@ -683,21 +687,34 @@ def main():
                             print(i18n("Error loading existing JSON: {}.").format(e))
                     
                 if not viral_segments:
-                    print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
-                    viral_segments = create_viral_segments.create(
-                        num_segments,
-                        viral_mode,
-                        themes,
-                        args.min_duration,
-                        args.max_duration,
-                        ai_mode=ai_backend,
-                        api_key=api_key,
-                        project_folder=project_folder,
-                        chunk_size_arg=args.chunk_size,
-                        model_name_arg=args.ai_model_name,
-                        prompt_file_arg=args.prompt_file,
-                    )
-                
+                    if args.smart_clipping:
+                        print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))
+                        viral_segments = smart_clipping.run_smart_clipping_pipeline(
+                            project_folder=project_folder,
+                            min_duration=args.min_duration,
+                            max_duration=args.max_duration,
+                            mode=args.smart_clipping_mode,
+                            snap_margin=args.smart_snap_margin,
+                            ai_backend=ai_backend,
+                            api_key=api_key,
+                            ai_model_name=args.ai_model_name,
+                            num_segments=num_segments,
+                        )
+                    else:
+                        print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
+                        viral_segments = create_viral_segments.create(
+                            num_segments,
+                            viral_mode,
+                            themes,
+                            args.min_duration,
+                            args.max_duration,
+                            ai_mode=ai_backend,
+                            api_key=api_key,
+                            project_folder=project_folder,
+                            chunk_size_arg=args.chunk_size,
+                            model_name_arg=args.ai_model_name,
+                            prompt_file_arg=args.prompt_file,
+                        )
                 if not viral_segments or not viral_segments.get("segments"):
                     print(i18n("Error: No viral segments were generated."))
                     print(i18n("Possible reasons: API error, Model not found, or empty response."))

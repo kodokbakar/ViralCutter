@@ -318,3 +318,135 @@ def splice_topic_segments(
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     return output_path
+
+def run_smart_clipping_pipeline(
+    project_folder: str,
+    min_duration: float = 15.0,
+    max_duration: float = 90.0,
+    mode: str = "splice",
+    snap_margin: float = 0.05,
+    ai_backend: str = "gemini",
+    api_key: Optional[str] = None,
+    ai_model_name: Optional[str] = None,
+    num_segments: int = 3
+) -> Dict[str, Any]:
+    """
+    End-to-end automated smart clipping pipeline:
+    1. Loads word transcript from input.json.
+    2. Generates narrative context prompt and queries LLM.
+    3. Extracts and snaps narrative topics (Hook, Core, Payoff) to word boundaries.
+    4. Splices segments with FFmpeg into ready-to-use short video files.
+    5. Returns formatted viral_segments dictionary.
+    """
+    from scripts import create_viral_segments
+
+    input_video = os.path.join(project_folder, "input.mp4")
+    if not os.path.exists(input_video):
+        alt_video = os.path.join(project_folder, "input_video.mp4")
+        if os.path.exists(alt_video):
+            input_video = alt_video
+
+    # Load word transcript
+    input_json_path = os.path.join(project_folder, "input.json")
+    transcript_data = {}
+    if os.path.exists(input_json_path):
+        with open(input_json_path, "r", encoding="utf-8") as f:
+            transcript_data = json.load(f)
+
+    words = extract_words_from_transcript(transcript_data)
+
+    # Build transcript text for LLM
+    transcript_segments = create_viral_segments.load_transcript(project_folder)
+    transcript_text = create_viral_segments.preprocess_transcript_for_ai(transcript_segments)
+
+    prompt = build_narrative_prompt(
+        transcript_text=transcript_text,
+        target_min=min_duration,
+        target_max=max_duration,
+        num_topics=num_segments
+    )
+
+    # Query LLM backend
+    print(f"[SMART-CLIPPING] Analyzing narrative context using {ai_backend.upper()}...")
+    llm_response = ""
+    if ai_backend == "gemini":
+        llm_response = create_viral_segments.call_gemini(prompt, api_key=api_key, model_name=ai_model_name or "gemini-2.5-flash-lite-preview-09-2025")
+    elif ai_backend == "g4f":
+        llm_response = create_viral_segments.call_g4f(prompt, model_name=ai_model_name or "gpt-4o-mini")
+    elif ai_backend == "local":
+        llm_response = create_viral_segments.call_local_llm(prompt, model_name=ai_model_name)
+    else:
+        print("[SMART-CLIPPING] Manual AI backend selected or unrecognized; relying on fallback.")
+
+    topics = parse_narrative_topics(llm_response)
+    if not topics:
+        print("[SMART-CLIPPING] Warning: No narrative topics parsed from LLM response. Using segment fallbacks.")
+        # Fallback to standard viral segments if parsing fails
+        return create_viral_segments.create(
+            num_segments,
+            True,
+            "",
+            min_duration,
+            max_duration,
+            ai_mode=ai_backend,
+            api_key=api_key,
+            project_folder=project_folder,
+            model_name_arg=ai_model_name
+        )
+
+    clips_folder = os.path.join(project_folder, "smart_clips")
+    os.makedirs(clips_folder, exist_ok=True)
+
+    viral_segments_list = []
+    for idx, topic in enumerate(topics):
+        snapped_topic = snap_narrative_topic_segments(topic, words, margin=snap_margin)
+        segs = snapped_topic["segments"]
+        hook = segs.get("hook", {})
+        core = segs.get("core", {})
+        payoff = segs.get("payoff", {})
+
+        title = snapped_topic.get("title", f"Smart_Clip_{idx+1}")
+        safe_title = "".join(c for c in title if c.isalnum() or c in " _-").strip().replace(" ", "_")[:50]
+        output_filename = f"clip_{idx+1:03d}_{safe_title}.mp4"
+        output_clip_path = os.path.join(clips_folder, output_filename)
+
+        segments_to_splice = []
+        if mode == "continuous":
+            # Continuous from hook start to payoff end
+            start = hook.get("snapped_start", hook.get("start_time", 0.0))
+            end = payoff.get("snapped_end", payoff.get("end_time", start + min_duration))
+            segments_to_splice.append((start, end))
+        else:
+            # Multi-segment splice: Hook + Core + Payoff
+            for part in [hook, core, payoff]:
+                s = part.get("snapped_start", part.get("start_time", 0.0))
+                e = part.get("snapped_end", part.get("end_time", 0.0))
+                if e > s:
+                    segments_to_splice.append((s, e))
+
+        if os.path.exists(input_video) and segments_to_splice:
+            print(f"[SMART-CLIPPING] Splicing topic {idx+1}/{len(topics)}: '{title}' ({len(segments_to_splice)} parts)...")
+            try:
+                splice_topic_segments(input_video, segments_to_splice, output_clip_path)
+            except Exception as e:
+                print(f"[SMART-CLIPPING] Error splicing clip {idx+1}: {e}")
+
+        earliest_start = min(s for s, e in segments_to_splice) if segments_to_splice else 0.0
+        latest_end = max(e for s, e in segments_to_splice) if segments_to_splice else min_duration
+        total_duration = sum(e - s for s, e in segments_to_splice) if segments_to_splice else (latest_end - earliest_start)
+
+        full_text = " ".join([hook.get("text", ""), core.get("text", ""), payoff.get("text", "")]).strip()
+
+        viral_segments_list.append({
+            "title": title,
+            "start_time": earliest_start,
+            "end_time": latest_end,
+            "duration": round(total_duration, 3),
+            "text": full_text,
+            "hook": hook,
+            "core": core,
+            "payoff": payoff,
+            "smart_clip_path": output_clip_path
+        })
+
+    return {"segments": viral_segments_list}
