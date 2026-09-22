@@ -94,3 +94,124 @@ def snap_segment_boundaries(
         snapped_end = max(snapped_start + min_duration, end_time)
 
     return snapped_start, snapped_end
+
+def build_narrative_prompt(
+    transcript_text: str,
+    target_min: float = 20.0,
+    target_max: float = 90.0,
+    num_topics: int = 3
+) -> str:
+    return f"""You are an elite short-form video editor specializing in narrative retention.
+Analyze the following transcript with timestamps and extract {num_topics} standalone, high-impact topics.
+
+Each topic MUST have a strict 3-part storytelling structure:
+1. Hook (Pemantik): The opening question, bold statement, or intriguing premise that stops the scroll (approx 3-10s).
+2. Core (Pembahasan Inti): The essential explanation, story body, or argument.
+3. Payoff (Klimaks / Penutup): The key conclusion, unexpected twist, practical takeaway, or satisfying punchline.
+
+Target duration for the total spliced topic is between {int(target_min)}s and {int(target_max)}s.
+The sub-segments may be continuous or skip boring filler/tangents.
+
+TRANSCRIPT:
+{transcript_text}
+
+OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
+{{
+  "topics": [
+    {{
+      "title": "Short punchy title",
+      "rationale": "Why this story holds retention",
+      "target_duration": 45.0,
+      "segments": {{
+        "hook": {{
+          "start_time": 0.0,
+          "end_time": 5.0,
+          "text": "Exact text of the hook"
+        }},
+        "core": {{
+          "start_time": 12.0,
+          "end_time": 35.0,
+          "text": "Exact text of the core"
+        }},
+        "payoff": {{
+          "start_time": 50.0,
+          "end_time": 60.0,
+          "text": "Exact text of the payoff"
+        }}
+      }}
+    }}
+  ]
+}}
+"""
+
+def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
+    """
+    Parses LLM response into normalized list of topic dictionaries.
+    """
+    import re
+    cleaned = re.sub(r'<think>.*?</think>', '', str(llm_response), flags=re.DOTALL)
+    cleaned = re.sub(r'```(?:json)?', '', cleaned)
+    cleaned = cleaned.strip()
+
+    data = None
+    try:
+        data = json.loads(cleaned)
+    except Exception:
+        match = re.search(r'\{.*"topics"\s*:\s*\[.*\]\s*\}', cleaned, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+            except Exception:
+                return []
+        else:
+            return []
+
+    raw_topics = data.get("topics", []) if isinstance(data, dict) else []
+    valid_topics = []
+    for t in raw_topics:
+        if not isinstance(t, dict):
+            continue
+        segs = t.get("segments", {})
+        if not isinstance(segs, dict):
+            continue
+
+        normalized_segs = {}
+        for key in ["hook", "core", "payoff"]:
+            part = segs.get(key, {})
+            if isinstance(part, dict):
+                normalized_segs[key] = {
+                    "start_time": float(part.get("start_time", 0.0)),
+                    "end_time": float(part.get("end_time", 0.0)),
+                    "text": str(part.get("text", "")).strip()
+                }
+
+        if normalized_segs:
+            valid_topics.append({
+                "title": str(t.get("title", "Untitled Topic")),
+                "rationale": str(t.get("rationale", "")),
+                "target_duration": float(t.get("target_duration", 0.0)),
+                "segments": normalized_segs
+            })
+
+    return valid_topics
+
+def snap_narrative_topic_segments(
+    topic: Dict[str, Any],
+    words: List[Dict[str, Any]],
+    margin: float = 0.05
+) -> Dict[str, Any]:
+    """
+    Snaps all sub-segments of a topic (hook, core, payoff) to word boundaries.
+    """
+    updated_topic = json.loads(json.dumps(topic))
+    segs = updated_topic.get("segments", {})
+
+    for key, seg in segs.items():
+        s = seg.get("start_time", 0.0)
+        e = seg.get("end_time", 0.0)
+        snapped_s, snapped_e = snap_segment_boundaries(s, e, words, margin=margin)
+        seg["snapped_start"] = snapped_s
+        seg["snapped_end"] = snapped_e
+        seg["duration"] = round(snapped_e - snapped_s, 3)
+
+    return updated_topic
