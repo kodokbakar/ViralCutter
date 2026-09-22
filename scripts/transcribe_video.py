@@ -1,7 +1,10 @@
 import os
 import sys
 import subprocess
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 import time
 import gc
 import re
@@ -20,7 +23,7 @@ def log_step(message):
 
 
 def log_gpu_state(label):
-    if not torch.cuda.is_available():
+    if torch is None or not torch.cuda.is_available():
         log_step(f"{label}: CUDA unavailable")
         return
 

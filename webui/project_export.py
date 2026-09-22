@@ -16,10 +16,7 @@ EXPORT_FILES = [
     "process_config.json",
 ]
 
-ROOT_EXTRA_PATTERNS = [
-    "compilation.mp4",
-    "compilation.srt",
-]
+ROOT_EXTRA_PATTERNS = []
 
 
 def _safe_project_name(project_path):
@@ -89,8 +86,6 @@ def build_project_zip(project_path):
                 filename,
             )
 
-        # Current compile_segments.py writes compilation.mp4 at project root,
-        # not inside compiled/. Include it so compiled output is not missed.
         for filename in ROOT_EXTRA_PATTERNS:
             added += _add_file(
                 zip_file,
