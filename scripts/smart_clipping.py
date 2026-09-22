@@ -215,3 +215,106 @@ def snap_narrative_topic_segments(
         seg["duration"] = round(snapped_e - snapped_s, 3)
 
     return updated_topic
+
+def extract_audio_for_transcription(video_path: str, output_wav: str) -> str:
+    """
+    Extracts 16kHz 16-bit mono PCM audio from video for fast, accurate speech transcription.
+    """
+    if os.path.exists(output_wav) and os.path.getsize(output_wav) > 1000:
+        return output_wav
+
+    out_dir = os.path.dirname(os.path.abspath(output_wav))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vn",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        output_wav
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return output_wav
+
+def build_ffmpeg_cut_command(video_path: str, start: float, end: float, output_path: str) -> List[str]:
+    """
+    Builds FFmpeg command to cut a segment accurately with re-encoding to avoid keyframe offset.
+    """
+    return [
+        "ffmpeg", "-y",
+        "-ss", f"{float(start):.3f}",
+        "-to", f"{float(end):.3f}",
+        "-i", video_path,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-avoid_negative_ts", "make_zero",
+        output_path
+    ]
+
+def splice_topic_segments(
+    video_path: str,
+    segments: List[Tuple[float, float]],
+    output_path: str,
+    temp_dir: Optional[str] = None
+) -> str:
+    """
+    Extracts sub-segments and splices them into one video file.
+    If single segment, cuts directly to output_path.
+    If multiple segments, cuts each and concats losslessly via concat demuxer.
+    """
+    import shutil
+    if not segments:
+        raise ValueError("No segments provided for splicing.")
+
+    out_dir = os.path.dirname(os.path.abspath(output_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    valid_segs = [(s, e) for s, e in segments if e > s]
+    if not valid_segs:
+        raise ValueError("All segments have zero or invalid duration.")
+
+    if len(valid_segs) == 1:
+        s, e = valid_segs[0]
+        cmd = build_ffmpeg_cut_command(video_path, s, e, output_path)
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return output_path
+
+    cleanup_temp = False
+    if not temp_dir:
+        temp_dir = os.path.join(out_dir or ".", "temp_splice")
+        cleanup_temp = True
+    os.makedirs(temp_dir, exist_ok=True)
+
+    sub_files = []
+    try:
+        for idx, (s, e) in enumerate(valid_segs):
+            sub_path = os.path.join(temp_dir, f"subseg_{idx:03d}.mp4")
+            cmd = build_ffmpeg_cut_command(video_path, s, e, sub_path)
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sub_files.append(sub_path)
+
+        concat_list_path = os.path.join(temp_dir, "concat_list.txt")
+        with open(concat_list_path, "w", encoding="utf-8") as f:
+            for p in sub_files:
+                f.write(f"file '{os.path.abspath(p)}'\n")
+
+        concat_cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_list_path,
+            "-c", "copy",
+            output_path
+        ]
+        subprocess.run(concat_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    finally:
+        if cleanup_temp and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return output_path
