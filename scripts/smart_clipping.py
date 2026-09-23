@@ -122,6 +122,7 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
       "title": "Short punchy title",
       "rationale": "Why this story holds retention",
       "target_duration": 45.0,
+      "score": 92,
       "segments": {{
         "hook": {{
           "start_time": 0.0,
@@ -185,14 +186,20 @@ def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
                     "text": str(part.get("text", "")).strip()
                 }
 
+        raw_score = t.get("score") or t.get("virality_score")
+        try:
+            score = int(raw_score)
+        except (TypeError, ValueError):
+            score = 85
+
         if normalized_segs:
             valid_topics.append({
                 "title": str(t.get("title", "Untitled Topic")),
                 "rationale": str(t.get("rationale", "")),
                 "target_duration": float(t.get("target_duration", 0.0)),
+                "score": score,
                 "segments": normalized_segs
             })
-
     return valid_topics
 
 def snap_narrative_topic_segments(
@@ -448,6 +455,10 @@ def run_smart_clipping_pipeline(
 
         viral_segments_list.append({
             "title": title,
+            "score": snapped_topic.get("score", 85),
+            "description": snapped_topic.get("rationale", ""),
+            "filepath": output_clip_path,
+            "filename": os.path.relpath(output_clip_path, project_folder),
             "start_time": earliest_start,
             "end_time": latest_end,
             "duration": round(total_duration, 3),

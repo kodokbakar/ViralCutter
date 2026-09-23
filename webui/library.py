@@ -65,7 +65,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
         # Fallback if list is empty
         if not segments_list:
              found_files = []
-             for subdir in ["burned_sub", "cuts", "."]:
+             for subdir in ["smart_clips", "burned_sub", "cuts", "."]:
                  d = os.path.join(project_folder_path, subdir)
                  if os.path.exists(d):
                      for f in os.listdir(d):
@@ -82,7 +82,8 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             description = seg.get("description", i18n("No description available."))
             
             video_path = seg.get("filepath", None)
-            
+            if not video_path and seg.get("smart_clip_path") and os.path.exists(seg.get("smart_clip_path")):
+                video_path = seg.get("smart_clip_path")
             # Smart search
             if not video_path:
                 idx_str = f"{i:03d}"
@@ -107,7 +108,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             
             # Loose search
             if not video_path:
-                 sub_dirs = [os.path.join(project_folder_path, "burned_sub"), os.path.join(project_folder_path, "cuts")]
+                 sub_dirs = [os.path.join(project_folder_path, "smart_clips"), os.path.join(project_folder_path, "burned_sub"), os.path.join(project_folder_path, "cuts")]
                  for sd in sub_dirs:
                      if os.path.exists(sd):
                          for f in sorted(os.listdir(sd)):
