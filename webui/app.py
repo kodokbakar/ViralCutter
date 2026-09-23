@@ -480,7 +480,7 @@ def apply_experimental_preset(preset_name):
 
 
 def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, segments, viral, themes, min_duration, max_duration, pre_roll, post_roll, smart_clipping, smart_clipping_mode, smart_snap_margin, transcription_preset, model, whisper_language, whisper_batch_size, whisper_chunk_size, prompt_template, 
-                     ai_backend, api_key, ai_model_name, chunk_size, workflow, 
+                     ai_backend, api_key, ai_base_url, ai_model_name, chunk_size, workflow, 
                      face_model, face_mode, face_detect_interval, no_face_mode,
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, 
                      active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
@@ -593,6 +593,8 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     cmd.extend(["--prompt-file", prompt_template_path])
     cmd.extend(["--ai-backend", ai_backend])
     if api_key: cmd.extend(["--api-key", api_key])
+    if ai_base_url and str(ai_base_url).strip():
+        cmd.extend(["--ai-base-url", str(ai_base_url).strip()])
     
     # New AI Params
     if ai_model_name: cmd.extend(["--ai-model-name", str(ai_model_name)])
@@ -879,7 +881,7 @@ def run_viral_cutter(input_source, project_name, url, gdrive_path, video_file, s
     whisper_chunk_display = int(whisper_chunk_size) if whisper_chunk_size else "default"
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper model: {model} | batch: {whisper_batch_display} | chunk: {whisper_chunk_display}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, f"Whisper language: {whisper_language or 'auto'}", "CONFIG")
-    full_logs, logs = append_log_pair(full_logs, logs, f"AI backend: {ai_backend}", "CONFIG")
+    full_logs, logs = append_log_pair(full_logs, logs, f"AI backend: {ai_backend} | Base URL: {ai_base_url or 'default'}", "CONFIG")
     full_logs, logs = append_log_pair(full_logs, logs, "Prompt template: WebUI override enabled", "CONFIG")
     full_logs, logs = append_log_pair(
         full_logs,
@@ -1229,21 +1231,43 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     )
                 with gr.Column(scale=1):
                     with gr.Row():
-                        ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value="gemini", scale=2)
+                        ai_backend_input = gr.Dropdown(
+                            choices=[
+                                (i18n("Gemini"), "gemini"),
+                                (i18n("G4F"), "g4f"),
+                                (i18n("Local (GGUF)"), "local"),
+                                (i18n("Custom (OpenAI-compatible)"), "custom"),
+                                (i18n("Manual"), "manual"),
+                            ],
+                            label=i18n("AI Backend"),
+                            value="gemini",
+                            scale=2,
+                        )
                         api_key_input = gr.Textbox(label=i18n("Gemini API Key"), type="password", scale=3)
                     
+                    custom_base_url_input = gr.Textbox(
+                        label=i18n("Custom API Base URL"),
+                        value="http://localhost:11434/v1",
+                        placeholder="http://localhost:11434/v1 or https://api.openai.com/v1",
+                        visible=False,
+                    )
+
                     # New Dynamic Inputs
                     with gr.Row():
                         ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("AI Model"), value=GEMINI_MODELS[1], allow_custom_value=True, visible=True, scale=5)
                         refresh_models_btn = gr.Button("🔄", size="sm", visible=False, scale=0, min_width=50) # Only local
                         chunk_size_input = gr.Number(label=i18n("Chunk Size"), value=70000, precision=0, scale=2)
-                    
+
+                    with gr.Row():
+                        test_ai_btn = gr.Button("🔌 " + i18n("Test Connection"), size="sm", scale=1)
+                        test_ai_status = gr.Textbox(label=i18n("Connection Status"), value="", interactive=False, scale=3)
                     # Update listeners with logic to hide/show API key
                     def update_ai_ui(backend):
-                        show_api = (backend == "gemini")
+                        show_api = (backend in ["gemini", "custom"])
+                        show_base_url = (backend == "custom")
                         show_refresh = (backend == "local")
+                        api_label = i18n("Gemini API Key") if backend == "gemini" else i18n("API Key (Bearer Token)")
                         
-                        # Definições padrão para evitar que fiquem vazios
                         new_choices = []
                         new_val = ""
                         new_chunk = 70000
@@ -1261,15 +1285,32 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             new_choices = models if models else [i18n("No models found")]
                             new_val = new_choices[0]
                             new_chunk = 30000
+                        elif backend == "custom":
+                            new_choices = ["gpt-4o-mini", "llama3.2", "deepseek-chat", "mistral"]
+                            new_val = "gpt-4o-mini"
+                            new_chunk = 40000
                         else: # Manual
-                             pass
+                            pass
 
                         return (
-                            gr.update(visible=show_api), # API Key Visibility (Fixes hole 1)
-                            gr.update(choices=new_choices, value=new_val, visible=(backend != "manual")), # Model Dropdown
-                            gr.update(visible=show_refresh), # Refresh Button
-                            gr.update(value=new_chunk) # Chunk Size
+                            gr.update(visible=show_api, label=api_label),
+                            gr.update(visible=show_base_url),
+                            gr.update(choices=new_choices, value=new_val, visible=(backend != "manual")),
+                            gr.update(visible=show_refresh),
+                            gr.update(value=new_chunk),
+                            gr.update(value="")
                         )
+
+                    def on_test_ai(backend, base_url, api_key, model_name):
+                        from scripts.create_viral_segments import verify_ai_connection
+                        ok, msg = verify_ai_connection(backend, base_url=base_url, api_key=api_key, model_name=model_name)
+                        return msg
+
+                    test_ai_btn.click(
+                        on_test_ai,
+                        inputs=[ai_backend_input, custom_base_url_input, api_key_input, ai_model_input],
+                        outputs=test_ai_status
+                    )
 
                     def refresh_local_models():
                         models = get_local_models()
@@ -1277,7 +1318,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         return gr.update(choices=models, value=val)
 
                     refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
-                    ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, ai_model_input, refresh_models_btn, chunk_size_input])
+                    ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, custom_base_url_input, ai_model_input, refresh_models_btn, chunk_size_input, test_ai_status])
 
                     transcription_preset_input = gr.Dropdown(
                         choices=[
@@ -1898,7 +1939,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
                  input_source, project_selector, url_input, gdrive_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, pre_roll_input, post_roll_input, smart_clipping_input, smart_clipping_mode_input, smart_snap_margin_input,
-                 transcription_preset_input, model_input, whisper_language_input, whisper_batch_size_input, whisper_chunk_size_input, prompt_template_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input,
+                 transcription_preset_input, model_input, whisper_language_input, whisper_batch_size_input, whisper_chunk_size_input, prompt_template_input, ai_backend_input, api_key_input, custom_base_url_input, ai_model_input, chunk_size_input,
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input,  
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
                  active_speaker_mar_input,
