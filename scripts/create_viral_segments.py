@@ -440,7 +440,7 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
-def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=120):
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360):
     """
     Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
     """
