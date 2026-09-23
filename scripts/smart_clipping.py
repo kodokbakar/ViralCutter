@@ -223,6 +223,63 @@ def snap_narrative_topic_segments(
 
     return updated_topic
 
+def parse_volumedetect_output(stderr_text: str) -> Tuple[float, float]:
+    """
+    Parses FFmpeg volumedetect filter output for mean_volume and max_volume.
+    Returns (mean_volume_db, max_volume_db).
+    """
+    import re
+    mean_match = re.search(r'mean_volume:\s*(-?[\d.]+)\s*dB', stderr_text)
+    max_match = re.search(r'max_volume:\s*(-?[\d.]+)\s*dB', stderr_text)
+
+    mean_vol = float(mean_match.group(1)) if mean_match else -30.0
+    max_vol = float(max_match.group(1)) if max_match else 0.0
+    return mean_vol, max_vol
+
+def compute_audio_energy_score(video_path: str, start: float, end: float) -> float:
+    """
+    Measures audio loudness and dynamic contrast of a segment via FFmpeg volumedetect.
+    Returns a normalized energy score between 40.0 and 100.0.
+    """
+    if not os.path.exists(video_path) or end <= start:
+        return 75.0
+
+    cmd = [
+        "ffmpeg", "-hide_banner",
+        "-ss", f"{float(start):.3f}",
+        "-to", f"{float(end):.3f}",
+        "-i", video_path,
+        "-vn",
+        "-af", "volumedetect",
+        "-f", "null",
+        "-"
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        mean_vol, max_vol = parse_volumedetect_output(proc.stderr)
+    except Exception:
+        return 75.0
+
+    dyn_range = max(0.0, max_vol - mean_vol)
+    loudness_factor = max(0.0, min(1.0, (mean_vol + 35.0) / 20.0))
+    dynamic_factor = max(0.0, min(1.0, (dyn_range - 5.0) / 15.0))
+
+    raw_energy = (0.5 * loudness_factor + 0.5 * dynamic_factor)
+    energy_score = 40.0 + (raw_energy * 60.0)
+    return round(energy_score, 1)
+
+def compute_hybrid_virality_score(
+    text_score: int,
+    audio_energy_score: float,
+    weight_text: float = 0.7,
+    weight_audio: float = 0.3
+) -> int:
+    """
+    Combines LLM narrative score with audio energy/dynamics score.
+    """
+    combined = (float(text_score) * weight_text) + (float(audio_energy_score) * weight_audio)
+    return max(1, min(100, int(round(combined))))
+
 def extract_audio_for_transcription(video_path: str, output_wav: str) -> str:
     """
     Extracts 16kHz 16-bit mono PCM audio from video for fast, accurate speech transcription.
@@ -453,9 +510,16 @@ def run_smart_clipping_pipeline(
 
         full_text = " ".join([hook.get("text", ""), core.get("text", ""), payoff.get("text", "")]).strip()
 
+        text_score = snapped_topic.get("score", 85)
+        audio_energy = 75.0
+        if os.path.exists(input_video) and segments_to_splice:
+            hook_s, hook_e = segments_to_splice[0]
+            audio_energy = compute_audio_energy_score(input_video, hook_s, hook_e)
+        final_score = compute_hybrid_virality_score(text_score, audio_energy)
+
         viral_segments_list.append({
             "title": title,
-            "score": snapped_topic.get("score", 85),
+            "score": final_score,
             "description": snapped_topic.get("rationale", ""),
             "filepath": output_clip_path,
             "filename": os.path.relpath(output_clip_path, project_folder),
