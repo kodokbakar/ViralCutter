@@ -177,6 +177,8 @@ def main():
     parser.add_argument("--smart-clipping", action="store_true", help="Enable Automated Smart-Clipping")
     parser.add_argument("--smart-clipping-mode", choices=["splice", "continuous"], default="splice", help="Smart-clipping mode: 'splice' (Hook+Core+Payoff) or 'continuous'")
     parser.add_argument("--smart-snap-margin", type=float, default=0.05, help="Word snapping safety margin in seconds (default: 0.05)")
+    parser.add_argument("--smart-remove-dead-air", action="store_true", help="Auto jump-cut awkward silence between words")
+    parser.add_argument("--smart-silence-threshold", type=float, default=0.6, help="Silence threshold in seconds to trigger jump-cut (default: 0.6)")
     parser.add_argument(
         "--watermark-mode",
         choices=[
@@ -700,6 +702,8 @@ def main():
                             api_key=api_key,
                             ai_model_name=args.ai_model_name,
                             base_url=args.ai_base_url,
+                            remove_dead_air=args.smart_remove_dead_air,
+                            silence_threshold=args.smart_silence_threshold,
                             num_segments=num_segments,
                         )
                     else:
