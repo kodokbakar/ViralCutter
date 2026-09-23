@@ -314,6 +314,7 @@ def export_project_zip(project_name):
     return project_export.build_project_zip(project_path)
 
 GEMINI_MODELS = [
+    'gemini-3.8-flash',
     'gemini-3.5-flash',
     'gemini-3-flash-preview',
     'gemini-3-pro-preview',
