@@ -95,6 +95,55 @@ def snap_segment_boundaries(
 
     return snapped_start, snapped_end
 
+def remove_dead_air_from_segment(
+    start_time: float,
+    end_time: float,
+    words: List[Dict[str, Any]],
+    silence_threshold: float = 0.6,
+    pad: float = 0.08,
+    min_slice_duration: float = 0.3
+) -> List[Tuple[float, float]]:
+    """
+    Detects awkward speech pauses (> silence_threshold seconds) between consecutive words
+    and splits the segment into active speech slices, cutting out the dead air.
+    """
+    if not words or end_time <= start_time:
+        return [(round(float(start_time), 3), round(float(end_time), 3))]
+
+    seg_words = [
+        w for w in words
+        if float(w.get("end", 0)) >= start_time and float(w.get("start", 0)) <= end_time
+    ]
+    seg_words.sort(key=lambda x: x["start"])
+
+    if len(seg_words) < 2:
+        return [(round(float(start_time), 3), round(float(end_time), 3))]
+
+    slices = []
+    current_slice_start = float(start_time)
+
+    for i in range(len(seg_words) - 1):
+        w_curr = seg_words[i]
+        w_next = seg_words[i + 1]
+
+        curr_end = float(w_curr["end"])
+        next_start = float(w_next["start"])
+        gap = next_start - curr_end
+
+        if gap > silence_threshold:
+            slice_end = min(float(end_time), round(curr_end + pad, 3))
+            if slice_end > current_slice_start + min_slice_duration:
+                slices.append((current_slice_start, slice_end))
+            current_slice_start = max(float(start_time), round(next_start - pad, 3))
+
+    final_end = float(end_time)
+    if final_end > current_slice_start + min_slice_duration:
+        slices.append((current_slice_start, final_end))
+    elif not slices:
+        slices.append((float(start_time), float(end_time)))
+
+    return slices
+
 def build_narrative_prompt(
     transcript_text: str,
     target_min: float = 20.0,
@@ -389,6 +438,8 @@ def run_smart_clipping_pipeline(
     max_duration: float = 90.0,
     mode: str = "splice",
     snap_margin: float = 0.05,
+    remove_dead_air: bool = True,
+    silence_threshold: float = 0.6,
     ai_backend: str = "gemini",
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
@@ -483,20 +534,25 @@ def run_smart_clipping_pipeline(
         output_filename = f"clip_{idx+1:03d}_{safe_title}.mp4"
         output_clip_path = os.path.join(clips_folder, output_filename)
 
-        segments_to_splice = []
+        raw_subsegs = []
         if mode == "continuous":
-            # Continuous from hook start to payoff end
             start = hook.get("snapped_start", hook.get("start_time", 0.0))
             end = payoff.get("snapped_end", payoff.get("end_time", start + min_duration))
-            segments_to_splice.append((start, end))
+            raw_subsegs.append((start, end))
         else:
-            # Multi-segment splice: Hook + Core + Payoff
             for part in [hook, core, payoff]:
                 s = part.get("snapped_start", part.get("start_time", 0.0))
                 e = part.get("snapped_end", part.get("end_time", 0.0))
                 if e > s:
-                    segments_to_splice.append((s, e))
+                    raw_subsegs.append((s, e))
 
+        segments_to_splice = []
+        for s, e in raw_subsegs:
+            if remove_dead_air and words:
+                slices = remove_dead_air_from_segment(s, e, words, silence_threshold=silence_threshold)
+                segments_to_splice.extend(slices)
+            else:
+                segments_to_splice.append((s, e))
         if os.path.exists(input_video) and segments_to_splice:
             print(f"[SMART-CLIPPING] Splicing topic {idx+1}/{len(topics)}: '{title}' ({len(segments_to_splice)} parts)...")
             try:
