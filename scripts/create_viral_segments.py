@@ -7,11 +7,10 @@ import ast
 import io
 
 # Configura stdout para evitar erros de encoding no Windows (substitui caracteres inválidos por ?)
-if sys.stdout and hasattr(sys.stdout, 'buffer'):
+if sys.platform == "win32" and sys.stdout and hasattr(sys.stdout, 'buffer') and "pytest" not in sys.modules:
     try:
-        # Mantém encoding original mas ignora erros (substitui por ?)
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=sys.stdout.encoding or 'utf-8', errors='replace', line_buffering=True)
-    except:
+    except Exception:
         pass
 
 # Tenta importar bibliotecas de IA opcionalmente
@@ -441,6 +440,103 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=120):
+    """
+    Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
+    """
+    import requests
+    base_url = str(base_url or "").strip().rstrip("/")
+    if not base_url:
+        raise ValueError("Custom API Base URL is empty.")
+
+    if not base_url.endswith("/chat/completions"):
+        endpoint = f"{base_url}/chat/completions"
+    else:
+        endpoint = base_url
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+    if api_key and str(api_key).strip():
+        headers["Authorization"] = f"Bearer {str(api_key).strip()}"
+
+    payload = {
+        "model": model_name or "gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.5
+    }
+
+    response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
+    if response.status_code != 200:
+        raise RuntimeError(f"Custom API failed ({response.status_code}): {response.text}")
+
+    data = response.json()
+    choices = data.get("choices", [])
+    if choices and isinstance(choices, list):
+        msg = choices[0].get("message", {})
+        content = msg.get("content", "")
+        if content:
+            return content
+
+    return json.dumps(data)
+
+def verify_ai_connection(backend, base_url="", api_key="", model_name=""):
+    """
+    Tests connectivity to the chosen AI backend.
+    Returns (success: bool, message: str).
+    """
+    import time
+    start_time = time.time()
+
+    if backend == "custom":
+        import requests
+        base_url = str(base_url or "").strip().rstrip("/")
+        if not base_url:
+            return False, "Base URL cannot be empty."
+
+        endpoint = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if api_key and str(api_key).strip():
+            headers["Authorization"] = f"Bearer {str(api_key).strip()}"
+
+        model = model_name or "default"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 5
+        }
+
+        try:
+            resp = requests.post(endpoint, json=payload, headers=headers, timeout=10)
+            latency_ms = int((time.time() - start_time) * 1000)
+            if resp.status_code == 200:
+                return True, f"Connected to {model}! ({latency_ms}ms)"
+            return False, f"HTTP {resp.status_code}: {resp.text[:120]}"
+        except Exception as e:
+            return False, f"Connection failed: {str(e)}"
+
+    elif backend == "gemini":
+        if not HAS_GEMINI:
+            return False, "google-genai package not installed."
+        if not api_key:
+            return False, "Gemini API key is required."
+        try:
+            with genai.Client(api_key=api_key.strip()) as client:
+                resp = client.models.generate_content(
+                    model=model_name or "gemini-2.5-flash-lite-preview-09-2025",
+                    contents="ping"
+                )
+                latency_ms = int((time.time() - start_time) * 1000)
+                if getattr(resp, "text", None):
+                    return True, f"Connected to Gemini! ({latency_ms}ms)"
+                return False, "Gemini returned empty response."
+        except Exception as e:
+            return False, f"Gemini error: {str(e)}"
+
+    return True, f"Backend '{backend}' ready."
+
 def load_transcript(project_folder):
     """Parses input.tsv or input.srt from the project folder."""
     input_tsv = os.path.join(project_folder, 'input.tsv')
@@ -660,7 +756,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     return final_result
 
 
-def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, prompt_file_arg=None):
+def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, prompt_file_arg=None, base_url_arg=None):
     quantidade_de_virals = num_segments
 
     # 1. Load Transcript
@@ -720,6 +816,10 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
         current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else 3000
         model_name = model_name_arg if model_name_arg else ""
 
+    elif ai_mode == "custom":
+        current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else 15000
+        model_name = model_name_arg if model_name_arg else "gpt-4o-mini"
+        base_url = base_url_arg or config.get("custom", {}).get("base_url", "http://localhost:11434/v1")
     system_prompt_template = ""
 
     if prompt_path and os.path.exists(prompt_path):
@@ -928,6 +1028,13 @@ OUTPUT JSON ONLY:
                 response_text = output['choices'][0]['message']['content']
             except Exception as e:
                 print(f"Error evaluating local model: {e}")
+                response_text = "{}"
+        elif ai_mode == "custom":
+            print(f"Enviando chunk {i+1} para Custom API (Base: {base_url}, Model: {model_name})...")
+            try:
+                response_text = call_custom_api(prompt, base_url=base_url, api_key=api_key, model_name=model_name)
+            except Exception as e:
+                print(f"[ERROR] Custom API call failed: {e}")
                 response_text = "{}"
 
         # --- Save RAW Response for Debugging ---
