@@ -145,8 +145,9 @@ def main():
     parser.add_argument("--whisper-preset", default="custom", choices=["fast", "balanced", "accurate", "custom"], help="WhisperX transcription preset")
     parser.add_argument("--whisper-batch-size", type=int, help="WhisperX batch size override")
     parser.add_argument("--whisper-chunk-size", type=int, help="WhisperX chunk size override")
-    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
-    parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
+    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local", "custom"], help="AI backend for viral analysis")
+    parser.add_argument("--ai-base-url", help="Base URL for custom OpenAI-compatible API (e.g. 'http://localhost:11434/v1')")
+    parser.add_argument("--api-key", help="API Key (required for Gemini or custom cloud AI)")
     
     parser.add_argument("--chunk-size", help="Override Chunk Size")
     parser.add_argument("--ai-model-name", help="Override AI Model Name")
@@ -698,6 +699,7 @@ def main():
                             ai_backend=ai_backend,
                             api_key=api_key,
                             ai_model_name=args.ai_model_name,
+                            base_url=args.ai_base_url,
                             num_segments=num_segments,
                         )
                     else:
@@ -714,6 +716,7 @@ def main():
                             chunk_size_arg=args.chunk_size,
                             model_name_arg=args.ai_model_name,
                             prompt_file_arg=args.prompt_file,
+                            base_url_arg=args.ai_base_url,
                         )
                 if not viral_segments or not viral_segments.get("segments"):
                     print(i18n("Error: No viral segments were generated."))
