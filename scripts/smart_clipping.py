@@ -328,6 +328,7 @@ def run_smart_clipping_pipeline(
     ai_backend: str = "gemini",
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
+    base_url: Optional[str] = None,
     num_segments: int = 3
 ) -> Dict[str, Any]:
     """
@@ -375,6 +376,13 @@ def run_smart_clipping_pipeline(
         llm_response = create_viral_segments.call_g4f(prompt, model_name=ai_model_name or "gpt-4o-mini")
     elif ai_backend == "local":
         llm_response = create_viral_segments.call_local_llm(prompt, model_name=ai_model_name)
+    elif ai_backend == "custom":
+        llm_response = create_viral_segments.call_custom_api(
+            prompt,
+            base_url=base_url or "http://localhost:11434/v1",
+            api_key=api_key or "",
+            model_name=ai_model_name or "gpt-4o-mini"
+        )
     else:
         print("[SMART-CLIPPING] Manual AI backend selected or unrecognized; relying on fallback.")
 
@@ -391,7 +399,8 @@ def run_smart_clipping_pipeline(
             ai_mode=ai_backend,
             api_key=api_key,
             project_folder=project_folder,
-            model_name_arg=ai_model_name
+            model_name_arg=ai_model_name,
+            base_url_arg=base_url
         )
 
     clips_folder = os.path.join(project_folder, "smart_clips")
