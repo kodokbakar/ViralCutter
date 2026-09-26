@@ -296,7 +296,7 @@ SUBTITLE_PRESETS = {
 }
 
 def generate_preview_html(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper, 
-                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc):
+                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc, bg_data_uri=None):
     
     # Debug inputs
     #print(f"DEBUG_HTML: Inputs - Color: {color}, Highlight: {highlight}, Outline: {outline}")
@@ -397,11 +397,11 @@ def generate_preview_html(font, size, color, highlight, outline, outline_thick, 
 
     <div style="
         position: relative;
-        background-color: #222; 
-        background-image: linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a), 
-                          linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a);
-        background-size: 20px 20px;
-        background-position: 0 0, 10px 10px;
+        background-color: #1a1a1a; 
+        background-image: {"url('" + bg_data_uri + "')" if bg_data_uri else "linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a), linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a)"};
+        background-size: {"cover" if bg_data_uri else "20px 20px"};
+        background-position: center;
+        background-repeat: no-repeat;
         padding: 40px; 
         border-radius: 8px; 
         text-align: center; 
@@ -471,7 +471,7 @@ def apply_preset(preset):
 import scripts.adjust_subtitles as adjust
 
 def render_preview_video(font, size, color, highlight, outline, outline_thick, shadow, shadow_sz, bold, italic, upper,
-                         h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc):
+                         h_size, w_block, gap, mode, under, strike, border_s, vert_pos, align, remove_punc, video_path=None):
     # Helper to convert HEX to ASS color &HBBGGRR&
     def hex_to_ass(h):
         try:
@@ -587,11 +587,17 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
         )
         
         # Render with ffmpeg
-        # Background color #333333 to match UI roughly. 
-        # Resolution 480x854 (9:16)
+        from webui import video_preview
+        input_args = ["-f", "lavfi", "-i", "color=c=0x333333:s=480x854:d=2.4"]
+        if video_path and os.path.exists(video_path):
+            snippet_path = os.path.join(preview_dir, "real_snippet_temp.mp4")
+            extracted = video_preview.extract_preview_snippet(video_path, snippet_path, duration=2.4, width=480, height=854)
+            if extracted and os.path.exists(extracted):
+                input_args = ["-i", extracted]
+
         cmd = [
             "ffmpeg", "-y", 
-            "-f", "lavfi", "-i", "color=c=0x333333:s=480x854:d=2.4",
+        ] + input_args + [
             "-vf",
             (
                 f"ass='{safe_ass_path}':"
@@ -601,7 +607,6 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an",
             out_vid_path
         ]
-
         preview_result = subprocess.run(
             cmd,
             cwd=WORKING_DIR,

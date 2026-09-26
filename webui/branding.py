@@ -483,6 +483,7 @@ def watermark_safe_area_preview(
     v_margin,
     custom_x,
     custom_y,
+    bg_data_uri=None,
 ):
     mode = str(
         mode
@@ -554,11 +555,7 @@ def watermark_safe_area_preview(
           border-radius:14px;
           overflow:hidden;
           border:1px solid #444;
-          background:linear-gradient(
-              160deg,
-              #252525,
-              #0b0b0b
-          );
+          background:{"url('" + bg_data_uri + "') center / cover no-repeat, #111" if bg_data_uri else "linear-gradient(160deg, #252525, #0b0b0b)"};
           box-shadow:
               0 12px 30px
               rgba(0,0,0,.3);

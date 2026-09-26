@@ -21,6 +21,7 @@ import subtitle_editor as editor # Module for Editor Logic
 import runtime_doctor
 import project_export
 import branding
+import video_preview
 
 # Path to the main script
 MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
@@ -1463,6 +1464,33 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             active_speaker_decay_input = gr.Slider(label=i18n("Switch Speed"), minimum=0.5, maximum=5.0, value=2.0, step=0.5, info=i18n("Speed to lose focus."))
 
                         experimental_preset_input.change(apply_experimental_preset, inputs=experimental_preset_input, outputs=[focus_active_speaker_input, active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input], queue=False)
+             preview_frame_uri = gr.State(value="")
+             preview_video_path = gr.State(value="")
+
+             def resolve_preview_context(source, upload_file, gdrive_choice, project_choice):
+                 video_path = None
+                 if source == "Upload Video" and upload_file:
+                     video_path = getattr(upload_file, "name", str(upload_file))
+                 elif source == "Google Drive" and gdrive_choice:
+                     video_path = gdrive_choice
+                 elif source == "Existing Project" and project_choice:
+                     candidates = [
+                         os.path.join(VIRALS_DIR, project_choice, "input.mp4"),
+                         os.path.join(VIRALS_DIR, project_choice, "input_video.mp4"),
+                     ]
+                     for c in candidates:
+                         if os.path.exists(c):
+                             video_path = c
+                             break
+
+                 if video_path and os.path.exists(video_path):
+                     frame_tmp = os.path.join(WORKING_DIR, "tmp", "preview_frame.jpg")
+                     extracted = video_preview.extract_preview_frame(video_path, frame_tmp)
+                     if extracted and os.path.exists(extracted):
+                         uri = video_preview.get_frame_as_data_uri(extracted)
+                         return uri, video_path
+
+                 return "", ""
              with gr.Accordion(
                  i18n("Watermark"),
                  open=False,
@@ -1797,6 +1825,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     watermark_v_margin_input,
                     watermark_custom_x_input,
                     watermark_custom_y_input,
+                    preview_frame_uri,
                 ]
 
                 for watermark_preview_input in (
@@ -1812,7 +1841,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         ),
                         outputs=watermark_preview,
                     )
-             with gr.Accordion(i18n("Subtitle Settings (alpha)"), open=False):
+             with gr.Accordion(i18n("Subtitle Settings"), open=False):
                 preset_input = gr.Dropdown(choices=[(i18n("Manual"), "Manual")] + [(i18n(k), k) for k in subs.SUBTITLE_PRESETS.keys()], label=i18n("Quick Presets"), value="Hormozi (Classic)")
                 use_custom_subs = gr.Checkbox(label=i18n("Enable Subtitle Customization (Includes Preset)"), value=True)
                 
@@ -1883,16 +1912,37 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 # Update manual inputs when preset changes
                 preset_input.change(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs, queue=False)
                 
+                preview_html_inputs = manual_inputs + [preview_frame_uri]
+
                 # Auto-update PREVIEW HTML on any change
                 for inp in manual_inputs:
-                    inp.change(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
+                    inp.change(subs.generate_preview_html, inputs=preview_html_inputs, outputs=preview_html, queue=False)
                 
-                # Render video button
+                # Render video button using real video if available
                 preview_vid_btn.click(
                     subs.render_preview_video,
-                    inputs=manual_inputs,
+                    inputs=manual_inputs + [preview_video_path],
                     outputs=preview_vid
                 )
+
+                # Auto-refresh watermark & subtitle previews when video source updates
+                for src_trigger in [video_upload, gdrive_input, project_selector]:
+                    src_trigger.change(
+                        resolve_preview_context,
+                        inputs=[input_source, video_upload, gdrive_input, project_selector],
+                        outputs=[preview_frame_uri, preview_video_path],
+                        queue=False,
+                    ).then(
+                        branding.watermark_safe_area_preview,
+                        inputs=watermark_preview_inputs,
+                        outputs=watermark_preview,
+                        queue=False,
+                    ).then(
+                        subs.generate_preview_html,
+                        inputs=preview_html_inputs,
+                        outputs=preview_html,
+                        queue=False,
+                    )
                 
                 # Initial load
                 demo.load(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
