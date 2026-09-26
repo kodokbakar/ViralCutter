@@ -24,7 +24,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
     font_entry = subtitle_fonts.resolve_font(
         font
     )
-    ass_font_name = font_entry["family"]
+    ass_font_name = font_entry.get("ass_name") or font_entry.get("label") or font_entry["family"]
 
     print(
         "Subtitle font selected: "

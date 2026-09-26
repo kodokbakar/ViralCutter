@@ -26,30 +26,35 @@ PREVIEW_CSS_FAMILY = "ViralCutterSubtitlePreview"
 FONT_CATALOG = {
     "montserrat_extrabold": {
         "label": "Montserrat ExtraBold",
+        "ass_name": "Montserrat ExtraBold",
         "filename": "Montserrat-ExtraBold.ttf",
         "fallback_family": "Montserrat",
         "weight": 800,
     },
     "poppins_extrabold": {
         "label": "Poppins ExtraBold",
+        "ass_name": "Poppins ExtraBold",
         "filename": "Poppins-ExtraBold.ttf",
         "fallback_family": "Poppins",
         "weight": 800,
     },
     "roboto_bold": {
         "label": "Roboto Bold",
+        "ass_name": "Roboto Bold",
         "filename": "Roboto-Bold.ttf",
         "fallback_family": "Roboto",
         "weight": 700,
     },
     "barlow_semibold": {
         "label": "Barlow SemiBold",
+        "ass_name": "Barlow SemiBold",
         "filename": "Barlow-SemiBold.ttf",
         "fallback_family": "Barlow",
         "weight": 600,
     },
     "anton_regular": {
         "label": "Anton Regular",
+        "ass_name": "Anton",
         "filename": "Anton-Regular.ttf",
         "fallback_family": "Anton",
         "weight": 400,
@@ -138,6 +143,7 @@ def _runtime_entry(font_id):
     return {
         "id": font_id,
         "label": catalog_entry["label"],
+        "ass_name": catalog_entry.get("ass_name", catalog_entry["label"]),
         "filename": catalog_entry[
             "filename"
         ],

@@ -1745,6 +1745,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             )
                         )
 
+                        with gr.Row():
+                            watermark_preview_btn = gr.Button("👁️ " + i18n("Preview Watermark"), size="sm")
                         watermark_preview = gr.HTML(
                             value=(
                                 branding
@@ -1828,19 +1830,12 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     preview_frame_uri,
                 ]
 
-                for watermark_preview_input in (
-                    watermark_preview_inputs
-                ):
-                    watermark_preview_input.change(
-                        (
-                            branding
-                            .watermark_safe_area_preview
-                        ),
-                        inputs=(
-                            watermark_preview_inputs
-                        ),
-                        outputs=watermark_preview,
-                    )
+                watermark_preview_btn.click(
+                    branding.watermark_safe_area_preview,
+                    inputs=watermark_preview_inputs,
+                    outputs=watermark_preview,
+                    queue=False,
+                )
              with gr.Accordion(i18n("Subtitle Settings"), open=False):
                 preset_input = gr.Dropdown(choices=[(i18n("Manual"), "Manual")] + [(i18n(k), k) for k in subs.SUBTITLE_PRESETS.keys()], label=i18n("Quick Presets"), value="Hormozi (Classic)")
                 use_custom_subs = gr.Checkbox(label=i18n("Enable Subtitle Customization (Includes Preset)"), value=True)
@@ -1931,11 +1926,6 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         resolve_preview_context,
                         inputs=[input_source, video_upload, gdrive_input, project_selector],
                         outputs=[preview_frame_uri, preview_video_path],
-                        queue=False,
-                    ).then(
-                        branding.watermark_safe_area_preview,
-                        inputs=watermark_preview_inputs,
-                        outputs=watermark_preview,
                         queue=False,
                     ).then(
                         subs.generate_preview_html,
