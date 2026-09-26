@@ -22,18 +22,33 @@ def set_url_mode(mode):
     global URL_MODE
     URL_MODE = mode
 
-def get_existing_projects():
+_PROJECTS_CACHE = []
+_PROJECTS_CACHE_TIME = 0
+_PROJECTS_CACHE_TTL = 30.0  # 30 seconds TTL to prevent freezing on Drive FUSE
+
+def get_existing_projects(force_refresh=False):
+    global _PROJECTS_CACHE, _PROJECTS_CACHE_TIME
+    import time
+    now = time.time()
+    if not force_refresh and _PROJECTS_CACHE and (now - _PROJECTS_CACHE_TIME < _PROJECTS_CACHE_TTL):
+        return list(_PROJECTS_CACHE)
+
     if not os.path.exists(VIRALS_DIR):
         return []
     try:
         projects = [d for d in os.listdir(VIRALS_DIR) if os.path.isdir(os.path.join(VIRALS_DIR, d))]
-        projects.sort(key=lambda x: os.path.getctime(os.path.join(VIRALS_DIR, x)), reverse=True)
-        return projects
-    except:
+        try:
+            projects.sort(key=lambda x: os.path.getctime(os.path.join(VIRALS_DIR, x)), reverse=True)
+        except Exception:
+            projects.sort(reverse=True)
+        _PROJECTS_CACHE = projects
+        _PROJECTS_CACHE_TIME = now
+        return list(projects)
+    except Exception:
         return []
 
 def refresh_projects():
-    projs = get_existing_projects()
+    projs = get_existing_projects(force_refresh=True)
     return gr.update(choices=projs, value=None)
 
 def generate_project_gallery(project_path_name, is_full_path=False):
