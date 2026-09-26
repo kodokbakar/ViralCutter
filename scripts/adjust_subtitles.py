@@ -121,33 +121,45 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         last_end_time = 0.0
 
         for segment in json_data.get('segments', []):
-            words = segment.get('words', [])
-            total_words = len(words)
+            raw_words = segment.get('words', [])
+            valid_words = []
+            for w in raw_words:
+                if isinstance(w, dict) and 'word' in w and 'start' in w and 'end' in w:
+                    try:
+                        s = float(w['start'])
+                        e = float(w['end'])
+                        if e > s:
+                            valid_words.append({**w, 'start': s, 'end': e})
+                    except (ValueError, TypeError):
+                        continue
 
+            valid_words.sort(key=lambda x: x['start'])
+            for idx in range(len(valid_words) - 1):
+                curr = valid_words[idx]
+                nxt = valid_words[idx + 1]
+                if curr['end'] > nxt['start']:
+                    curr['end'] = max(curr['start'] + 0.05, nxt['start'])
+
+            total_words = len(valid_words)
             i = 0
             while i < total_words:
                 block = []
                 while len(block) < words_per_block and i < total_words:
-                    current_word = words[i]
-                    if 'word' in current_word:
-                        if remove_punctuation:
-                            cleaned_word = re.sub(r'[.,!?;]', '', current_word['word'])
-                            block.append({**current_word, 'word': cleaned_word})
-                        else:
-                            block.append(current_word)
-
-                        if i + 1 < total_words:
-                            next_word = words[i + 1]
-                            if 'start' not in next_word or 'end' not in next_word:
-                                if remove_punctuation:
-                                    next_cleaned_word = re.sub(r'[.,!?;]', '', next_word['word'])
-                                    block[-1]['word'] += " " + next_cleaned_word
-                                else:
-                                    block[-1]['word'] += " " + next_word['word']
-                                i += 1
+                    current_word = valid_words[i]
+                    raw_text = str(current_word.get('word', ''))
+                    cleaned_word = re.sub(r'[.,!?;]', '', raw_text) if remove_punctuation else raw_text
+                    block.append({**current_word, 'word': cleaned_word})
                     i += 1
 
+                    # Smart natural break: break block at sentence end or natural pause
+                    has_punct = raw_text.rstrip().endswith(('.', '!', '?', ',', ';', ':'))
+                    has_pause = False
+                    if i < total_words:
+                        next_word = valid_words[i]
+                        has_pause = (next_word['start'] - current_word['end'] >= 0.35)
 
+                    if (has_punct or has_pause) and len(block) >= 1:
+                        break
                 # Uppercase transformation
                 if uppercase:
                      for w_item in block:
