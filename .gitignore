@@ -6,3 +6,5 @@ token_drive.json
 *_export.zip
 **/__pycache__/
 *.pyc
+debug_*.log
+/webui/PREVIEW/
