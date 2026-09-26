@@ -1150,8 +1150,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
 
                     def refresh_drive_videos(search_query):
                         try:
-                            choices = drive_browser.list_drive_videos(search_query)
-
+                            choices = drive_browser.list_drive_videos(search_query, force_refresh=True)
                             if not choices:
                                 return (
                                     gr.update(choices=[], value=None),
@@ -1208,7 +1207,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         segments_input = gr.Number(label=i18n("Segments"), value=3, precision=0)
                         viral_input = gr.Checkbox(label=i18n("Viral Mode"), value=True)
                     themes_input = gr.Textbox(label=i18n("Themes"), placeholder=i18n("funny, sad..."), visible=False)
-                    viral_input.change(lambda x: gr.update(visible=not x), viral_input, themes_input)
+                    viral_input.change(lambda x: gr.update(visible=not x), viral_input, themes_input, queue=False)
                     with gr.Row():
                         min_dur_input = gr.Number(label=i18n("Min Duration (s)"), value=15)
                         max_dur_input = gr.Number(label=i18n("Max Duration (s)"), value=90)
@@ -1234,7 +1233,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     smart_clipping_input.change(
                         lambda enabled: gr.update(visible=enabled),
                         inputs=smart_clipping_input,
-                        outputs=smart_clipping_options
+                        outputs=smart_clipping_options,
+                        queue=False,
                     )
                 with gr.Column(scale=1):
                     with gr.Row():
@@ -1326,8 +1326,8 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         val = models[0] if models else i18n("No models found")
                         return gr.update(choices=models, value=val)
 
-                    refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
-                    ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, custom_base_url_input, ai_model_input, custom_model_input, refresh_models_btn, chunk_size_input, test_ai_status])
+                    refresh_models_btn.click(refresh_local_models, outputs=ai_model_input, queue=False)
+                    ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, custom_base_url_input, ai_model_input, custom_model_input, refresh_models_btn, chunk_size_input, test_ai_status], queue=False)
 
                     transcription_preset_input = gr.Dropdown(
                         choices=[
@@ -1388,6 +1388,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             whisper_chunk_size_input,
                             transcription_preset_status,
                         ],
+                        queue=False,
                     )
                     with gr.Accordion(i18n("AI Prompt Template"), open=False):
                         prompt_template_input = gr.Textbox(
@@ -1432,7 +1433,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     
                     
                     # Update listeners now that all components are defined
-                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, gdrive_group, project_selector, video_upload, workflow_input])
+                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, gdrive_group, project_selector, video_upload, workflow_input], queue=False)
                     gdrive_refresh_btn.click(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
                     gdrive_search_input.submit(refresh_drive_videos, inputs=gdrive_search_input, outputs=[gdrive_input, gdrive_status])
              
@@ -1444,7 +1445,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                       face_conf_thresh_input = gr.Slider(label=i18n("Minimum Confidence (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.40, step=0.05, info=i18n("Ignore detections with low confidence."))
                       face_dead_zone_input = gr.Slider(label=i18n("Dead Zone (Stabilization)"), minimum=0, maximum=200, value=150, step=5, info=i18n("Movement pixels to ignore."))
                  
-                 face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input])
+                 face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input], queue=False)
 
                  with gr.Accordion(i18n("Experimental: Active Speaker & Motion"), open=False):
                         experimental_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in EXPERIMENTAL_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Off)", interactive=True)
@@ -1461,7 +1462,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                             active_speaker_motion_sensitivity_input = gr.Slider(label=i18n("Motion Sensitivity"), minimum=0.01, maximum=0.5, value=0.05, step=0.01, info=i18n("Points per pixel."))
                             active_speaker_decay_input = gr.Slider(label=i18n("Switch Speed"), minimum=0.5, maximum=5.0, value=2.0, step=0.5, info=i18n("Speed to lose focus."))
 
-                        experimental_preset_input.change(apply_experimental_preset, inputs=experimental_preset_input, outputs=[focus_active_speaker_input, active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input])
+                        experimental_preset_input.change(apply_experimental_preset, inputs=experimental_preset_input, outputs=[focus_active_speaker_input, active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input], queue=False)
              with gr.Accordion(
                  i18n("Watermark"),
                  open=False,
@@ -1768,6 +1769,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         watermark_text_group,
                         watermark_settings_group,
                     ],
+                    queue=False,
                 )
 
                 watermark_position_input.change(
@@ -1781,6 +1783,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     ),
                     inputs=watermark_position_input,
                     outputs=watermark_custom_group,
+                    queue=False,
                 )
 
                 watermark_preview_inputs = [
@@ -1878,7 +1881,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 ]
                 
                 # Update manual inputs when preset changes
-                preset_input.change(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs)
+                preset_input.change(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs, queue=False)
                 
                 # Auto-update PREVIEW HTML on any change
                 for inp in manual_inputs:
@@ -2030,7 +2033,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 files = editor.list_editable_files(proj_path)
                 return gr.update(choices=files, value=files[0] if files else None)
 
-            editor_project_dropdown.change(update_file_list, inputs=editor_project_dropdown, outputs=editor_file_dropdown)
+            editor_project_dropdown.change(update_file_list, inputs=editor_project_dropdown, outputs=editor_file_dropdown, queue=False)
 
             def load_subs(proj_name, file_name):
                 if not proj_name or not file_name:
