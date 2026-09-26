@@ -2237,6 +2237,73 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
             </p>
         </div>
         """)
+def extract_cloudflare_url(log_text: str):
+    import re
+    match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", str(log_text or ""))
+    return match.group(0) if match else None
+
+def get_or_download_cloudflared():
+    import shutil
+    import urllib.request
+    which_path = shutil.which("cloudflared")
+    if which_path:
+        return which_path
+
+    candidates = [
+        "/content/cloudflared",
+        os.path.join(WORKING_DIR, "cloudflared"),
+        "/tmp/cloudflared"
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+
+    if sys.platform.startswith("linux"):
+        target_path = "/content/cloudflared" if os.path.exists("/content") else "/tmp/cloudflared"
+        download_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+        try:
+            print(f"[INFO] Downloading cloudflared binary to {target_path}...")
+            urllib.request.urlretrieve(download_url, target_path)
+            os.chmod(target_path, 0o755)
+            return target_path
+        except Exception as e:
+            print(f"[WARN] Failed to download cloudflared: {e}")
+            return None
+
+    return None
+
+def start_cloudflare_tunnel(port=7860, timeout=25):
+    binary = get_or_download_cloudflared()
+    if not binary:
+        return None, None
+
+    import atexit
+    cmd = [binary, "tunnel", "--url", f"http://127.0.0.1:{port}", "--metrics", "localhost:0"]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        atexit.register(lambda: proc.kill() if proc.poll() is None else None)
+
+        start_time = time.time()
+        tunnel_url = None
+        while time.time() - start_time < timeout:
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+            extracted = extract_cloudflare_url(line)
+            if extracted:
+                tunnel_url = extracted
+                break
+
+        return proc, tunnel_url
+    except Exception as e:
+        print(f"[WARN] Error launching cloudflared process: {e}")
+        return None, None
 if __name__ == "__main__":
     import webbrowser
     import threading
@@ -2245,35 +2312,46 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--colab", action="store_true", help="Run in Google Colab mode")
+    parser.add_argument("--tunnel", choices=["cloudflare", "gradio", "both", "none"], default="cloudflare", help="Tunnel type for Colab/remote access (default: cloudflare)")
     args = parser.parse_args()
 
     if args.colab:
-        print("Running in Colab mode. Generating public link with Static Mounts...")
+        print("Running in Colab mode. Preparing high-speed connection...")
         library.set_url_mode("fastapi")
-        
-        # Broaden allowed paths for Colab
         allowed_dirs = [VIRALS_DIR, WORKING_DIR, os.getcwd(), "."]
-        
-        # Explicitly set static paths
         try:
             gr.set_static_paths(paths=allowed_dirs)
-            print(f"DEBUG: Registered static paths: {allowed_dirs}")
         except AttributeError:
-            print("DEBUG: gr.set_static_paths not available")
-        
-        print(f"DEBUG: Allowed paths for Gradio: {allowed_dirs}")
-        
-        # Launch with prevent_thread_lock to allow mounting
+            pass
+
+        use_cloudflare = args.tunnel in ["cloudflare", "both"]
+        cf_proc = None
+        cf_url = None
+        if use_cloudflare:
+            print("Starting high-speed Cloudflare Tunnel (low latency)...")
+            cf_proc, cf_url = start_cloudflare_tunnel(port=7860)
+
+        enable_share = (args.tunnel == "both") or (args.tunnel == "gradio") or (use_cloudflare and not cf_url)
+
+        if cf_url:
+            print("\n" + "=" * 76)
+            print("🚀 HIGH-SPEED CLOUDFLARE TUNNEL ACTIVE (Jakarta/Singapore Edge Routing):")
+            print(f"🔗 Public URL: {cf_url}")
+            print("=" * 76 + "\n")
+        elif use_cloudflare:
+            print("[WARN] Cloudflare tunnel unavailable; falling back to Gradio share=True...")
+
         app, local_url, share_url = demo.queue().launch(
-            share=True, 
+            share=enable_share,
             allowed_paths=allowed_dirs,
+            server_name="127.0.0.1" if not enable_share else "0.0.0.0",
+            server_port=7860,
             prevent_thread_lock=True
         )
-        
-        # Mount the VIRALS directory explicitly
+
         app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
         print(f"Mounted /virals to {VIRALS_DIR}")
-        
+
         demo.block_thread()
     else:
         # Check environment
