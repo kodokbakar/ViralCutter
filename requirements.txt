@@ -36,6 +36,7 @@ websockets==15.0.1
 pydantic>=2.9,<2.12
 fastapi>=0.115.2,<1
 uvicorn
+python-multipart
 
 # Utilities
 psutil

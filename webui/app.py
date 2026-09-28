@@ -2277,176 +2277,103 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
             </p>
         </div>
         """)
-def extract_cloudflare_url(log_text: str):
-    import re
-    match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", str(log_text or ""))
-    return match.group(0) if match else None
 
-def get_or_download_cloudflared():
-    import shutil
-    import urllib.request
-    which_path = shutil.which("cloudflared")
-    if which_path:
-        return which_path
+import argparse
+from typing import Optional
+# Import tunnel utilities from webui.tunnel for modular architecture & backward compatibility
+from webui.tunnel import (
+    CloudflaredTunnel,
+    extract_cloudflare_url,
+    get_or_download_cloudflared,
+    start_cloudflare_tunnel,
+    stop_cloudflare_tunnel,
+)
 
-    candidates = [
-        "/content/cloudflared",
-        os.path.join(WORKING_DIR, "cloudflared"),
-        "/tmp/cloudflared"
-    ]
-    for c in candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
 
-    if sys.platform.startswith("linux"):
-        target_path = "/content/cloudflared" if os.path.exists("/content") else "/tmp/cloudflared"
-        download_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-        try:
-            print(f"[INFO] Downloading cloudflared binary to {target_path}...")
-            urllib.request.urlretrieve(download_url, target_path)
-            os.chmod(target_path, 0o755)
-            return target_path
-        except Exception as e:
-            print(f"[WARN] Failed to download cloudflared: {e}")
-            return None
+def ensure_frontend_built():
+    """Ensure static SPA frontend dist exists; attempt auto-build with npm if available."""
+    from webui.backend.config import FRONTEND_DIST_DIR
+    dist_index = FRONTEND_DIST_DIR / "index.html"
+    if not dist_index.exists():
+        npm_bin = shutil.which("npm")
+        frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+        if npm_bin and os.path.exists(os.path.join(frontend_dir, "package.json")):
+            print("[INFO] Frontend dist not found. Building SPA assets via npm...")
+            try:
+                subprocess.run([npm_bin, "run", "build"], cwd=frontend_dir, check=True)
+                print("[INFO] Frontend SPA assets built successfully.")
+            except Exception as e:
+                print(f"[WARN] Failed to auto-build frontend SPA: {e}")
+        else:
+            print("[WARN] Frontend dist not built and npm not found. Run 'npm run build' inside webui/frontend.")
 
-    return None
 
-def start_cloudflare_tunnel(port=7860, timeout=25):
-    binary = get_or_download_cloudflared()
-    if not binary:
-        return None, None
-
-    import atexit
-    cmd = [binary, "tunnel", "--url", f"http://127.0.0.1:{port}", "--metrics", "localhost:0"]
+def launch_legacy_gradio(args, host: str = "0.0.0.0", port: int = 7860, tunnel_type: str = "none"):
+    """Launch the legacy Gradio WebUI."""
+    print("Launching legacy Gradio interface as fallback...")
+    is_windows = (os.name == 'nt')
+    library.set_url_mode("fastapi")
+    allowed_dirs = [VIRALS_DIR, WORKING_DIR, os.getcwd(), "."]
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
-        )
-        atexit.register(lambda: proc.kill() if proc.poll() is None else None)
+        gr.set_static_paths(paths=allowed_dirs)
+    except AttributeError:
+        pass
 
-        start_time = time.time()
-        tunnel_url = None
-        while time.time() - start_time < timeout:
-            line = proc.stdout.readline()
-            if not line and proc.poll() is not None:
-                break
-            extracted = extract_cloudflare_url(line)
-            if extracted:
-                tunnel_url = extracted
-                break
+    use_cloudflare = tunnel_type in ["cloudflare", "both"]
+    cf_proc = None
+    cf_url = None
+    if use_cloudflare:
+        print("Starting high-speed Cloudflare Tunnel (low latency)...")
+        cf_proc, cf_url = start_cloudflare_tunnel(port=port, host="127.0.0.1")
 
-        return proc, tunnel_url
-    except Exception as e:
-        print(f"[WARN] Error launching cloudflared process: {e}")
-        return None, None
-if __name__ == "__main__":
-    import webbrowser
-    import threading
-    import time
-    import argparse
+    if cf_url:
+        print("\n" + "=" * 76)
+        print("🚀 HIGH-SPEED CLOUDFLARE TUNNEL ACTIVE (Legacy Gradio):")
+        print(f"🔗 Public URL: {cf_url}")
+        print("=" * 76 + "\n")
+    elif use_cloudflare:
+        print("[WARN] Cloudflare tunnel unavailable; continuing with direct server launch...")
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--colab", action="store_true", help="Run in Google Colab mode")
-    parser.add_argument("--tunnel", choices=["cloudflare", "gradio", "both", "none"], default="cloudflare", help="Tunnel type for Colab/remote access (default: cloudflare)")
-    args = parser.parse_args()
+    enable_share = (tunnel_type == "both") or (tunnel_type == "gradio") or (use_cloudflare and not cf_url and getattr(args, "colab", False))
 
-    if args.colab:
-        print("Running in Colab mode. Preparing high-speed connection...")
-        library.set_url_mode("fastapi")
-        allowed_dirs = [VIRALS_DIR, WORKING_DIR, os.getcwd(), "."]
-        try:
-            gr.set_static_paths(paths=allowed_dirs)
-        except AttributeError:
-            pass
-
-        use_cloudflare = args.tunnel in ["cloudflare", "both"]
-        cf_proc = None
-        cf_url = None
-        if use_cloudflare:
-            print("Starting high-speed Cloudflare Tunnel (low latency)...")
-            cf_proc, cf_url = start_cloudflare_tunnel(port=7860)
-
-        enable_share = (args.tunnel == "both") or (args.tunnel == "gradio") or (use_cloudflare and not cf_url)
-
-        if cf_url:
-            print("\n" + "=" * 76)
-            print("🚀 HIGH-SPEED CLOUDFLARE TUNNEL ACTIVE (Jakarta/Singapore Edge Routing):")
-            print(f"🔗 Public URL: {cf_url}")
-            print("=" * 76 + "\n")
-        elif use_cloudflare:
-            print("[WARN] Cloudflare tunnel unavailable; falling back to Gradio share=True...")
-
+    if getattr(args, "colab", False):
         app, local_url, share_url = demo.queue().launch(
             share=enable_share,
             allowed_paths=allowed_dirs,
-            server_name="127.0.0.1" if not enable_share else "0.0.0.0",
-            server_port=7860,
-            prevent_thread_lock=True
+            server_name="127.0.0.1" if not enable_share else host,
+            server_port=port,
+            prevent_thread_lock=True,
         )
-
         app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
         print(f"Mounted /virals to {VIRALS_DIR}")
-
+        demo.block_thread()
+    elif is_windows:
+        print("Running in Windows environment (using Gradio launch for convenience).")
+        app, local_url, share_url = demo.queue().launch(
+            share=False,
+            allowed_paths=allowed_dirs,
+            inbrowser=True,
+            server_name=host,
+            server_port=port,
+            prevent_thread_lock=True,
+        )
+        app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
         demo.block_thread()
     else:
-        # Check environment
-        is_windows = (os.name == 'nt')
-        
-        library.set_url_mode("fastapi")
-        allowed_dirs = [VIRALS_DIR, WORKING_DIR, os.getcwd(), "."]
-        try:
-            gr.set_static_paths(paths=allowed_dirs)
-        except AttributeError: pass
-        
-        from fastapi.responses import FileResponse
-        from fastapi import BackgroundTasks
+        print("Running in Linux/Container environment (using Uvicorn for stability).")
+        app = FastAPI()
+        app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
+        app = gr.mount_gradio_app(app, demo.queue(), path="/", allowed_paths=allowed_dirs, ssr_mode=False)
+        uvicorn.run(app, host=host, port=port)
 
-        # Helper to attach routes to any FastAPI app (whether created by Gradio or us)
-        def attach_extra_routes(fastapi_app):
-            fastapi_app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
-            
-            @fastapi_app.get("/export_xml_api")
-            def export_xml_api(project: str, segment: int, background_tasks: BackgroundTasks, format: str = "premiere"):
-                try:
-                    project_path = os.path.join(VIRALS_DIR, project)
-                    script_path = os.path.join(WORKING_DIR, "scripts", "export_xml.py")
-                    cmd = [sys.executable, script_path, "--project", project_path, "--segment", str(segment), "--format", format]
-                    subprocess.run(cmd, check=True)
-                    proj_name = os.path.basename(project_path)
-                    zip_filename = f"export_{proj_name}_seg{segment}.zip"
-                    file_path = os.path.join(project_path, zip_filename)
-                    if os.path.exists(file_path):
-                        return FileResponse(file_path, filename=zip_filename, media_type='application/zip')
-                    else:
-                        return {"error": f"File generation failed. Expected: {file_path}"}
-                except Exception as e:
-                    return {"error": str(e)}
-            
-            print(f"Mounted /virals to {VIRALS_DIR}")
 
-        if is_windows:
-            print("Running in Windows environment (using Gradio launch for convenience).")
-            # Windows: Use demo.launch() for convenience (auto-browser, etc)
-            app, local_url, share_url = demo.queue().launch(
-                share=False, 
-                allowed_paths=allowed_dirs, 
-                inbrowser=True,
-                server_name="0.0.0.0",
-                server_port=7860,
-                prevent_thread_lock=True
-            )
-            attach_extra_routes(app)
-            demo.block_thread()
-        else:
-            print("Running in Linux/Container environment (using Uvicorn for stability).")
-            # Linux/HF: Use Uvicorn for explicit loop control
-            app = FastAPI()
-            attach_extra_routes(app)
-            # Disable SSR to prevent Node proxying issues on HF Spaces
-            app = gr.mount_gradio_app(app, demo.queue(), path="/", allowed_paths=allowed_dirs, ssr_mode=False)
-            uvicorn.run(app, host="0.0.0.0", port=7860)
+from webui.runner import (
+    build_cli_parser,
+    create_parser,
+    ensure_frontend_built,
+    launch_modern_webui,
+    main,
+)
+
+if __name__ == "__main__":
+    sys.exit(main())
