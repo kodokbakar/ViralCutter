@@ -100,3 +100,68 @@ def test_launch_modern_webui_lifecycle():
         mock_tunnel_instance.start.assert_called_once()
         mock_uvicorn.assert_called_once()
         mock_tunnel_instance.stop.assert_called_once()
+
+
+def test_main_gradio_tunnel_warning_without_legacy(capsys):
+    with patch("webui.runner.launch_modern_webui") as mock_launch:
+        main(["--tunnel", "gradio"])
+        mock_launch.assert_called_once()
+        _, kwargs = mock_launch.call_args
+        assert kwargs["tunnel_type"] == "none"
+    captured = capsys.readouterr()
+    assert "[WARN] Gradio tunneling (--tunnel gradio) only applies to legacy Gradio interface" in captured.out
+
+
+def test_main_both_tunnel_warning_without_legacy(capsys):
+    with patch("webui.runner.launch_modern_webui") as mock_launch:
+        main(["--tunnel", "both"])
+        mock_launch.assert_called_once()
+        _, kwargs = mock_launch.call_args
+        assert kwargs["tunnel_type"] == "cloudflare"
+    captured = capsys.readouterr()
+    assert "[WARN] Gradio tunneling only applies to legacy Gradio interface" in captured.out
+
+
+def test_main_legacy_gradio_resolves_webui_modules_without_modulenotfound(monkeypatch):
+    import sys
+    from pathlib import Path
+
+    webui_dir = str(Path(__file__).resolve().parent.parent / "webui")
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != webui_dir])
+
+    with patch("webui.app.launch_legacy_gradio") as mock_launch:
+        main(["--legacy-gradio"])
+        mock_launch.assert_called_once()
+    assert webui_dir in sys.path
+
+
+def test_clean_subprocess_legacy_gradio_import():
+    import os
+    import subprocess
+    import sys
+
+    code = "from webui.runner import main; from unittest.mock import patch; patch('webui.app.launch_legacy_gradio').start(); main(['--legacy-gradio'])"
+    res = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env={**dict(os.environ), "PYTHONPATH": ""},
+    )
+    assert res.returncode == 0, f"Subprocess failed with stderr: {res.stderr}"
+
+
+def test_clean_subprocess_direct_webui_app_import():
+    import os
+    import subprocess
+    import sys
+
+    code = "import webui.app; assert hasattr(webui.app, 'launch_legacy_gradio')"
+    res = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env={**dict(os.environ), "PYTHONPATH": ""},
+    )
+    assert res.returncode == 0, f"Subprocess failed with stderr: {res.stderr}"
+
+

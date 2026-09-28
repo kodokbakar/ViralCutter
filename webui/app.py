@@ -1,7 +1,16 @@
-import gradio as gr
-import subprocess
 import os
 import sys
+
+# Ensure webui directory and project root are in sys.path for sibling bare imports
+_webui_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_webui_dir)
+if _webui_dir not in sys.path:
+    sys.path.insert(0, _webui_dir)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+import gradio as gr
+import subprocess
 import json
 import psutil
 import shutil
@@ -24,9 +33,8 @@ import branding
 import video_preview
 
 # Path to the main script
-MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
-WORKING_DIR = os.path.dirname(MAIN_SCRIPT_PATH)
-sys.path.append(WORKING_DIR)
+MAIN_SCRIPT_PATH = os.path.join(_project_root, "main_improved.py")
+WORKING_DIR = _project_root
 
 from i18n.i18n import I18nAuto
 i18n = I18nAuto()

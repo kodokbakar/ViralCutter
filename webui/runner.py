@@ -12,10 +12,13 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-# Ensure project root is in sys.path when invoked directly as a script
+# Ensure project root and webui dir are in sys.path when invoked directly as a script
 project_root = Path(__file__).resolve().parent.parent
+webui_dir = Path(__file__).resolve().parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+if str(webui_dir) not in sys.path:
+    sys.path.insert(0, str(webui_dir))
 
 from webui.tunnel import CloudflaredTunnel
 
@@ -89,6 +92,13 @@ def launch_modern_webui(args, host: str = "0.0.0.0", port: int = 7860, tunnel_ty
     import uvicorn
     from webui.backend.config import ensure_directories
 
+    if tunnel_type == "gradio":
+        print("[WARN] Gradio tunneling (--tunnel gradio) only applies to legacy Gradio interface (--legacy-gradio).")
+        tunnel_type = "none"
+    elif tunnel_type == "both":
+        print("[WARN] Gradio tunneling only applies to legacy Gradio interface (--legacy-gradio); using Cloudflare tunnel only.")
+        tunnel_type = "cloudflare"
+
     ensure_directories()
     ensure_frontend_built()
 
@@ -154,7 +164,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         port = args.port or int(os.environ.get("VIRALCUTTER_PORT", 7860))
         tunnel_type = args.tunnel if args.tunnel is not None else "none"
 
+    if not args.legacy_gradio:
+        if tunnel_type == "gradio":
+            print("[WARN] Gradio tunneling (--tunnel gradio) only applies to legacy Gradio interface (--legacy-gradio).")
+            tunnel_type = "none"
+        elif tunnel_type == "both":
+            print("[WARN] Gradio tunneling only applies to legacy Gradio interface (--legacy-gradio); using Cloudflare tunnel only.")
+            tunnel_type = "cloudflare"
+
     if args.legacy_gradio:
+        if str(webui_dir) not in sys.path:
+            sys.path.insert(0, str(webui_dir))
         from webui.app import launch_legacy_gradio
         launch_legacy_gradio(args, host=host, port=port, tunnel_type=tunnel_type)
     else:
