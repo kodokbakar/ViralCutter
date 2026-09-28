@@ -19,6 +19,8 @@ PYTHON_EXECUTABLE = sys.executable
 
 # Supported file extensions
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp"}
+ALLOWED_UPLOAD_EXTENSIONS = ALLOWED_VIDEO_EXTENSIONS | ALLOWED_IMAGE_EXTENSIONS
 ALLOWED_SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".json"}
 
 def ensure_directories():

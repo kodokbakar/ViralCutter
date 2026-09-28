@@ -5,7 +5,13 @@ from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from webui.backend.config import ALLOWED_VIDEO_EXTENSIONS, UPLOADS_DIR, VIRALS_DIR
+from webui.backend.config import (
+    ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_UPLOAD_EXTENSIONS,
+    ALLOWED_VIDEO_EXTENSIONS,
+    UPLOADS_DIR,
+    VIRALS_DIR,
+)
 from webui.backend.core.security import sanitize_filename, sanitize_project_name
 from webui.backend.schemas.upload import UploadResponse
 
@@ -31,6 +37,17 @@ def _assemble_chunks_sync(staging_dir: Path, target_path: Path, total_chunks: in
     shutil.rmtree(staging_dir, ignore_errors=True)
 
 
+def validate_file_extension(filename: str) -> str:
+    """Validate file extension against allowed upload extensions."""
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file format: '{ext}'. Allowed formats: {sorted(list(ALLOWED_UPLOAD_EXTENSIONS))}",
+        )
+    return ext
+
+
 @router.post("", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     file: UploadFile = File(...),
@@ -40,18 +57,12 @@ async def upload_file(
     upload_id: Optional[str] = Form(None),
 ):
     """
-    Upload video file using standard multipart or chunked upload.
-    Validates video extensions and stores file securely under UPLOADS_DIR or project dir.
+    Upload media file (video or image) using standard multipart or chunked upload.
+    Validates media extensions and stores file securely under UPLOADS_DIR or project dir.
     """
-    orig_name = file.filename or "uploaded_video.mp4"
+    orig_name = file.filename or "uploaded_media.mp4"
     safe_name = sanitize_filename(orig_name)
-    ext = Path(safe_name).suffix.lower()
-
-    if ext not in ALLOWED_VIDEO_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported video format: '{ext}'. Allowed formats: {sorted(list(ALLOWED_VIDEO_EXTENSIONS))}",
-        )
+    ext = validate_file_extension(safe_name)
 
     if project_name:
         safe_proj = sanitize_project_name(project_name)

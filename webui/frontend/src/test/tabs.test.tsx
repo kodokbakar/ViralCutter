@@ -9,7 +9,7 @@ import { LibraryTab } from '../components/LibraryTab';
 import { GDriveTab } from '../components/GDriveTab';
 import { DiagnosticsTab } from '../components/DiagnosticsTab';
 import { Navbar } from '../components/Navbar';
-import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi } from '../api/client';
+import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi, uploadApi } from '../api/client';
 import type { ActiveJobResponse, SystemStatusResponse } from '../api/types';
 
 // Mock EventSource for jsdom environment
@@ -351,6 +351,62 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
           watermark_text: '@ViralCutter',
           watermark_position: 'bottom_left',
           watermark_opacity: 0.5,
+        })
+      );
+
+      unmount();
+    });
+
+    it('uploads watermark image file and includes path in job payload', async () => {
+      if (!globalThis.URL.createObjectURL) {
+        globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+      } else {
+        vi.spyOn(globalThis.URL, 'createObjectURL').mockReturnValue('blob:mock-url');
+      }
+
+      const uploadMock = vi.spyOn(uploadApi, 'uploadSingle').mockResolvedValue({
+        filename: 'watermark_logo.png',
+        filepath: '/abs/path/VIRALS/ClipProj/watermark_logo.png',
+        size: 2048,
+        project_name: 'ClipProj',
+        completed: true,
+      });
+
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_wm_555',
+        status: 'started',
+      });
+
+      const { container, unmount } = renderComponent(
+        <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
+      );
+
+      const fileInput = container.querySelector('#watermark-file-input') as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+
+      const fakeFile = new File(['fake-png-content'], 'watermark_logo.png', { type: 'image/png' });
+      await act(async () => {
+        Object.defineProperty(fileInput, 'files', {
+          value: [fakeFile],
+          writable: true,
+        });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      expect(uploadMock).toHaveBeenCalledWith(fakeFile, 'ClipProj');
+      expect(container.textContent).toContain('Uploaded: watermark_logo.png');
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          video_path: '/videos/clip.mp4',
+          project_name: 'ClipProj',
+          watermark_mode: 'image',
+          watermark_image: '/abs/path/VIRALS/ClipProj/watermark_logo.png',
         })
       );
 

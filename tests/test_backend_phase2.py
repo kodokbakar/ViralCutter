@@ -91,7 +91,58 @@ def test_upload_disallowed_extension():
     files = {"file": ("script.sh", b"#!/bin/bash\necho bad", "text/plain")}
     response = client.post("/api/v1/upload", files=files)
     assert response.status_code == 400
-    assert "Unsupported video format" in response.json()["detail"]
+    assert "Unsupported file format" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("img_ext", [".png", ".jpg", ".jpeg", ".webp", ".svg"])
+def test_upload_image_formats_success(img_ext):
+    dummy_bytes = b"FAKE_IMAGE_DATA_BYTES"
+    filename = f"watermark_logo{img_ext}"
+    files = {"file": (filename, dummy_bytes, "image/png")}
+    response = client.post("/api/v1/upload", files=files)
+    assert response.status_code == 201
+    res_data = response.json()
+    assert res_data["filename"] == filename
+    assert res_data["completed"] is True
+    assert res_data["size"] == len(dummy_bytes)
+    target = Path(res_data["filepath"])
+    assert target.exists()
+    target.unlink(missing_ok=True)
+
+
+def test_upload_image_with_project():
+    dummy_bytes = b"FAKE_IMAGE_BYTES"
+    filename = "logo.png"
+    files = {"file": (filename, dummy_bytes, "image/png")}
+    data = {"project_name": "watermark_proj"}
+    response = client.post("/api/v1/upload", files=files, data=data)
+    assert response.status_code == 201
+    res_data = response.json()
+    assert res_data["filename"] == filename
+    assert res_data["project_name"] == "watermark_proj"
+    target = Path(res_data["filepath"])
+    assert target.exists()
+    shutil.rmtree(VIRALS_DIR / "watermark_proj", ignore_errors=True)
+
+
+@pytest.mark.parametrize("bad_name", ["malicious.exe", "script.sh", "payload.bin", "archive.zip"])
+def test_upload_disallowed_arbitrary_binaries(bad_name):
+    files = {"file": (bad_name, b"BINARY_DATA", "application/octet-stream")}
+    response = client.post("/api/v1/upload", files=files)
+    assert response.status_code == 400
+    assert "Unsupported file format" in response.json()["detail"]
+
+
+def test_upload_image_path_traversal_sanitized():
+    files = {"file": ("../../evil_logo.png", b"IMAGE_BYTES", "image/png")}
+    response = client.post("/api/v1/upload", files=files)
+    assert response.status_code == 201
+    res_data = response.json()
+    assert res_data["filename"] == "evil_logo.png"
+    assert ".." not in res_data["filename"]
+    target = Path(res_data["filepath"])
+    assert target.exists()
+    target.unlink(missing_ok=True)
 
 
 def test_upload_chunked():
