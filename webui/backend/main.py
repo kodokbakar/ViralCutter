@@ -1,6 +1,7 @@
 import os
+import urllib.parse
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -64,7 +65,14 @@ if FRONTEND_DIST_DIR.exists() and (FRONTEND_DIST_DIR / "index.html").exists():
     async def root_handler(request: Request):
         accept = request.headers.get("accept", "")
         # If client explicitly wants HTML (e.g. web browser navigation)
-        if "text/html" in accept and not request.headers.get("user-agent", "").startswith("python-httpx"):
+        if "text/html" in accept:
+            if "application/json" in accept and accept.find("application/json") < accept.find("text/html"):
+                return JSONResponse({
+                    "name": "ViralCutter API",
+                    "version": "1.0.0",
+                    "status": "running",
+                    "note": "Frontend dist ready. Use browser to visit UI or API endpoints at /api/v1/*",
+                })
             return FileResponse(FRONTEND_DIST_DIR / "index.html")
         return JSONResponse({
             "name": "ViralCutter API",
@@ -75,9 +83,17 @@ if FRONTEND_DIST_DIR.exists() and (FRONTEND_DIST_DIR / "index.html").exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = FRONTEND_DIST_DIR / full_path
-        if file_path.is_file():
-            return FileResponse(file_path)
+        decoded = urllib.parse.unquote(full_path).lstrip("/")
+        base_dir = FRONTEND_DIST_DIR.resolve()
+        target = (FRONTEND_DIST_DIR / decoded).resolve()
+        try:
+            if not target.is_relative_to(base_dir):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+        if target.is_file():
+            return FileResponse(target)
         return FileResponse(FRONTEND_DIST_DIR / "index.html")
 else:
     @app.get("/")

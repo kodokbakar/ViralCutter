@@ -79,7 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Status Indicators */}
         <div className="flex items-center space-x-3 text-xs">
           {/* Active Job Chip */}
-          {activeJob?.has_active_job ? (
+          {activeJob?.active ? (
             <button
               onClick={() => onTabChange('jobs')}
               className="flex items-center space-x-2 rounded-full bg-red-950/70 border border-red-700/60 px-3 py-1 text-red-300 animate-pulse hover:bg-red-900/50"

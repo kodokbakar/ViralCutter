@@ -135,13 +135,13 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({ onSelectVideo }) => 
   };
 
   // Handle Asset Delete
-  const handleDeleteAsset = async (assetName: string) => {
+  const handleDeleteAsset = async (assetPath: string, assetName: string) => {
     if (!selectedProject || !window.confirm(`Delete asset '${assetName}'?`)) {
       return;
     }
 
     try {
-      await libraryApi.deleteAsset(selectedProject, assetName);
+      await libraryApi.deleteAsset(assetPath);
       setActionSuccessMsg(`Asset '${assetName}' deleted`);
       fetchProjectDetails(selectedProject);
     } catch (err: unknown) {
@@ -413,7 +413,7 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({ onSelectVideo }) => 
                             )}
                             <button
                               type="button"
-                              onClick={() => handleDeleteAsset(asset.name)}
+                              onClick={() => handleDeleteAsset(asset.path, asset.name)}
                               className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
                               title="Delete asset"
                             >

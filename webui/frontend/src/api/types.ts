@@ -90,28 +90,27 @@ export interface JobRunRequest {
 
 export interface JobResponse {
   job_id: string;
-  status: JobStatus;
-  command: string[];
-  started_at: number;
-  ended_at: number | null;
-  return_code: number | null;
-  error: string | null;
-  log_tail: string[];
-}
-
-export interface ActiveJobResponse {
-  has_active_job: boolean;
-  job: JobResponse | null;
+  status: string;
+  message?: string | null;
 }
 
 export interface JobStatusResponse {
   job_id: string;
   status: JobStatus;
-  started_at: number;
-  ended_at: number | null;
-  return_code: number | null;
-  error: string | null;
-  log_tail: string[];
+  stage?: string | null;
+  percent?: number;
+  elapsed?: string | null;
+  output_dir?: string | null;
+  error?: string | null;
+  started_at?: string | number | null;
+  ended_at?: string | number | null;
+  return_code?: number | null;
+  log_tail?: string[];
+}
+
+export interface ActiveJobResponse {
+  active: boolean;
+  job: JobStatusResponse | null;
 }
 
 // Upload schemas

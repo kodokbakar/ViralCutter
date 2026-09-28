@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import FileResponse
 
 from webui.backend.config import (
     ALLOWED_SUBTITLE_EXTENSIONS,
@@ -214,13 +215,22 @@ async def delete_project(project_name: str):
 
 
 @router.get("/assets", response_model=List[AssetItem])
-async def list_assets(type: Optional[str] = Query(None, description="Filter by type: video, subtitle, audio")):
+async def list_assets(
+    type: Optional[str] = Query(None, description="Filter by type: video, subtitle, audio"),
+    project_name: Optional[str] = Query(None, description="Filter by project name"),
+):
     """
     List individual media assets found in uploads and projects.
     """
     def _scan_assets_sync():
         assets = []
-        scan_dirs = [UPLOADS_DIR, VIRALS_DIR]
+        if project_name:
+            safe_proj = sanitize_project_name(project_name)
+            proj_d = VIRALS_DIR / safe_proj
+            scan_dirs = [proj_d] if proj_d.is_dir() else []
+        else:
+            scan_dirs = [UPLOADS_DIR, VIRALS_DIR]
+
         for base_d in scan_dirs:
             if not base_d.exists():
                 continue
@@ -259,12 +269,22 @@ async def list_assets(type: Optional[str] = Query(None, description="Filter by t
 
 
 @router.delete("/assets")
-async def delete_asset(path: str = Query(..., description="File path to media asset to delete")):
+async def delete_asset(
+    path: Optional[str] = Query(None, description="File path to media asset to delete"),
+    file_path: Optional[str] = Query(None, description="File path to media asset to delete"),
+):
     """
     Delete an individual asset file. Path must reside within VIRALS_DIR or UPLOADS_DIR.
     """
+    target_str = file_path or path
+    if not target_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing path or file_path query parameter",
+        )
+
     safe_file = validate_safe_path(
-        path,
+        target_str,
         allowed_roots=[UPLOADS_DIR, VIRALS_DIR],
         must_exist=True,
     )
@@ -277,6 +297,47 @@ async def delete_asset(path: str = Query(..., description="File path to media as
 
     await asyncio.to_thread(safe_file.unlink)
     return {"status": "deleted", "path": str(safe_file)}
+
+
+@router.get("/export/download")
+async def download_export(
+    path: Optional[str] = Query(None, description="File path to project export ZIP"),
+    file_path: Optional[str] = Query(None, description="File path to project export ZIP"),
+):
+    """
+    Download a generated project ZIP export safely.
+    Path must reside within VIRALS_DIR and have a .zip extension.
+    """
+    target_str = file_path or path
+    if not target_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing path or file_path query parameter",
+        )
+
+    safe_file = validate_safe_path(
+        target_str,
+        allowed_roots=[VIRALS_DIR],
+        must_exist=True,
+    )
+
+    if not safe_file.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export file not found: {safe_file.name}",
+        )
+
+    if safe_file.suffix.lower() != ".zip":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requested file is not a valid zip archive",
+        )
+
+    return FileResponse(
+        path=safe_file,
+        filename=safe_file.name,
+        media_type="application/zip",
+    )
 
 
 @router.post("/projects/{project_name}/export", response_model=ExportResponse)

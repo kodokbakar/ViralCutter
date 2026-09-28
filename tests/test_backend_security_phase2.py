@@ -227,3 +227,61 @@ def test_preview_metadata_subprocess_timeout(tmp_path):
     # Cleanup
     if dummy_video.exists():
         dummy_video.unlink()
+
+
+# ==============================================================================
+# Phase 3 Security Remediation Tests
+# ==============================================================================
+
+
+def test_library_export_download_security():
+    # 1. Missing query params
+    res = client.get("/api/v1/library/export/download")
+    assert res.status_code == 400
+
+    # 2. Path traversal outside VIRALS_DIR
+    res = client.get("/api/v1/library/export/download?file_path=/etc/passwd")
+    assert res.status_code in (403, 404)
+
+    # 3. Non-zip file inside VIRALS_DIR
+    dummy_txt = VIRALS_DIR / "fake_export.txt"
+    dummy_txt.write_text("not a zip")
+    try:
+        res = client.get(f"/api/v1/library/export/download?path={dummy_txt}")
+        assert res.status_code == 400
+        assert "valid zip" in res.json()["detail"].lower()
+    finally:
+        if dummy_txt.exists():
+            dummy_txt.unlink()
+
+    # 4. Valid zip inside VIRALS_DIR
+    dummy_zip = VIRALS_DIR / "valid_export.zip"
+    dummy_zip.write_bytes(b"PK\x05\x06" + b"\x00" * 18)  # Empty ZIP bytes
+    try:
+        res = client.get(f"/api/v1/library/export/download?file_path={dummy_zip}")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "application/zip"
+    finally:
+        if dummy_zip.exists():
+            dummy_zip.unlink()
+
+
+def test_library_assets_file_path_and_project_filter():
+    proj_dir = VIRALS_DIR / "test_filter_proj"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    asset_file = proj_dir / "clip1.mp4"
+    asset_file.write_bytes(b"CLIP_DATA")
+
+    try:
+        # Filter by project_name
+        res = client.get("/api/v1/library/assets?project_name=test_filter_proj")
+        assert res.status_code == 200
+        assets = res.json()
+        assert any(a["name"] == "clip1.mp4" for a in assets)
+
+        # Delete by file_path
+        del_res = client.delete(f"/api/v1/library/assets?file_path={asset_file}")
+        assert del_res.status_code == 200
+        assert not asset_file.exists()
+    finally:
+        shutil.rmtree(proj_dir, ignore_errors=True)

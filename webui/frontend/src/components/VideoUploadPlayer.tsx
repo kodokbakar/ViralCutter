@@ -141,7 +141,7 @@ export const VideoUploadPlayer: React.FC<VideoUploadPlayerProps> = ({
         timestamp: Number(thumbnailTime) || 1.0,
       });
       // The thumbnail is served via preview streaming or can be loaded directly
-      setThumbnailUrl(previewApi.getVideoUrl(res.thumbnail_path));
+      setThumbnailUrl(previewApi.getThumbnailUrl(res.thumbnail_path));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Thumbnail extraction failed';
       setThumbError(msg);

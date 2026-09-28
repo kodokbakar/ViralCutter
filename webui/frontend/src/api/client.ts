@@ -57,6 +57,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const response = await fetch(url, {
+    method: options.method || 'GET',
     ...options,
     headers,
   });
@@ -93,26 +94,30 @@ export const jobsApi = {
       body: JSON.stringify(params),
     }),
 
-  cancel: (): Promise<{ status: string; job_id?: string; message?: string }> =>
-    request<{ status: string; job_id?: string; message?: string }>('/jobs/cancel', {
-      method: 'POST',
-    }),
+  cancel: (jobId: string): Promise<{ status: string; job_id?: string; message?: string }> =>
+    request<{ status: string; job_id?: string; message?: string }>(
+      `/jobs/${encodeURIComponent(jobId)}/cancel`,
+      {
+        method: 'POST',
+      }
+    ),
 
   getActive: (): Promise<ActiveJobResponse> =>
     request<ActiveJobResponse>('/jobs/active'),
 
   getStatus: (jobId: string): Promise<JobStatusResponse> =>
-    request<JobStatusResponse>(`/jobs/status/${encodeURIComponent(jobId)}`),
+    request<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`),
 
   /**
    * Connect to SSE log stream.
    * Returns a cleanup function to close connection.
    */
   streamLogs: (
+    jobId: string,
     onMessage: (logLine: string) => void,
     onError?: (error: Event) => void
   ): (() => void) => {
-    const sseUrl = `${API_BASE}/jobs/stream`;
+    const sseUrl = `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream`;
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onmessage = (event) => {
@@ -152,11 +157,14 @@ export const uploadApi = {
     if (projectName) {
       formData.append('project_name', projectName);
     }
-    return request<UploadResponse>('/upload/single', {
+    return request<UploadResponse>('/upload', {
       method: 'POST',
       body: formData,
     });
   },
+
+  upload: (file: File, projectName?: string): Promise<UploadResponse> =>
+    uploadApi.uploadSingle(file, projectName),
 
   uploadChunk: (
     fileChunk: Blob,
@@ -171,11 +179,10 @@ export const uploadApi = {
     formData.append('upload_id', uploadId);
     formData.append('chunk_index', String(chunkIndex));
     formData.append('total_chunks', String(totalChunks));
-    formData.append('filename', filename);
     if (projectName) {
       formData.append('project_name', projectName);
     }
-    return request<UploadResponse>('/upload/chunk', {
+    return request<UploadResponse>('/upload', {
       method: 'POST',
       body: formData,
     });
@@ -223,7 +230,10 @@ export const uploadApi = {
 // -------------------------------------------------------------
 export const previewApi = {
   getVideoUrl: (videoPath: string): string =>
-    `${API_BASE}/preview/video?path=${encodeURIComponent(videoPath)}`,
+    `${API_BASE}/preview/stream?path=${encodeURIComponent(videoPath)}`,
+
+  getThumbnailUrl: (thumbnailPath: string): string =>
+    `${API_BASE}/preview/thumbnail?path=${encodeURIComponent(thumbnailPath)}`,
 
   getMetadata: (videoPath: string): Promise<VideoMetadata> =>
     request<VideoMetadata>(`/preview/metadata?path=${encodeURIComponent(videoPath)}`),
@@ -248,11 +258,11 @@ export const libraryApi = {
   renameProject: (
     projectName: string,
     newName: string
-  ): Promise<{ status: string; new_name: string }> =>
-    request<{ status: string; new_name: string }>(
-      `/library/projects/${encodeURIComponent(projectName)}/rename`,
+  ): Promise<{ status: string; old_name?: string; new_name: string }> =>
+    request<{ status: string; old_name?: string; new_name: string }>(
+      `/library/projects/${encodeURIComponent(projectName)}`,
       {
-        method: 'POST',
+        method: 'PATCH',
         body: JSON.stringify({ new_name: newName }),
       }
     ),
@@ -267,19 +277,26 @@ export const libraryApi = {
       }
     ),
 
-  listAssets: (projectName: string): Promise<AssetItem[]> =>
-    request<AssetItem[]>(`/library/projects/${encodeURIComponent(projectName)}/assets`),
+  listAssets: (projectName?: string, assetType?: string): Promise<AssetItem[]> => {
+    const params = new URLSearchParams();
+    if (projectName) params.set('project_name', projectName);
+    if (assetType) params.set('type', assetType);
+    const q = params.toString();
+    return request<AssetItem[]>(`/library/assets${q ? `?${q}` : ''}`);
+  },
 
   deleteAsset: (
-    projectName: string,
-    assetName: string
-  ): Promise<{ status: string; asset_name: string }> =>
-    request<{ status: string; asset_name: string }>(
-      `/library/projects/${encodeURIComponent(projectName)}/assets/${encodeURIComponent(assetName)}`,
+    filePathOrProject: string,
+    maybeAssetName?: string
+  ): Promise<{ status: string; path?: string }> => {
+    const filePath = maybeAssetName ? `${filePathOrProject}/${maybeAssetName}` : filePathOrProject;
+    return request<{ status: string; path?: string }>(
+      `/library/assets?file_path=${encodeURIComponent(filePath)}`,
       {
         method: 'DELETE',
       }
-    ),
+    );
+  },
 
   exportProject: (projectName: string): Promise<ExportResponse> =>
     request<ExportResponse>(`/library/projects/${encodeURIComponent(projectName)}/export`, {
@@ -329,8 +346,14 @@ export const gdriveApi = {
   getStatus: (): Promise<GDriveStatusResponse> =>
     request<GDriveStatusResponse>('/gdrive/status'),
 
-  listVideos: (): Promise<GDriveVideoItem[]> =>
-    request<GDriveVideoItem[]>('/gdrive/list'),
+  listVideos: (params?: { query?: string; limit?: number; force_refresh?: boolean }): Promise<GDriveVideoItem[]> => {
+    const searchParams = new URLSearchParams();
+    if (params?.query) searchParams.set('query', params.query);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.force_refresh) searchParams.set('force_refresh', 'true');
+    const q = searchParams.toString();
+    return request<GDriveVideoItem[]>(`/gdrive/videos${q ? `?${q}` : ''}`);
+  },
 
   importVideo: (req: GDriveImportRequest): Promise<GDriveImportResponse> =>
     request<GDriveImportResponse>('/gdrive/import', {

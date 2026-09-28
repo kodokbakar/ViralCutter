@@ -118,11 +118,12 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
 
   // Live SSE stream connection
   useEffect(() => {
-    const isRunning = activeJob?.has_active_job && activeJob.job?.status === 'running';
-    if (!isRunning) return;
+    const isRunning = activeJob?.active && activeJob.job?.status === 'running';
+    if (!isRunning || !activeJob?.job?.job_id) return;
 
     const cleanup = jobsApi.streamLogs(
-      (line) => {
+      activeJob.job.job_id,
+      (line: string) => {
         logBufferRef.current.push(line);
       },
       () => {
@@ -133,7 +134,7 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
     return () => {
       cleanup();
     };
-  }, [activeJob?.has_active_job, activeJob?.job?.status]);
+  }, [activeJob?.active, activeJob?.job?.status, activeJob?.job?.job_id]);
 
   // Polling active job periodically
   useEffect(() => {
@@ -222,10 +223,11 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
 
   // Handle Cancel
   const handleCancelJob = async () => {
+    if (!activeJob?.job?.job_id) return;
     setIsCancelling(true);
     setErrorMessage(null);
     try {
-      await jobsApi.cancel();
+      await jobsApi.cancel(activeJob.job.job_id);
       logBufferRef.current.push(`[INFO] Job cancellation requested.`);
       onRefreshActiveJob();
     } catch (err: unknown) {
@@ -243,7 +245,7 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
   };
 
   const currentJob = activeJob?.job;
-  const isJobRunning = activeJob?.has_active_job && currentJob?.status === 'running';
+  const isJobRunning = Boolean(activeJob?.active && currentJob?.status === 'running');
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -734,16 +736,28 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
         {currentJob && (
           <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-950/80 border-t border-zinc-800/80 text-xs text-zinc-400">
             <div className="flex items-center space-x-3">
-              <span className="flex items-center space-x-1">
-                <Clock className="h-3.5 w-3.5 text-zinc-500" />
-                <span>Started: {new Date(currentJob.started_at * 1000).toLocaleTimeString()}</span>
-              </span>
+              {currentJob.started_at && (
+                <span className="flex items-center space-x-1">
+                  <Clock className="h-3.5 w-3.5 text-zinc-500" />
+                  <span>
+                    Started:{' '}
+                    {typeof currentJob.started_at === 'number'
+                      ? new Date(currentJob.started_at * 1000).toLocaleTimeString()
+                      : String(currentJob.started_at)}
+                  </span>
+                </span>
+              )}
               {currentJob.ended_at && (
-                <span>Finished: {new Date(currentJob.ended_at * 1000).toLocaleTimeString()}</span>
+                <span>
+                  Finished:{' '}
+                  {typeof currentJob.ended_at === 'number'
+                    ? new Date(currentJob.ended_at * 1000).toLocaleTimeString()
+                    : String(currentJob.ended_at)}
+                </span>
               )}
             </div>
             <div>
-              {currentJob.return_code !== null && (
+              {currentJob.return_code !== null && currentJob.return_code !== undefined && (
                 <span className={currentJob.return_code === 0 ? 'text-emerald-400' : 'text-red-400'}>
                   Exit Code: {currentJob.return_code}
                 </span>
