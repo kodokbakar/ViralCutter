@@ -180,6 +180,57 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('handles AI backend configuration and includes fields in run request', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_custom_ai',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      const aiBackendSelect = container.querySelector('#ai-backend-select') as HTMLSelectElement;
+      expect(aiBackendSelect).toBeTruthy();
+      expect(aiBackendSelect.value).toBe('gemini');
+
+      // Change backend to custom
+      act(() => {
+        setNativeValue(aiBackendSelect, 'custom');
+      });
+
+      const apiKeyInput = container.querySelector('#api-key-input') as HTMLInputElement;
+      const modelInput = container.querySelector('#ai-model-input') as HTMLInputElement;
+      const baseUrlInput = container.querySelector('#ai-base-url-input') as HTMLInputElement;
+
+      expect(apiKeyInput).toBeTruthy();
+      expect(modelInput).toBeTruthy();
+      expect(baseUrlInput).toBeTruthy();
+
+      act(() => {
+        setNativeValue(apiKeyInput, 'sk-test-key');
+        setNativeValue(modelInput, 'gpt-4o-mini');
+        setNativeValue(baseUrlInput, 'https://api.openai.com/v1');
+      });
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai_backend: 'custom',
+          api_key: 'sk-test-key',
+          ai_model_name: 'gpt-4o-mini',
+          ai_base_url: 'https://api.openai.com/v1',
+        })
+      );
+
+      unmount();
+    });
+
     it('displays active job status banner and supports cancellation', async () => {
       const cancelMock = vi.spyOn(jobsApi, 'cancel').mockResolvedValue({
         status: 'cancelled',

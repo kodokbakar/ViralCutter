@@ -42,6 +42,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [viral, setViral] = useState<boolean>(true);
   const [language, setLanguage] = useState<string>('auto');
 
+  // AI Backend Parameters
+  const [aiBackend, setAiBackend] = useState<'gemini' | 'g4f' | 'local' | 'custom' | 'manual'>('gemini');
+  const [apiKey, setApiKey] = useState<string>('');
+  const [aiBaseUrl, setAiBaseUrl] = useState<string>('');
+  const [aiModelName, setAiModelName] = useState<string>('');
+
   // File Selection
   const [inputMode, setInputMode] = useState<InputMode>('upload');
   const [youtubeUrl, setYoutubeUrl] = useState<string>('');
@@ -254,6 +260,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       workflow,
       model,
       language,
+      ai_backend: aiBackend,
+      api_key: apiKey.trim() || undefined,
+      ai_base_url: aiBaseUrl.trim() || undefined,
+      ai_model_name: aiModelName.trim() || undefined,
       whisper_preset: preset === 'fast' ? 'fast' : preset === 'accurate' ? 'accurate' : 'balanced',
       min_duration: minDur,
       max_duration: maxDur,
@@ -460,7 +470,71 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               </div>
             </div>
 
-            {/* 4. File Selection */}
+            {/* 4. AI Backend Configuration */}
+            <div className="space-y-3 border-t border-zinc-800 pt-4">
+              <div className="space-y-1.5">
+                <label htmlFor="ai-backend-select" className="block text-xs font-medium text-zinc-300">AI Backend</label>
+                <select
+                  id="ai-backend-select"
+                  aria-label="AI Backend"
+                  value={aiBackend}
+                  onChange={(e) => setAiBackend(e.target.value as any)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="g4f">g4f (Free)</option>
+                  <option value="local">Local LLM</option>
+                  <option value="custom">Custom (OpenAI API)</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+
+              {aiBackend !== 'g4f' && aiBackend !== 'manual' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label htmlFor="api-key-input" className="block text-xs font-medium text-zinc-400">
+                        API Key {aiBackend === 'gemini' ? '(Gemini)' : '(Custom OpenAI)'}
+                      </label>
+                      <input
+                        id="api-key-input"
+                        type="password"
+                        placeholder="Enter API Key"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="ai-model-input" className="block text-xs font-medium text-zinc-400">Model Name Override</label>
+                      <input
+                        id="ai-model-input"
+                        type="text"
+                        placeholder="e.g. gpt-4o, gemini-2.0-flash"
+                        value={aiModelName}
+                        onChange={(e) => setAiModelName(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                  </div>
+                  {aiBackend === 'custom' && (
+                    <div className="space-y-1.5">
+                      <label htmlFor="ai-base-url-input" className="block text-xs font-medium text-zinc-400">Custom Base URL</label>
+                      <input
+                        id="ai-base-url-input"
+                        type="url"
+                        placeholder="e.g. https://api.groq.com/openai/v1"
+                        value={aiBaseUrl}
+                        onChange={(e) => setAiBaseUrl(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 5. File Selection */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-zinc-300">Video Source</span>
