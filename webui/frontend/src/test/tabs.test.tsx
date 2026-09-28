@@ -1,0 +1,660 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { GeneratorTab } from '../components/GeneratorTab';
+import { SubtitlesTab } from '../components/SubtitlesTab';
+import { WatermarkTab } from '../components/WatermarkTab';
+import { SubtitleEditorTab } from '../components/SubtitleEditorTab';
+import { LibraryTab } from '../components/LibraryTab';
+import { GDriveTab } from '../components/GDriveTab';
+import { DiagnosticsTab } from '../components/DiagnosticsTab';
+import { Navbar } from '../components/Navbar';
+import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi } from '../api/client';
+import type { ActiveJobResponse, SystemStatusResponse } from '../api/types';
+
+// Mock EventSource for jsdom environment
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+  url: string;
+  listeners: Record<string, ((event: unknown) => void)[]> = {};
+  onmessage: ((event: unknown) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  closed = false;
+
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(event: string, handler: (event: unknown) => void) {
+    if (!this.listeners[event]) {
+      this.listeners[event] = [];
+    }
+    this.listeners[event].push(handler);
+  }
+
+  removeEventListener(event: string, handler: (event: unknown) => void) {
+    if (this.listeners[event]) {
+      this.listeners[event] = this.listeners[event].filter((h) => h !== handler);
+    }
+  }
+
+  close() {
+    this.closed = true;
+  }
+}
+
+// Helper to set input values triggering React synthetic events
+function setNativeValue(element: HTMLElement, value: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tracker = (element as any)._valueTracker;
+  if (tracker) {
+    tracker.setValue('__force_change__');
+  }
+  let prototype = Object.getPrototypeOf(element);
+  while (prototype && !Object.prototype.hasOwnProperty.call(prototype, 'value')) {
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  const descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
+  if (descriptor?.set) {
+    descriptor.set.call(element, value);
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (element as any).value = value;
+  }
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Helper to render component into DOM
+function renderComponent(element: React.ReactElement) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  act(() => {
+    root.render(element);
+  });
+
+  return {
+    container,
+    unmount: () => {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    },
+  };
+}
+
+describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
+  const originalEventSource = globalThis.EventSource;
+
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    MockEventSource.instances = [];
+    globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
+    vi.restoreAllMocks();
+    document.body.textContent = '';
+  });
+
+  afterEach(() => {
+    globalThis.EventSource = originalEventSource;
+    vi.restoreAllMocks();
+    document.body.textContent = '';
+  });
+
+  // -------------------------------------------------------------
+  // 1. GeneratorTab
+  // -------------------------------------------------------------
+  describe('GeneratorTab', () => {
+    it('renders parameter controls and file selection inputs', () => {
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      // Verify Preset select
+      const presetSelect = container.querySelector('#generator-preset-select') as HTMLSelectElement;
+      expect(presetSelect).toBeTruthy();
+      expect(presetSelect.value).toBe('viral_shorts');
+
+      // Verify Target Duration slider
+      const durationInput = container.querySelector('#target-duration-input') as HTMLInputElement;
+      expect(durationInput).toBeTruthy();
+      expect(durationInput.value).toBe('60');
+
+      // Verify Orientation select
+      const orientationSelect = container.querySelector('#orientation-select') as HTMLSelectElement;
+      expect(orientationSelect).toBeTruthy();
+      expect(orientationSelect.value).toBe('9:16');
+
+      // Verify Whisper Model select
+      const modelSelect = container.querySelector('#whisper-model-select') as HTMLSelectElement;
+      expect(modelSelect).toBeTruthy();
+      expect(modelSelect.value).toBe('large-v3-turbo');
+
+      // Verify Run button
+      const runBtn = container.querySelector('[data-testid="run-job-button"]');
+      expect(runBtn).toBeTruthy();
+
+      unmount();
+    });
+
+    it('submits job request with correct parameters and connects to stream', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_999',
+        status: 'started',
+      });
+      const streamMock = vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      // Select preset fast
+      const presetSelect = container.querySelector('#generator-preset-select') as HTMLSelectElement;
+      act(() => {
+        setNativeValue(presetSelect, 'fast');
+      });
+
+      // Submit form
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          video_path: '/videos/sample.mp4',
+          project_name: 'SampleProj',
+          model: 'tiny',
+          workflow: '2',
+          whisper_preset: 'fast',
+          max_duration: 30,
+        })
+      );
+
+      expect(streamMock).toHaveBeenCalledWith('job_gen_999', expect.any(Function), expect.any(Function));
+
+      unmount();
+    });
+
+    it('displays active job status banner and supports cancellation', async () => {
+      const cancelMock = vi.spyOn(jobsApi, 'cancel').mockResolvedValue({
+        status: 'cancelled',
+        job_id: 'job_active_123',
+      });
+
+      const mockActive: ActiveJobResponse = {
+        active: true,
+        job: {
+          job_id: 'job_active_123',
+          status: 'running',
+          stage: 'TRANSCRIBING',
+          percent: 45,
+          elapsed: '00:01:10',
+        },
+      };
+
+      const refreshMock = vi.fn();
+      const { container, unmount } = renderComponent(
+        <GeneratorTab activeJob={mockActive} onRefreshActiveJob={refreshMock} />
+      );
+
+      // Banner should be visible
+      expect(container.textContent).toContain('Active Job:');
+      expect(container.textContent).toContain('job_active_123');
+      expect(container.textContent).toContain('TRANSCRIBING');
+      expect(container.textContent).toContain('45%');
+
+      // Click Cancel
+      const cancelBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Cancel Job')
+      );
+      expect(cancelBtn).toBeTruthy();
+
+      await act(async () => {
+        cancelBtn?.click();
+      });
+
+      expect(cancelMock).toHaveBeenCalledWith('job_active_123');
+      expect(refreshMock).toHaveBeenCalled();
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 2. SubtitlesTab
+  // -------------------------------------------------------------
+  describe('SubtitlesTab', () => {
+    it('renders subtitle generation parameters and triggers task submission', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_sub_777',
+        status: 'started',
+      });
+      const streamMock = vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <SubtitlesTab defaultVideoPath="/videos/lecture.mp4" defaultProjectName="Lecture01" />
+      );
+
+      const modelSelect = container.querySelector('#subtitles-whisper-model') as HTMLSelectElement;
+      const langSelect = container.querySelector('#subtitles-language') as HTMLSelectElement;
+      const promptInput = container.querySelector('#subtitles-prompt') as HTMLTextAreaElement;
+
+      expect(modelSelect).toBeTruthy();
+      expect(langSelect).toBeTruthy();
+      expect(promptInput).toBeTruthy();
+
+      // Configure parameters using setNativeValue
+      act(() => {
+        setNativeValue(modelSelect, 'medium');
+        setNativeValue(langSelect, 'pt');
+        setNativeValue(promptInput, 'Artificial Intelligence, PyTorch');
+      });
+
+      // Submit
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workflow: '3',
+          video_path: '/videos/lecture.mp4',
+          project_name: 'Lecture01',
+          model: 'medium',
+          language: 'pt',
+          prompt_template: 'Artificial Intelligence, PyTorch',
+        })
+      );
+
+      expect(streamMock).toHaveBeenCalledWith('job_sub_777', expect.any(Function), expect.any(Function));
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 3. WatermarkTab
+  // -------------------------------------------------------------
+  describe('WatermarkTab', () => {
+    it('renders positioning grid, sliders, and preview overlay', () => {
+      const { container, unmount } = renderComponent(
+        <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
+      );
+
+      // Verify position buttons
+      expect(container.textContent).toContain('Top-Left');
+      expect(container.textContent).toContain('Top-Right');
+      expect(container.textContent).toContain('Center');
+      expect(container.textContent).toContain('Bottom-Right');
+
+      // Verify sliders
+      const opacitySlider = container.querySelector('#watermark-opacity-slider') as HTMLInputElement;
+      const scaleSlider = container.querySelector('#watermark-scale-slider') as HTMLInputElement;
+      expect(opacitySlider).toBeTruthy();
+      expect(scaleSlider).toBeTruthy();
+
+      // Verify preview area
+      expect(container.textContent).toContain('Interactive Preview Overlay');
+
+      unmount();
+    });
+
+    it('submits watermark job with selected position and slider values', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_wm_444',
+        status: 'started',
+      });
+
+      const { container, unmount } = renderComponent(
+        <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
+      );
+
+      // Switch to text mode
+      const textBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Text Watermark')
+      );
+      act(() => {
+        textBtn?.click();
+      });
+
+      // Select position bottom_left
+      const bottomLeftBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent === 'Bottom-Left'
+      );
+      act(() => {
+        bottomLeftBtn?.click();
+      });
+
+      // Adjust opacity slider using setNativeValue
+      const opacitySlider = container.querySelector('#watermark-opacity-slider') as HTMLInputElement;
+      act(() => {
+        setNativeValue(opacitySlider, '0.5');
+      });
+
+      // Submit
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          video_path: '/videos/clip.mp4',
+          project_name: 'ClipProj',
+          watermark_mode: 'text',
+          watermark_text: '@ViralCutter',
+          watermark_position: 'bottom_left',
+          watermark_opacity: 0.5,
+        })
+      );
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 4. SubtitleEditorTab
+  // -------------------------------------------------------------
+  describe('SubtitleEditorTab', () => {
+    it('renders interactive cue list and handles preset loading', async () => {
+      vi.spyOn(subtitlesApi, 'getPresets').mockResolvedValue({
+        presets: {
+          Hormozi: { font: 'Montserrat-ExtraBold', size: 36, color: '#FFFFFF', highlight_color: '#00FF66' },
+          Beast: { font: 'Montserrat-ExtraBold', size: 38, color: '#FFFFFF', highlight_color: '#FFD700' },
+        },
+      });
+      vi.spyOn(subtitlesApi, 'previewStyle').mockResolvedValue({
+        html: '<div style="color:white;">Sample Preview</div>',
+      });
+
+      const { container, unmount } = renderComponent(
+        <SubtitleEditorTab currentProject="MyProject" />
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Subtitle Cue Editor');
+      expect(container.textContent).toContain('Style Presets & Preview');
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 5. LibraryTab
+  // -------------------------------------------------------------
+  describe('LibraryTab', () => {
+    it('renders projects and project assets', async () => {
+      vi.spyOn(libraryApi, 'listProjects').mockResolvedValue([
+        {
+          name: 'ProjectAlpha',
+          path: '/virals/ProjectAlpha',
+          created_at: 1000,
+          modified_at: 2000,
+          video_count: 2,
+          segment_count: 3,
+        },
+      ]);
+      vi.spyOn(libraryApi, 'getProject').mockResolvedValue({
+        name: 'ProjectAlpha',
+        path: '/virals/ProjectAlpha',
+        created_at: 1000,
+        modified_at: 2000,
+        segments: [],
+        files: ['clip_01.mp4', 'clip_02.mp4'],
+      });
+      vi.spyOn(libraryApi, 'listAssets').mockResolvedValue([
+        {
+          name: 'clip_01.mp4',
+          path: '/virals/ProjectAlpha/clip_01.mp4',
+          size: 1024 * 1024 * 5,
+          modified_at: 2000,
+          asset_type: 'video',
+        },
+      ]);
+
+      const onSelectMock = vi.fn();
+      const { container, unmount } = renderComponent(
+        <LibraryTab onSelectVideo={onSelectMock} />
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('ProjectAlpha');
+      expect(container.textContent).toContain('Projects');
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 6. GDriveTab
+  // -------------------------------------------------------------
+  describe('GDriveTab', () => {
+    it('renders status, lists drive videos, and triggers import and export', async () => {
+      vi.spyOn(gdriveApi, 'getStatus').mockResolvedValue({
+        available: true,
+        mode: 'colab_mount',
+        message: 'Google Drive mounted at /content/drive',
+      });
+      vi.spyOn(gdriveApi, 'listVideos').mockResolvedValue([
+        {
+          id: 'drive_vid_1',
+          name: 'Podcast_Episode_10.mp4',
+          size_formatted: '250.0 MB',
+          modified_time: '2026-09-28',
+          path: '/content/drive/My Drive/Podcast_Episode_10.mp4',
+        },
+      ]);
+      const importMock = vi.spyOn(gdriveApi, 'importVideo').mockResolvedValue({
+        status: 'imported',
+        video_path: '/uploads/Podcast_Episode_10.mp4',
+        project_folder: 'Podcast_Episode_10',
+      });
+      const exportMock = vi.spyOn(gdriveApi, 'exportToDrive').mockResolvedValue({
+        status: 'exported',
+        destination: '/content/drive/My Drive/ViralCutter_Backups/Proj_01',
+      });
+
+      const onSelectVideoMock = vi.fn();
+      const { container, unmount } = renderComponent(
+        <GDriveTab onSelectVideo={onSelectVideoMock} defaultProjectName="Proj_01" />
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Status verified
+      expect(container.textContent).toContain('Google Drive mounted at /content/drive');
+      expect(container.textContent).toContain('Podcast_Episode_10.mp4');
+
+      // Click video item to select
+      const selectBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent === 'Select'
+      );
+      act(() => {
+        selectBtn?.click();
+      });
+
+      // Click Import button
+      const importBtn = container.querySelector('[data-testid="import-gdrive-button"]') as HTMLButtonElement;
+      expect(importBtn).toBeTruthy();
+
+      await act(async () => {
+        importBtn.click();
+      });
+
+      expect(importMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'drive_vid_1',
+        })
+      );
+
+      // Trigger Export
+      const exportBtn = container.querySelector('[data-testid="export-gdrive-button"]') as HTMLButtonElement;
+      expect(exportBtn).toBeTruthy();
+
+      await act(async () => {
+        exportBtn.click();
+      });
+
+      expect(exportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_name: 'Proj_01',
+          destination_folder: 'ViralCutter_Backups',
+        })
+      );
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 7. DiagnosticsTab
+  // -------------------------------------------------------------
+  describe('DiagnosticsTab', () => {
+    it('renders system hardware metrics, FFmpeg health, and active jobs table', async () => {
+      const mockSys: SystemStatusResponse = {
+        status: 'healthy',
+        gpu: {
+          available: true,
+          name: 'NVIDIA GeForce RTX 4090',
+          device_count: 1,
+          cuda_version: '12.4',
+          vram_free_mb: 20480,
+          vram_total_mb: 24576,
+        },
+        disk: {
+          total_gb: 500,
+          used_gb: 150,
+          free_gb: 350,
+          percent_used: 30,
+        },
+        ffmpeg: {
+          ffmpeg_available: true,
+          ffprobe_available: true,
+          version: '7.1',
+        },
+        python: {
+          version: '3.14.7',
+          executable: '/usr/bin/python3',
+        },
+        tools: { ffmpeg: true, ffprobe: true, torch: true },
+      };
+
+      const mockActive: ActiveJobResponse = {
+        active: true,
+        job: {
+          job_id: 'job_diag_555',
+          status: 'running',
+          stage: 'FACE_DETECTION',
+          percent: 75,
+          elapsed: '00:02:15',
+        },
+      };
+
+      vi.spyOn(systemApi, 'getStatus').mockResolvedValue(mockSys);
+      vi.spyOn(jobsApi, 'getActive').mockResolvedValue(mockActive);
+      const cancelMock = vi.spyOn(jobsApi, 'cancel').mockResolvedValue({
+        status: 'cancelled',
+        job_id: 'job_diag_555',
+      });
+
+      const { container, unmount } = renderComponent(<DiagnosticsTab />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Verify GPU info
+      expect(container.textContent).toContain('NVIDIA GeForce RTX 4090');
+      expect(container.textContent).toContain('CUDA Ready');
+
+      // Verify Disk info
+      expect(container.textContent).toContain('350.0 GB Free');
+
+      // Verify FFmpeg health
+      expect(container.textContent).toContain('Healthy');
+
+      // Verify Active Jobs table
+      expect(container.textContent).toContain('job_diag_555');
+      expect(container.textContent).toContain('FACE_DETECTION');
+      expect(container.textContent).toContain('75%');
+
+      // Cancel button in table
+      const cancelBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Cancel')
+      );
+      expect(cancelBtn).toBeTruthy();
+
+      await act(async () => {
+        cancelBtn?.click();
+      });
+
+      expect(cancelMock).toHaveBeenCalledWith('job_diag_555');
+
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 8. Navbar Tab Switching Across All 7 Tabs
+  // -------------------------------------------------------------
+  describe('Navbar Tab Switching', () => {
+    it('renders all 7 tabs and invokes onTabChange when clicked', () => {
+      const onTabChange = vi.fn();
+
+      const { container, unmount } = renderComponent(
+        <Navbar
+          currentTab="generator"
+          onTabChange={onTabChange}
+          activeJob={null}
+          backendHealthy={true}
+        />
+      );
+
+      const tabLabels = [
+        'Generator',
+        'Subtitles',
+        'Watermark',
+        'Subtitle Editor',
+        'Library',
+        'Google Drive',
+        'Diagnostics',
+      ];
+
+      for (const label of tabLabels) {
+        expect(container.textContent).toContain(label);
+        const button = Array.from(container.querySelectorAll('button')).find((b) =>
+          b.textContent?.includes(label)
+        );
+        expect(button).toBeTruthy();
+
+        act(() => {
+          button?.click();
+        });
+      }
+
+      expect(onTabChange).toHaveBeenCalledWith('generator');
+      expect(onTabChange).toHaveBeenCalledWith('subtitles');
+      expect(onTabChange).toHaveBeenCalledWith('watermark');
+      expect(onTabChange).toHaveBeenCalledWith('subtitle-editor');
+      expect(onTabChange).toHaveBeenCalledWith('library');
+      expect(onTabChange).toHaveBeenCalledWith('gdrive');
+      expect(onTabChange).toHaveBeenCalledWith('diagnostics');
+
+      unmount();
+    });
+  });
+});

@@ -117,6 +117,10 @@ export const jobsApi = {
     onMessage: (logLine: string) => void,
     onError?: (error: Event) => void
   ): (() => void) => {
+    if (typeof EventSource === 'undefined') {
+      return () => {};
+    }
+
     const sseUrl = `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream`;
     const eventSource = new EventSource(sseUrl);
 

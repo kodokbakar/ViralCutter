@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navbar, type TabType } from './components/Navbar';
-import { JobConsole } from './components/JobConsole';
-import { VideoUploadPlayer } from './components/VideoUploadPlayer';
-import { SubtitleEditor } from './components/SubtitleEditor';
-import { MediaLibrary } from './components/MediaLibrary';
-import { SystemStatusPanel } from './components/SystemStatusPanel';
+import { GeneratorTab } from './components/GeneratorTab';
+import { SubtitlesTab } from './components/SubtitlesTab';
+import { WatermarkTab } from './components/WatermarkTab';
+import { SubtitleEditorTab } from './components/SubtitleEditorTab';
+import { LibraryTab } from './components/LibraryTab';
+import { GDriveTab } from './components/GDriveTab';
+import { DiagnosticsTab } from './components/DiagnosticsTab';
 import { jobsApi, systemApi } from './api/client';
 import type { ActiveJobResponse } from './api/types';
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<TabType>('jobs');
+  const [currentTab, setCurrentTab] = useState<TabType>('generator');
   const [activeJob, setActiveJob] = useState<ActiveJobResponse | null>(null);
   const [backendHealthy, setBackendHealthy] = useState(false);
 
@@ -40,13 +42,13 @@ export function App() {
     return () => clearInterval(interval);
   }, [checkStatus]);
 
-  // Handler when a video is selected in Upload / Player or Media Library
+  // Handler when a video is selected in Media Library or GDrive
   const handleSelectVideoForJob = (videoPath: string, projectName?: string) => {
     setSelectedVideoPath(videoPath);
     if (projectName) {
       setSelectedProjectName(projectName);
     }
-    setCurrentTab('jobs');
+    setCurrentTab('generator');
   };
 
   return (
@@ -59,8 +61,8 @@ export function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {currentTab === 'jobs' && (
-          <JobConsole
+        {(currentTab === 'generator' || currentTab === 'jobs' || currentTab === 'upload') && (
+          <GeneratorTab
             activeJob={activeJob}
             onRefreshActiveJob={checkStatus}
             defaultVideoPath={selectedVideoPath}
@@ -68,19 +70,38 @@ export function App() {
           />
         )}
 
-        {currentTab === 'upload' && (
-          <VideoUploadPlayer onSelectVideoForJob={handleSelectVideoForJob} />
+        {currentTab === 'subtitles' && (
+          <SubtitlesTab
+            defaultVideoPath={selectedVideoPath}
+            defaultProjectName={selectedProjectName}
+          />
         )}
 
-        {currentTab === 'subtitles' && (
-          <SubtitleEditor currentProject={selectedProjectName} />
+        {currentTab === 'watermark' && (
+          <WatermarkTab
+            defaultVideoPath={selectedVideoPath}
+            defaultProjectName={selectedProjectName}
+          />
+        )}
+
+        {currentTab === 'subtitle-editor' && (
+          <SubtitleEditorTab currentProject={selectedProjectName} />
         )}
 
         {currentTab === 'library' && (
-          <MediaLibrary onSelectVideo={handleSelectVideoForJob} />
+          <LibraryTab onSelectVideo={handleSelectVideoForJob} />
         )}
 
-        {currentTab === 'system' && <SystemStatusPanel />}
+        {currentTab === 'gdrive' && (
+          <GDriveTab
+            onSelectVideo={handleSelectVideoForJob}
+            defaultProjectName={selectedProjectName}
+          />
+        )}
+
+        {(currentTab === 'diagnostics' || currentTab === 'system') && (
+          <DiagnosticsTab onRefresh={checkStatus} />
+        )}
       </main>
 
       <footer className="border-t border-zinc-800/80 py-4 px-6 text-center text-xs text-zinc-400">

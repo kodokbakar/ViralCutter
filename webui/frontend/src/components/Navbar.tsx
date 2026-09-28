@@ -1,18 +1,30 @@
 import React from 'react';
 import {
   Film,
-  Terminal,
-  Upload,
   Subtitles,
+  Image as ImageIcon,
   FolderArchive,
   Activity,
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Cloud,
+  Sliders,
+  FileCode,
 } from 'lucide-react';
 import type { ActiveJobResponse } from '../api/types';
 
-export type TabType = 'jobs' | 'upload' | 'subtitles' | 'library' | 'system';
+export type TabType =
+  | 'generator'
+  | 'subtitles'
+  | 'watermark'
+  | 'subtitle-editor'
+  | 'library'
+  | 'gdrive'
+  | 'diagnostics'
+  | 'jobs'
+  | 'upload'
+  | 'system';
 
 interface NavbarProps {
   currentTab: TabType;
@@ -28,67 +40,79 @@ export const Navbar: React.FC<NavbarProps> = ({
   backendHealthy,
 }) => {
   const tabs = [
-    { id: 'jobs', label: 'Job Console', icon: Terminal },
-    { id: 'upload', label: 'Video & Player', icon: Upload },
-    { id: 'subtitles', label: 'Subtitle Editor', icon: Subtitles },
-    { id: 'library', label: 'Media Library', icon: FolderArchive },
-    { id: 'system', label: 'System Status', icon: Activity },
-  ] as const;
+    { id: 'generator' as TabType, label: 'Generator', icon: Sliders },
+    { id: 'subtitles' as TabType, label: 'Subtitles', icon: Subtitles },
+    { id: 'watermark' as TabType, label: 'Watermark', icon: ImageIcon },
+    { id: 'subtitle-editor' as TabType, label: 'Subtitle Editor', icon: FileCode },
+    { id: 'library' as TabType, label: 'Library', icon: FolderArchive },
+    { id: 'gdrive' as TabType, label: 'Google Drive', icon: Cloud },
+    { id: 'diagnostics' as TabType, label: 'Diagnostics', icon: Activity },
+  ];
+
+  const isTabActive = (tabId: TabType) => {
+    if (currentTab === tabId) return true;
+    if (tabId === 'generator' && (currentTab === 'jobs' || currentTab === 'upload')) return true;
+    if (tabId === 'diagnostics' && currentTab === 'system') return true;
+    return false;
+  };
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-3 sm:px-6 lg:px-8">
         {/* Brand */}
-        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('jobs')}>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-600/20 text-red-500 border border-red-500/30">
-            <Film className="h-6 w-6" />
+        <div
+          className="flex items-center space-x-2.5 cursor-pointer shrink-0"
+          onClick={() => onTabChange('generator')}
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600/20 text-red-500 border border-red-500/30">
+            <Film className="h-5 w-5" />
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-lg tracking-tight text-white">ViralCutter</span>
-              <span className="rounded bg-red-950/60 px-1.5 py-0.5 text-xs font-semibold text-red-400 border border-red-800/40">
+          <div className="hidden sm:block">
+            <div className="flex items-center space-x-1.5">
+              <span className="font-bold text-base tracking-tight text-white">ViralCutter</span>
+              <span className="rounded bg-red-950/60 px-1 py-0.2 text-[10px] font-semibold text-red-400 border border-red-800/40">
                 WebUI
               </span>
             </div>
-            <p className="text-xs text-zinc-400">FastAPI & React Pipeline</p>
+            <p className="text-[10px] text-zinc-400">FastAPI & React Pipeline</p>
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <nav className="flex space-x-1 sm:space-x-2">
+        <nav className="flex space-x-1 overflow-x-auto py-1 px-1 max-w-[65%] sm:max-w-none no-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
-            const isActive = currentTab === tab.id;
+            const active = isTabActive(tab.id);
             return (
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
+                className={`flex items-center space-x-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors shrink-0 ${
+                  active
                     ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700'
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                 }`}
               >
-                <Icon className={`h-4 w-4 ${isActive ? 'text-red-400' : 'text-zinc-400'}`} />
-                <span className="hidden md:inline">{tab.label}</span>
+                <Icon className={`h-3.5 w-3.5 ${active ? 'text-red-400' : 'text-zinc-400'}`} />
+                <span className="hidden lg:inline">{tab.label}</span>
               </button>
             );
           })}
         </nav>
 
         {/* Status Indicators */}
-        <div className="flex items-center space-x-3 text-xs">
+        <div className="flex items-center space-x-2.5 text-xs shrink-0">
           {/* Active Job Chip */}
           {activeJob?.active ? (
             <button
-              onClick={() => onTabChange('jobs')}
-              className="flex items-center space-x-2 rounded-full bg-red-950/70 border border-red-700/60 px-3 py-1 text-red-300 animate-pulse hover:bg-red-900/50"
+              onClick={() => onTabChange('generator')}
+              className="flex items-center space-x-1.5 rounded-full bg-red-950/70 border border-red-700/60 px-2.5 py-1 text-red-300 animate-pulse hover:bg-red-900/50"
             >
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-red-400" />
-              <span>Job Running</span>
+              <Loader2 className="h-3 w-3 animate-spin text-red-400" />
+              <span className="hidden sm:inline">Job Running</span>
             </button>
           ) : (
-            <div className="hidden sm:flex items-center space-x-1.5 text-zinc-500">
+            <div className="hidden md:flex items-center space-x-1.5 text-zinc-500">
               <span className="h-2 w-2 rounded-full bg-zinc-600" />
               <span>Idle</span>
             </div>
@@ -96,18 +120,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Backend Health Dot */}
           <div
-            className="flex items-center space-x-1.5 rounded-md bg-zinc-900 px-2.5 py-1 text-zinc-400 border border-zinc-800"
+            className="flex items-center space-x-1.5 rounded-md bg-zinc-900 px-2 py-1 text-zinc-400 border border-zinc-800"
             title={backendHealthy ? 'API Connected' : 'API Disconnected'}
           >
             {backendHealthy ? (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-zinc-300">API</span>
+                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                <span className="text-[11px] text-zinc-300 hidden sm:inline">API</span>
               </>
             ) : (
               <>
-                <AlertCircle className="h-3.5 w-3.5 text-red-400" />
-                <span className="text-red-300">Offline</span>
+                <AlertCircle className="h-3 w-3 text-red-400" />
+                <span className="text-[11px] text-red-300 hidden sm:inline">Offline</span>
               </>
             )}
           </div>
@@ -116,3 +140,5 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+
+export default Navbar;

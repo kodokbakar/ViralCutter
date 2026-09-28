@@ -15,4 +15,5 @@ node_modules/
 **/node_modules/
 webui/frontend/dist/
 *.tsbuildinfo
+/VIRALS/
 
