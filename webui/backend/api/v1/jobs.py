@@ -65,7 +65,7 @@ async def cancel_job(job_id: str):
             detail=f"Job {job_id} not found",
         )
 
-    job_manager.cancel_job(job_id)
+    await job_manager.cancel_job(job_id)
     return {"status": "cancelled", "job_id": job_id}
 
 

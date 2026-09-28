@@ -8,3 +8,4 @@ token_drive.json
 *.pyc
 debug_*.log
 /webui/PREVIEW/
+GOAL.md

@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import json
 import os
@@ -5,7 +6,7 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from webui.backend.config import (
     MAIN_SCRIPT_PATH,
@@ -124,39 +125,29 @@ class Job:
         with self.lock:
             self.events.append(event)
 
-    def cancel(self) -> bool:
+    def _initiate_cancel(self) -> Tuple[bool, Optional[subprocess.Popen]]:
         with self.lock:
             if self.status in ("completed", "failed", "cancelled"):
-                return False
+                return False, None
             proc = self.process
             self.status = "cancelled"
             self.error = "Job was cancelled by user"
             self.end_time = time.time()
+            return True, proc
 
-        if proc and proc.poll() is None:
+    def _terminate_proc_group(self, proc: subprocess.Popen, sig: int) -> None:
+        try:
+            os.killpg(os.getpgid(proc.pid), sig)
+        except (ProcessLookupError, PermissionError):
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                try:
+                if sig == signal.SIGKILL:
+                    proc.kill()
+                else:
                     proc.terminate()
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
-            start_wait = time.time()
-            while time.time() - start_wait < 5.0:
-                if proc.poll() is not None:
-                    break
-                time.sleep(0.1)
-
-            if proc.poll() is None:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-
+    def _finalize_cancel(self) -> None:
         now_str = datetime.datetime.now().strftime("%H:%M:%S")
         self.emit("log", {
             "level": "WARN",
@@ -167,6 +158,46 @@ class Job:
             "status": "cancelled",
             "error": "Job was cancelled by user",
         })
+        self.request.cleanup_temp_files()
+
+    async def cancel(self, timeout: float = 5.0) -> bool:
+        cancelled, proc = self._initiate_cancel()
+        if not cancelled:
+            return False
+
+        if proc and proc.poll() is None:
+            self._terminate_proc_group(proc, signal.SIGTERM)
+
+            start_wait = time.time()
+            while time.time() - start_wait < timeout:
+                if proc.poll() is not None:
+                    break
+                await asyncio.sleep(0.05)
+
+            if proc.poll() is None:
+                self._terminate_proc_group(proc, signal.SIGKILL)
+
+        self._finalize_cancel()
+        return True
+
+    def cancel_sync(self, timeout: float = 5.0) -> bool:
+        cancelled, proc = self._initiate_cancel()
+        if not cancelled:
+            return False
+
+        if proc and proc.poll() is None:
+            self._terminate_proc_group(proc, signal.SIGTERM)
+
+            start_wait = time.time()
+            while time.time() - start_wait < timeout:
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.05)
+
+            if proc.poll() is None:
+                self._terminate_proc_group(proc, signal.SIGKILL)
+
+        self._finalize_cancel()
         return True
 
     async def event_generator(self):
@@ -240,18 +271,19 @@ class JobManager:
         threading.Thread(target=self._run_job_process, args=(job,), daemon=True).start()
         return job
 
-    def cancel_job(self, job_id: str) -> bool:
+    async def cancel_job(self, job_id: str, timeout: float = 5.0) -> bool:
         job = self.get_job(job_id)
         if not job:
             return False
-        return job.cancel()
+        return await job.cancel(timeout=timeout)
+
+    def cancel_job_sync(self, job_id: str, timeout: float = 5.0) -> bool:
+        job = self.get_job(job_id)
+        if not job:
+            return False
+        return job.cancel_sync(timeout=timeout)
 
     def _run_job_process(self, job: Job):
-        cmd = job.request.to_cli_args(
-            python_exec=str(PYTHON_EXECUTABLE),
-            script_path=str(MAIN_SCRIPT_PATH),
-        )
-
         work_dir = str(MAIN_SCRIPT_PATH.parent)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -260,53 +292,79 @@ class JobManager:
         if job.request.whisper_chunk_size:
             env["VIRALCUTTER_WHISPER_CHUNK_SIZE"] = str(int(job.request.whisper_chunk_size))
 
-        now_str = datetime.datetime.now().strftime("%H:%M:%S")
-        job.emit("log", {
-            "level": "INFO",
-            "timestamp": now_str,
-            "message": f"Starting job {job.job_id} with command: {' '.join(cmd)}",
-        })
-        job.emit("progress", {
-            "stage": "STARTING",
-            "percent": 0,
-            "elapsed": "00:00:00",
-        })
-
+        proc = None
         with job.lock:
-            job.status = "running"
+            if job.status == "cancelled":
+                job.request.cleanup_temp_files()
+                return
 
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=work_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
-                env=env,
-            )
-            job.process = proc
-        except Exception as e:
-            with job.lock:
+            try:
+                cmd = job.request.to_cli_args(
+                    python_exec=str(PYTHON_EXECUTABLE),
+                    script_path=str(MAIN_SCRIPT_PATH),
+                )
+            except Exception as e:
                 job.status = "failed"
                 job.error = str(e)
                 job.end_time = time.time()
+                job.emit("error", {
+                    "status": "failed",
+                    "error": str(e),
+                })
+                job.request.cleanup_temp_files()
+                return
+
+            if job.status == "cancelled":
+                job.request.cleanup_temp_files()
+                return
+
+            job.status = "running"
+
+            now_str = datetime.datetime.now().strftime("%H:%M:%S")
             job.emit("log", {
-                "level": "ERROR",
-                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-                "message": f"Failed to start process: {e}",
+                "level": "INFO",
+                "timestamp": now_str,
+                "message": f"Starting job {job.job_id} with command: {' '.join(cmd)}",
             })
-            job.emit("error", {
-                "status": "failed",
-                "error": str(e),
+            job.emit("progress", {
+                "stage": "STARTING",
+                "percent": 0,
+                "elapsed": "00:00:00",
             })
-            return
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=work_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    start_new_session=True,
+                    env=env,
+                )
+                job.process = proc
+            except Exception as e:
+                job.status = "failed"
+                job.error = str(e)
+                job.end_time = time.time()
+                job.emit("log", {
+                    "level": "ERROR",
+                    "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+                    "message": f"Failed to start process: {e}",
+                })
+                job.emit("error", {
+                    "status": "failed",
+                    "error": str(e),
+                })
+                job.request.cleanup_temp_files()
+                return
 
         seen_stages = set()
         detected_output_dir = None
 
         if proc.stdout is None:
+            job.request.cleanup_temp_files()
             return
 
         try:
@@ -352,12 +410,16 @@ class JobManager:
                 "message": f"Error reading output: {e}",
             })
         finally:
-            if proc.stdout:
+            if proc and proc.stdout:
                 try:
                     proc.stdout.close()
                 except Exception:
                     pass
-            ret_code = proc.wait()
+            if proc:
+                ret_code = proc.wait()
+            else:
+                ret_code = -1
+            job.request.cleanup_temp_files()
 
         with job.lock:
             if job.status == "cancelled":

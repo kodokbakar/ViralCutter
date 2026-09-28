@@ -1,7 +1,12 @@
 import json
+import os
+import shutil
 import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
+
+from webui.backend.config import VIRALS_DIR
 
 
 class JobRunRequest(BaseModel):
@@ -96,17 +101,67 @@ class JobRunRequest(BaseModel):
     # General / test overrides
     skip_prompts: bool = Field(default=True, description="Always run non-interactively")
     custom_cmd: Optional[List[str]] = Field(default=None, description="Custom command override for testing")
+    _temp_files: List[str] = PrivateAttr(default_factory=list)
+
+    def _ensure_input_video(self, project_dir: Path, source_path: str) -> None:
+        src = Path(source_path)
+        if not src.is_file():
+            return
+        target = project_dir / "input.mp4"
+        try:
+            if target.resolve() == src.resolve():
+                return
+        except OSError:
+            pass
+        project_dir.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            try:
+                os.link(str(src), str(target))
+            except OSError:
+                shutil.copy(str(src), str(target))
+
+    def cleanup_temp_files(self) -> None:
+        """Remove any temporary files created for CLI args."""
+        for path in self._temp_files:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        self._temp_files.clear()
 
     def to_cli_args(self, python_exec: str, script_path: str) -> List[str]:
         """Convert request to command-line argument list."""
         if self.custom_cmd:
             return self.custom_cmd
 
+        self.cleanup_temp_files()
+
         cmd = [python_exec, script_path]
 
         # Input source
         if self.project_path:
-            cmd.extend(["--project-path", str(self.project_path)])
+            proj_dir = Path(self.project_path)
+            if self.video_path:
+                self._ensure_input_video(proj_dir, self.video_path)
+            cmd.extend(["--project-path", str(proj_dir)])
+            cmd.append("--skip-youtube-subs")
+        elif self.project_name:
+            proj_dir = VIRALS_DIR / self.project_name
+            if self.video_path:
+                self._ensure_input_video(proj_dir, self.video_path)
+            cmd.extend(["--project-path", str(proj_dir)])
+            cmd.append("--skip-youtube-subs")
+        elif self.video_path:
+            vid_path = Path(self.video_path)
+            if vid_path.is_dir():
+                proj_dir = vid_path
+            elif vid_path.name == "input.mp4":
+                proj_dir = vid_path.parent
+            else:
+                proj_dir = VIRALS_DIR / vid_path.stem
+                self._ensure_input_video(proj_dir, str(vid_path))
+            cmd.extend(["--project-path", str(proj_dir)])
             cmd.append("--skip-youtube-subs")
         elif self.gdrive_file_id:
             cmd.extend(["--gdrive-file-id", str(self.gdrive_file_id)])
@@ -158,6 +213,7 @@ class JobRunRequest(BaseModel):
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
             tmp.write(self.prompt_template)
             tmp.close()
+            self._temp_files.append(tmp.name)
             cmd.extend(["--prompt-file", tmp.name])
 
         cmd.extend(["--ai-backend", str(self.ai_backend)])
@@ -209,6 +265,7 @@ class JobRunRequest(BaseModel):
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
             json.dump(self.subtitle_config, tmp)
             tmp.close()
+            self._temp_files.append(tmp.name)
             cmd.extend(["--subtitle-config", tmp.name])
 
         # Watermark

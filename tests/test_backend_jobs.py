@@ -1,9 +1,12 @@
+import asyncio
+import os
 import sys
 import time
 import pytest
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
-from webui.backend.config import ensure_directories
+from webui.backend.config import VIRALS_DIR, ensure_directories
 from webui.backend.core.job_manager import (
     Job,
     JobConflictError,
@@ -24,14 +27,14 @@ def reset_job_manager():
     # Cancel any running job
     active = job_manager.get_active_job()
     if active:
-        active.cancel()
+        active.cancel_sync()
         time.sleep(0.1)
     job_manager.active_job = None
     job_manager.jobs.clear()
     yield
     active = job_manager.get_active_job()
     if active:
-        active.cancel()
+        active.cancel_sync()
 
 
 def test_format_duration():
@@ -104,7 +107,7 @@ def test_job_manager_single_lock():
         job_manager.start_job(req)
 
     # Cancel first job
-    cancelled = job_manager.cancel_job(job1.job_id)
+    cancelled = job_manager.cancel_job_sync(job1.job_id)
     assert cancelled is True
     assert job1.status == "cancelled"
     assert job_manager.is_running() is False
@@ -213,4 +216,125 @@ async def test_job_event_generator_sse_stream():
     assert "event: progress\ndata: {\"stage\": \"TRANSCRIPTION\", \"percent\": 40, \"elapsed\": \"00:01:23\"}\n\n" in joined
     assert "event: log\ndata: {\"level\": \"INFO\", \"timestamp\": \"14:20:10\", \"message\": \"Test log line\"}\n\n" in joined
     assert "event: complete\ndata: {\"status\": \"completed\", \"output_dir\": \"/tmp/out\"}\n\n" in joined
+
+
+def test_cli_mapping_project_name_and_video_path():
+    # 1. project_name only
+    req1 = JobRunRequest(project_name="my_cool_project")
+    cmd1 = req1.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    assert "--project-path" in cmd1
+    assert cmd1[cmd1.index("--project-path") + 1] == str(VIRALS_DIR / "my_cool_project")
+    assert "--skip-youtube-subs" in cmd1
+
+    # 2. video_path only (file path)
+    req2 = JobRunRequest(video_path="/tmp/awesome_video.mp4")
+    cmd2 = req2.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    assert "--project-path" in cmd2
+    assert cmd2[cmd2.index("--project-path") + 1] == str(VIRALS_DIR / "awesome_video")
+    assert "--skip-youtube-subs" in cmd2
+
+    # 3. video_path with input.mp4 leaf
+    req3 = JobRunRequest(video_path="/tmp/existing_run/input.mp4")
+    cmd3 = req3.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    assert "--project-path" in cmd3
+    assert cmd3[cmd3.index("--project-path") + 1] == "/tmp/existing_run"
+    assert "--skip-youtube-subs" in cmd3
+
+    # 4. project_name + video_path
+    req4 = JobRunRequest(project_name="target_folder", video_path="/tmp/source.mp4")
+    cmd4 = req4.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    assert "--project-path" in cmd4
+    assert cmd4[cmd4.index("--project-path") + 1] == str(VIRALS_DIR / "target_folder")
+    assert "--skip-youtube-subs" in cmd4
+
+
+def test_temp_files_lifecycle():
+    req = JobRunRequest(
+        prompt_template="Custom AI prompt instructions",
+        subtitle_config={"font_size": 24, "primary_color": "&H00FFFFFF"},
+    )
+    cmd = req.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    prompt_file = cmd[cmd.index("--prompt-file") + 1]
+    subtitle_file = cmd[cmd.index("--subtitle-config") + 1]
+
+    # Verify temp files created and exist
+    assert os.path.isfile(prompt_file)
+    assert os.path.isfile(subtitle_file)
+
+    with open(prompt_file, "r", encoding="utf-8") as f:
+        assert f.read() == "Custom AI prompt instructions"
+
+    # Cleanup temp files
+    req.cleanup_temp_files()
+    assert not os.path.exists(prompt_file)
+    assert not os.path.exists(subtitle_file)
+
+
+def test_early_cancel_before_spawn_cleans_state():
+    req = JobRunRequest(
+        custom_cmd=[sys.executable, "-c", "import time; time.sleep(10)"]
+    )
+    job = job_manager.start_job(req)
+    # Immediately cancel before subprocess starts or right away
+    cancelled = job_manager.cancel_job_sync(job.job_id)
+    assert cancelled is True
+    assert job.status == "cancelled"
+    assert job_manager.is_running() is False
+    assert job_manager.get_active_job() is None
+
+    # Verify subsequent job can be started immediately without 409 conflict
+    req2 = JobRunRequest(
+        custom_cmd=[sys.executable, "-c", "import time; time.sleep(0.1)"]
+    )
+    job2 = job_manager.start_job(req2)
+    assert job2 is not None
+    assert job_manager.cancel_job_sync(job2.job_id) is True
+
+
+def test_early_cancel_race_condition_never_spawns_process():
+    req = JobRunRequest(
+        custom_cmd=[sys.executable, "-c", "import time; time.sleep(10)"]
+    )
+    job = Job(job_id="test_early_race", request=req)
+    # Cancel job before _run_job_process is called
+    job.cancel_sync()
+    assert job.status == "cancelled"
+
+    # Run _run_job_process; should detect cancelled state and not spawn process
+    job_manager._run_job_process(job)
+    assert job.process is None
+    assert job.status == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_cancel_non_blocking_fastapi_event_loop():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Start a mock job that takes time
+        res_run = await client.post(
+            "/api/v1/jobs/run",
+            json={"custom_cmd": [sys.executable, "-c", "import time; time.sleep(5)"]},
+        )
+        assert res_run.status_code == 200
+        job_id = res_run.json()["job_id"]
+
+        await asyncio.sleep(0.05)
+        assert job_manager.is_running() is True
+
+        # Launch cancel task and concurrently issue health requests
+        cancel_task = asyncio.create_task(client.post(f"/api/v1/jobs/{job_id}/cancel"))
+
+        # While cancel is executing, health endpoint must respond promptly (non-blocking event loop)
+        health_start = time.perf_counter()
+        res_health = await client.get("/api/v1/health")
+        health_duration = time.perf_counter() - health_start
+
+        assert res_health.status_code == 200
+        assert res_health.json() == {"status": "ok"}
+        assert health_duration < 0.5, f"Health endpoint blocked! Took {health_duration:.2f}s"
+
+        res_cancel = await cancel_task
+        assert res_cancel.status_code == 200
+        assert res_cancel.json()["status"] == "cancelled"
+
 
