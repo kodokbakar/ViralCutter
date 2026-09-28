@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -57,7 +57,21 @@ async def health_check():
 
 # Serve static frontend SPA if built
 if FRONTEND_DIST_DIR.exists() and (FRONTEND_DIST_DIR / "index.html").exists():
-    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")), name="assets")
+    if (FRONTEND_DIST_DIR / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")), name="assets")
+
+    @app.get("/")
+    async def root_handler(request: Request):
+        accept = request.headers.get("accept", "")
+        # If client explicitly wants HTML (e.g. web browser navigation)
+        if "text/html" in accept and not request.headers.get("user-agent", "").startswith("python-httpx"):
+            return FileResponse(FRONTEND_DIST_DIR / "index.html")
+        return JSONResponse({
+            "name": "ViralCutter API",
+            "version": "1.0.0",
+            "status": "running",
+            "note": "Frontend dist ready. Use browser to visit UI or API endpoints at /api/v1/*",
+        })
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
