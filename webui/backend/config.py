@@ -17,6 +17,10 @@ HOST = os.environ.get("VIRALCUTTER_HOST", "0.0.0.0")
 PORT = int(os.environ.get("VIRALCUTTER_PORT", 7860))
 PYTHON_EXECUTABLE = sys.executable
 
+# Supported file extensions
+ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+ALLOWED_SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".json"}
+
 def ensure_directories():
     """Ensure core output and cache directories exist."""
     VIRALS_DIR.mkdir(parents=True, exist_ok=True)
