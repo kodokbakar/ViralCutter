@@ -265,4 +265,135 @@ describe('API Client Layer', () => {
     expect(res.completed).toBe(true);
     expect(chunkCalls).toEqual([0, 1, 2]);
   });
+
+  describe('jobsApi.streamLogs SSE Event Handling', () => {
+    class MockEventSource {
+      static instances: MockEventSource[] = [];
+      url: string;
+      listeners: Record<string, ((event: any) => void)[]> = {};
+      onmessage: ((event: any) => void) | null = null;
+      onerror: ((event: any) => void) | null = null;
+      closed = false;
+
+      constructor(url: string) {
+        this.url = url;
+        MockEventSource.instances.push(this);
+      }
+
+      addEventListener(event: string, handler: (event: any) => void) {
+        if (!this.listeners[event]) {
+          this.listeners[event] = [];
+        }
+        this.listeners[event].push(handler);
+      }
+
+      removeEventListener(event: string, handler: (event: any) => void) {
+        if (this.listeners[event]) {
+          this.listeners[event] = this.listeners[event].filter((h) => h !== handler);
+        }
+      }
+
+      emit(event: string, data: any) {
+        const ev = { type: event, data };
+        const called = new Set<Function>();
+        if (this.listeners[event]) {
+          this.listeners[event].forEach((h) => {
+            called.add(h);
+            h(ev);
+          });
+        }
+        if (event === 'message' && this.onmessage && !called.has(this.onmessage)) {
+          this.onmessage(ev);
+        }
+      }
+
+      close() {
+        this.closed = true;
+      }
+    }
+
+    const originalEventSource = globalThis.EventSource;
+
+    beforeEach(() => {
+      MockEventSource.instances = [];
+      globalThis.EventSource = MockEventSource as any;
+    });
+
+    afterEach(() => {
+      globalThis.EventSource = originalEventSource;
+    });
+
+    it('subscribes to correct URL and handles named log event with data.message', () => {
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs('job_abc/123', (line) => messages.push(line));
+
+      expect(MockEventSource.instances.length).toBe(1);
+      const es = MockEventSource.instances[0];
+      expect(es.url).toBe('/api/v1/jobs/job_abc%2F123/stream');
+
+      es.emit('log', JSON.stringify({ level: 'INFO', message: 'Pipeline stage started', timestamp: '12:00:00' }));
+      expect(messages).toEqual(['Pipeline stage started']);
+
+      cleanup();
+      expect(es.closed).toBe(true);
+    });
+
+    it('handles named progress event with data.message', () => {
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+      const es = MockEventSource.instances[0];
+
+      es.emit('progress', JSON.stringify({ message: 'Transcription 50% complete', percent: 50 }));
+      expect(messages).toEqual(['Transcription 50% complete']);
+
+      cleanup();
+    });
+
+    it('falls back to data.line when message is absent in log event', () => {
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+      const es = MockEventSource.instances[0];
+
+      es.emit('log', JSON.stringify({ line: 'Legacy line output' }));
+      expect(messages).toEqual(['Legacy line output']);
+
+      cleanup();
+    });
+
+    it('falls back to JSON string when neither message nor line is present in progress event', () => {
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+      const es = MockEventSource.instances[0];
+
+      const rawProgress = JSON.stringify({ stage: 'CUTTING', percent: 45, elapsed: '00:01:23' });
+      es.emit('progress', rawProgress);
+      expect(messages).toEqual([rawProgress]);
+
+      cleanup();
+    });
+
+    it('handles default message event and raw text', () => {
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+      const es = MockEventSource.instances[0];
+
+      es.emit('message', JSON.stringify({ message: 'Default event with message' }));
+      es.emit('message', 'plain unformatted log line');
+      expect(messages).toEqual(['Default event with message', 'plain unformatted log line']);
+
+      cleanup();
+    });
+
+    it('routes errors to onError handler', () => {
+      const errors: any[] = [];
+      const cleanup = jobsApi.streamLogs('job_xyz', () => {}, (err) => errors.push(err));
+      const es = MockEventSource.instances[0];
+
+      const mockError = new Event('error');
+      es.onerror?.(mockError);
+      expect(errors).toEqual([mockError]);
+
+      cleanup();
+    });
+  });
 });

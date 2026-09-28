@@ -120,20 +120,28 @@ export const jobsApi = {
     const sseUrl = `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream`;
     const eventSource = new EventSource(sseUrl);
 
-    eventSource.onmessage = (event) => {
+    const handleMessage = (event: Event) => {
+      const msgEvent = event as MessageEvent;
       try {
-        const parsed = JSON.parse(event.data);
+        const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
         if (typeof parsed === 'string') {
           onMessage(parsed);
+        } else if (parsed && typeof parsed.message === 'string') {
+          onMessage(parsed.message);
         } else if (parsed && typeof parsed.line === 'string') {
           onMessage(parsed.line);
         } else {
-          onMessage(event.data);
+          onMessage(typeof msgEvent.data === 'string' ? msgEvent.data : JSON.stringify(parsed));
         }
       } catch {
-        onMessage(event.data);
+        onMessage(String(msgEvent.data ?? ''));
       }
     };
+
+    eventSource.onmessage = handleMessage as (this: EventSource, ev: MessageEvent) => void;
+    eventSource.addEventListener('message', handleMessage);
+    eventSource.addEventListener('log', handleMessage);
+    eventSource.addEventListener('progress', handleMessage);
 
     if (onError) {
       eventSource.onerror = (e) => {
@@ -142,6 +150,9 @@ export const jobsApi = {
     }
 
     return () => {
+      eventSource.removeEventListener('message', handleMessage);
+      eventSource.removeEventListener('log', handleMessage);
+      eventSource.removeEventListener('progress', handleMessage);
       eventSource.close();
     };
   },

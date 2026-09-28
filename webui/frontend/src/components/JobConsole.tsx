@@ -116,25 +116,66 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
     }
   }, [logs, autoScroll]);
 
-  // Live SSE stream connection
-  useEffect(() => {
-    const isRunning = activeJob?.active && activeJob.job?.status === 'running';
-    if (!isRunning || !activeJob?.job?.job_id) return;
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
+  const activeStreamJobIdRef = useRef<string | null>(null);
 
-    const cleanup = jobsApi.streamLogs(
-      activeJob.job.job_id,
+  const connectStream = useCallback((jobId: string) => {
+    if (activeStreamJobIdRef.current === jobId) {
+      return;
+    }
+    if (streamCleanupRef.current) {
+      streamCleanupRef.current();
+      streamCleanupRef.current = null;
+    }
+    activeStreamJobIdRef.current = jobId;
+    streamCleanupRef.current = jobsApi.streamLogs(
+      jobId,
       (line: string) => {
         logBufferRef.current.push(line);
       },
       () => {
-        // SSE error or disconnect
+        // SSE error or disconnect: refresh active job status
+        onRefreshActiveJob();
       }
     );
+  }, [onRefreshActiveJob]);
 
+  // Live SSE stream connection
+  useEffect(() => {
+    const isRunning = Boolean(
+      activeJob?.active &&
+      activeJob.job?.job_id &&
+      (activeJob.job.status === 'running' || activeJob.job.status === 'queued')
+    );
+    const isTerminal = Boolean(
+      activeJob &&
+      (!activeJob.active || ['completed', 'failed', 'cancelled'].includes(activeJob.job?.status || ''))
+    );
+
+    if (isRunning && activeJob?.job?.job_id) {
+      setRunningJobId(activeJob.job.job_id);
+      connectStream(activeJob.job.job_id);
+    } else if (isTerminal) {
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
+      }
+      activeStreamJobIdRef.current = null;
+      setRunningJobId(null);
+    }
+  }, [activeJob?.active, activeJob?.job?.status, activeJob?.job?.job_id, connectStream]);
+
+  // Clean up on component unmount
+  useEffect(() => {
     return () => {
-      cleanup();
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
+        activeStreamJobIdRef.current = null;
+      }
     };
-  }, [activeJob?.active, activeJob?.job?.status, activeJob?.job?.job_id]);
+  }, []);
 
   // Polling active job periodically
   useEffect(() => {
@@ -210,7 +251,9 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
       setLogs([]);
       logBufferRef.current = [`[INFO] Starting job execution...`];
       const res: JobResponse = await jobsApi.run(payload);
+      setRunningJobId(res.job_id);
       logBufferRef.current.push(`[INFO] Job spawned with ID: ${res.job_id}`);
+      connectStream(res.job_id);
       onRefreshActiveJob();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to launch job';
@@ -223,12 +266,14 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
 
   // Handle Cancel
   const handleCancelJob = async () => {
-    if (!activeJob?.job?.job_id) return;
+    const targetJobId = activeJob?.job?.job_id || runningJobId || activeStreamJobIdRef.current;
+    if (!targetJobId) return;
     setIsCancelling(true);
     setErrorMessage(null);
     try {
-      await jobsApi.cancel(activeJob.job.job_id);
+      await jobsApi.cancel(targetJobId);
       logBufferRef.current.push(`[INFO] Job cancellation requested.`);
+      setRunningJobId(null);
       onRefreshActiveJob();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to cancel job';
@@ -245,7 +290,7 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
   };
 
   const currentJob = activeJob?.job;
-  const isJobRunning = Boolean(activeJob?.active && currentJob?.status === 'running');
+  const isJobRunning = Boolean((activeJob?.active && currentJob?.status === 'running') || runningJobId);
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -293,7 +338,7 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
               <Sliders className="h-5 w-5 text-red-400" />
               <h2 className="text-base font-semibold text-white">Pipeline Parameters</h2>
             </div>
-            {getStatusBadge(currentJob?.status)}
+            {getStatusBadge(currentJob?.status || (runningJobId ? 'running' : undefined))}
           </div>
 
           {errorMessage && (
@@ -661,9 +706,9 @@ export const JobConsole: React.FC<JobConsoleProps> = ({
             <span className="text-xs font-mono uppercase tracking-wider text-zinc-300">
               Live Process Stream
             </span>
-            {currentJob?.job_id && (
+            {(currentJob?.job_id || runningJobId) && (
               <span className="font-mono text-xs text-zinc-500">
-                ({currentJob.job_id.substring(0, 8)})
+                ({(currentJob?.job_id || runningJobId)!.substring(0, 8)})
               </span>
             )}
           </div>
