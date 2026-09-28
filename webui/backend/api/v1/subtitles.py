@@ -18,8 +18,8 @@ if "gradio" not in sys.modules:
         setattr(dummy_gr, "update", lambda **kw: None)
         sys.modules["gradio"] = dummy_gr
 
-from webui.backend.config import VIRALS_DIR
-from webui.backend.core.security import sanitize_project_name, validate_safe_path
+from webui.backend.config import UPLOADS_DIR, VIRALS_DIR
+from webui.backend.core.security import sanitize_filename, sanitize_project_name, validate_safe_path
 from webui.backend.schemas.subtitles import (
     SubtitleConvertRequest,
     SubtitleConvertResponse,
@@ -344,14 +344,30 @@ async def save_subtitles(request: SubtitleSaveRequest):
         )
 
     if request.file_path:
-        target_path = validate_safe_path(request.file_path)
+        target_path = validate_safe_path(request.file_path, allowed_roots=[VIRALS_DIR, UPLOADS_DIR])
+        await asyncio.to_thread(target_path.parent.mkdir, parents=True, exist_ok=True)
     elif request.project_name:
+        if request.filename:
+            if ".." in request.filename or "/" in request.filename or "\\" in request.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Path traversal in filename is not allowed",
+                )
+            clean_name = sanitize_filename(request.filename)
+            fname = Path(clean_name).name
+        else:
+            fname = f"subtitles.{fmt}"
+
         safe_proj = sanitize_project_name(request.project_name)
-        proj_dir = VIRALS_DIR / safe_proj
-        subs_dir = proj_dir / "subs"
+        proj_dir = (VIRALS_DIR / safe_proj).resolve()
+        subs_dir = (proj_dir / "subs").resolve()
         await asyncio.to_thread(subs_dir.mkdir, parents=True, exist_ok=True)
-        fname = request.filename or f"subtitles.{fmt}"
-        target_path = subs_dir / fname
+        target_path = (subs_dir / fname).resolve()
+        if target_path != subs_dir and subs_dir not in target_path.parents:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Target subtitle path escapes project subtitles directory",
+            )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

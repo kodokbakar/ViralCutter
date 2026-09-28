@@ -11,8 +11,6 @@ DEFAULT_ALLOWED_ROOTS = [
     UPLOADS_DIR,
     PREVIEWS_DIR,
     BASE_DIR / "models",
-    BASE_DIR / "scripts",
-    BASE_DIR / "webui",
 ]
 
 

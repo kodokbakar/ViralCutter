@@ -154,7 +154,18 @@ async def get_video_metadata(path: str = Query(..., description="Path to video f
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Subprocess execution timed out during metadata extraction",
+        )
 
     if proc.returncode != 0:
         raise HTTPException(

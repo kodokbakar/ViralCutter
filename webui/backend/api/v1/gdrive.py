@@ -40,10 +40,32 @@ from webui.backend.schemas.gdrive import (
     GDriveStatusResponse,
     GDriveVideoItem,
 )
-from webui.drive_browser import is_colab_drive_available, list_drive_videos as list_colab_drive_videos
+import webui.drive_browser as drive_browser
+from webui.drive_browser import (
+    DRIVE_ROOT,
+    is_colab_drive_available,
+    list_drive_videos as list_colab_drive_videos,
+)
 from webui.project_export import build_project_zip
 
 router = APIRouter()
+
+
+def _validate_drive_path(path_str: str) -> Path:
+    if not path_str or "\0" in path_str:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid drive path: empty string or null byte",
+        )
+    target = Path(path_str).resolve()
+    current_drive_root = Path(getattr(drive_browser, "DRIVE_ROOT", DRIVE_ROOT)).resolve()
+    allowed_roots = [current_drive_root, Path("/content/drive").resolve()]
+    if not any(target == r or r in target.parents for r in allowed_roots):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: path is outside allowed Google Drive mount boundary",
+        )
+    return target
 
 
 @router.get("/status", response_model=GDriveStatusResponse)
@@ -159,7 +181,7 @@ async def import_drive_video(request: GDriveImportRequest):
 
     # Colab filesystem path import
     if request.file_path:
-        src_path = Path(request.file_path)
+        src_path = _validate_drive_path(request.file_path)
         if not src_path.is_file():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -231,7 +253,8 @@ async def export_to_drive(request: GDriveExportRequest):
 
     # If Colab drive available, copy to destination
     if is_colab_drive_available():
-        dest_dir = Path(request.destination_folder or "/content/drive/MyDrive/ViralCutter_Exports")
+        dest_folder_str = request.destination_folder or "/content/drive/MyDrive/ViralCutter_Exports"
+        dest_dir = _validate_drive_path(dest_folder_str)
         await asyncio.to_thread(dest_dir.mkdir, parents=True, exist_ok=True)
         dest_file = dest_dir / zip_path.name
         await asyncio.to_thread(shutil.copy2, zip_path, dest_file)

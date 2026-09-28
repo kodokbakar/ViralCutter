@@ -28,6 +28,19 @@ from webui.project_export import build_project_zip
 router = APIRouter()
 
 
+def _is_protected_project_dir(target_dir: Path, name: str) -> bool:
+    clean = name.strip().lower()
+    if clean in {"uploads", ".", ".."}:
+        return True
+    try:
+        resolved = target_dir.resolve()
+        if resolved in {VIRALS_DIR.resolve(), UPLOADS_DIR.resolve()}:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _get_project_summary_sync(proj_dir: Path) -> ProjectSummary:
     stat = proj_dir.stat()
     created_at = stat.st_ctime
@@ -91,7 +104,7 @@ async def get_project_detail(project_name: str):
     safe_name = sanitize_project_name(project_name)
     proj_dir = VIRALS_DIR / safe_name
 
-    if not proj_dir.is_dir():
+    if _is_protected_project_dir(proj_dir, safe_name) or not proj_dir.is_dir():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project '{safe_name}' not found",
@@ -140,6 +153,18 @@ async def rename_project(project_name: str, body: ProjectRenameRequest):
     old_dir = VIRALS_DIR / safe_old
     new_dir = VIRALS_DIR / safe_new
 
+    if _is_protected_project_dir(old_dir, safe_old):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot rename protected system directory '{safe_old}'",
+        )
+
+    if _is_protected_project_dir(new_dir, safe_new):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot rename project to protected system directory name '{safe_new}'",
+        )
+
     if not old_dir.is_dir():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,6 +193,12 @@ async def delete_project(project_name: str):
     """
     safe_name = sanitize_project_name(project_name)
     target_dir = VIRALS_DIR / safe_name
+
+    if _is_protected_project_dir(target_dir, safe_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete protected system directory '{safe_name}'",
+        )
 
     if not target_dir.is_dir():
         raise HTTPException(
@@ -256,7 +287,7 @@ async def export_project(project_name: str):
     safe_name = sanitize_project_name(project_name)
     proj_dir = VIRALS_DIR / safe_name
 
-    if not proj_dir.is_dir():
+    if _is_protected_project_dir(proj_dir, safe_name) or not proj_dir.is_dir():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project '{safe_name}' not found",
