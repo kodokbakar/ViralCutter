@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -9,8 +10,14 @@ from pathlib import Path
 from typing import Any, Dict
 from fastapi import APIRouter
 
+from scripts.create_viral_segments import verify_ai_connection
 from webui.backend.config import VIRALS_DIR
-from webui.backend.schemas.system import SystemHealthResponse, SystemStatusResponse
+from webui.backend.schemas.system import (
+    SystemHealthResponse,
+    SystemStatusResponse,
+    TestAIRequest,
+    TestAIResponse,
+)
 
 router = APIRouter()
 
@@ -138,3 +145,28 @@ async def get_health():
     Lightweight health check endpoint.
     """
     return SystemHealthResponse(status="ok", timestamp=time.time())
+
+
+@router.post("/test-ai", response_model=TestAIResponse)
+async def test_ai_connection(req: TestAIRequest):
+    """
+    Test connectivity to the specified AI backend provider.
+    """
+    start = time.perf_counter()
+    success, message = await asyncio.to_thread(
+        verify_ai_connection,
+        backend=req.backend,
+        base_url=req.base_url or "",
+        api_key=req.api_key or "",
+        model_name=req.model_name or "",
+    )
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    match = re.search(r"\((\d+)ms\)", message)
+    latency_ms = int(match.group(1)) if match else elapsed_ms
+
+    return TestAIResponse(
+        success=success,
+        message=message,
+        latency_ms=latency_ms,
+    )

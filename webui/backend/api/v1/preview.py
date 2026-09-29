@@ -1,17 +1,23 @@
 import asyncio
+import hashlib
 import json
 import math
 import mimetypes
 import os
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Any, Generator, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
+from scripts import subtitle_fonts
+from scripts.burn_subtitles import _escape_filter_path
 from webui.backend.config import PREVIEWS_DIR
 from webui.backend.core.security import validate_safe_path
 from webui.backend.schemas.preview import (
+    SubtitleVideoPreviewRequest,
+    SubtitleVideoPreviewResponse,
     ThumbnailRequest,
     ThumbnailResponse,
     VideoMetadataResponse,
@@ -262,3 +268,154 @@ async def get_thumbnail_file(path: str = Query(..., description="Path to thumbna
     """
     safe_thumb = validate_safe_path(path, allowed_roots=[PREVIEWS_DIR], must_exist=True)
     return FileResponse(safe_thumb, media_type="image/jpeg")
+
+
+def _to_ass_color(col: Any, default: str = "&H00FFFFFF&", alpha: str = "00") -> str:
+    if not col:
+        return default
+    col = str(col).strip()
+    if col.startswith("&H") and col.endswith("&"):
+        return col
+    if col.startswith("#"):
+        col = col[1:]
+    if len(col) == 6:
+        r, g, b = col[0:2], col[2:4], col[4:6]
+        return f"&H{alpha}{b}{g}{r}&"
+    return default
+
+
+def _generate_subtitle_preview_video_sync(
+    video_path: Optional[str],
+    subtitle_config: Optional[dict],
+    sample_text: str,
+    timestamp: float,
+    duration: float,
+) -> Path:
+    PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+    cfg = subtitle_config or {}
+
+    config_hash = hashlib.md5(
+        f"{video_path}_{json.dumps(cfg, sort_keys=True)}_{sample_text}_{timestamp}_{duration}".encode()
+    ).hexdigest()[:12]
+    out_video = PREVIEWS_DIR / f"sub_preview_{config_hash}.mp4"
+    if out_video.exists() and out_video.stat().st_size > 1000:
+        return out_video
+
+    ass_path = PREVIEWS_DIR / f"sub_preview_{config_hash}.ass"
+
+    font_name = cfg.get("font") or cfg.get("font_name") or "Montserrat-ExtraBold"
+    try:
+        font_entry = subtitle_fonts.resolve_font(font_name)
+        ass_font_name = font_entry.get("ass_name") or font_entry.get("label") or font_entry.get("family") or font_name
+    except Exception:
+        ass_font_name = font_name
+
+    base_size = int(cfg.get("fontSize") or cfg.get("base_size") or cfg.get("size") or 32)
+    base_color = _to_ass_color(cfg.get("color") or cfg.get("base_color"), "&H00FFFFFF&")
+    outline_color = _to_ass_color(cfg.get("outlineColor") or cfg.get("outline_color"), "&H00000000&")
+    shadow_color = _to_ass_color(cfg.get("shadowColor") or cfg.get("shadow_color"), "&H00000000&")
+    outline_thickness = float(cfg.get("outlineThickness") or cfg.get("outline_thickness") or 2.0)
+    shadow_size = float(cfg.get("shadowSize") or cfg.get("shadow_size") or 1.0)
+    border_style = int(cfg.get("border_style") or 1)
+    alignment = int(cfg.get("alignment") or 2)
+    vertical_position = int(cfg.get("vertical_position") or 210)
+    bold = 1 if cfg.get("bold", True) else 0
+    italic = 1 if cfg.get("italic", False) else 0
+
+    dur_int = max(1, int(duration))
+    dur_cs = int((duration % 1) * 100)
+    time_str = f"0:00:{dur_int:02d}.{dur_cs:02d}"
+
+    ass_content = f"""[Script Info]
+Title: Subtitle Preview
+ScriptType: v4.00+
+PlayResX: 540
+PlayResY: 960
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{ass_font_name},{base_size},{base_color},&H00000000&,{outline_color},{shadow_color},{bold},{italic},0,0,100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,{time_str},Default,,0,0,0,,{sample_text}
+"""
+    ass_path.write_text(ass_content, encoding="utf-8")
+
+    escaped_ass = _escape_filter_path(str(ass_path))
+    escaped_fonts_dir = _escape_filter_path(subtitle_fonts.get_fonts_dir())
+    sub_filter = f"subtitles='{escaped_ass}':fontsdir='{escaped_fonts_dir}'"
+
+    valid_video = bool(video_path and os.path.exists(video_path))
+
+    if valid_video:
+        filter_str = f"scale=540:960:force_original_aspect_ratio=decrease,pad=540:960:(ow-iw)/2:(oh-ih)/2:black,{sub_filter}"
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{float(timestamp):.3f}",
+            "-t", f"{float(duration):.3f}",
+            "-i", str(video_path),
+            "-vf", filter_str,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "96k",
+            str(out_video),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode != 0 or not out_video.exists() or out_video.stat().st_size <= 500:
+            cmd[3] = "0.0"
+            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi",
+            "-i", f"color=c=black:s=540x960:r=25:d={duration}",
+            "-vf", sub_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            str(out_video),
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    if not out_video.exists() or out_video.stat().st_size <= 500:
+        raise RuntimeError("Failed to generate subtitle preview video")
+
+    return out_video
+
+
+@router.post("/subtitle-video", response_model=SubtitleVideoPreviewResponse)
+async def generate_subtitle_video_preview(req: SubtitleVideoPreviewRequest):
+    """
+    Generate a 3-second 9:16 video clip with burned sample subtitles.
+    """
+    resolved_video_path = None
+    if req.video_path:
+        try:
+            safe_p = validate_safe_path(req.video_path, must_exist=True)
+            if safe_p.is_file():
+                resolved_video_path = str(safe_p.resolve())
+        except Exception:
+            resolved_video_path = None
+
+    try:
+        out_video = await asyncio.to_thread(
+            _generate_subtitle_preview_video_sync,
+            video_path=resolved_video_path,
+            subtitle_config=req.subtitle_config,
+            sample_text=req.sample_text,
+            timestamp=req.timestamp,
+            duration=req.duration,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate subtitle video preview: {e}",
+        )
+
+    return SubtitleVideoPreviewResponse(
+        preview_url=f"/api/v1/preview/stream?path={out_video.resolve()}",
+        file_path=str(out_video.resolve()),
+    )

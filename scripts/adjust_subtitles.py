@@ -133,6 +133,23 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                     except (ValueError, TypeError):
                         continue
 
+            # Fallback if no word-level timestamps were provided: split segment text evenly
+            if not valid_words:
+                seg_text = str(segment.get('text', '')).strip()
+                try:
+                    s = float(segment.get('start', 0.0))
+                    e = float(segment.get('end', s + 1.0))
+                    if e > s and seg_text:
+                        words = seg_text.split()
+                        if words:
+                            word_dur = (e - s) / len(words)
+                            for idx_w, w_str in enumerate(words):
+                                w_s = s + idx_w * word_dur
+                                w_e = s + (idx_w + 1) * word_dur
+                                valid_words.append({'word': w_str, 'start': w_s, 'end': w_e})
+                except (ValueError, TypeError):
+                    pass
+
             valid_words.sort(key=lambda x: x['start'])
             for idx in range(len(valid_words) - 1):
                 curr = valid_words[idx]
