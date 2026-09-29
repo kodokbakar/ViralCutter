@@ -97,12 +97,18 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
     globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
     vi.restoreAllMocks();
     document.body.textContent = '';
+    if (typeof localStorage !== 'undefined' && localStorage.clear) {
+      localStorage.clear();
+    }
   });
 
   afterEach(() => {
     globalThis.EventSource = originalEventSource;
     vi.restoreAllMocks();
     document.body.textContent = '';
+    if (typeof localStorage !== 'undefined' && localStorage.clear) {
+      localStorage.clear();
+    }
   });
 
   // -------------------------------------------------------------
@@ -327,6 +333,42 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
           workflow: '2',
         })
       );
+
+      unmount();
+    });
+
+    it('ingests stream logs via timer flusher and ignores ping comments', async () => {
+      let onMessageCallback: (line: string) => void = () => {};
+      vi.spyOn(jobsApi, 'streamLogs').mockImplementation((_jobId, onMessage) => {
+        onMessageCallback = onMessage;
+        return () => {};
+      });
+
+      const activeJob = {
+        active: true,
+        job: {
+          job_id: 'job_timer_test',
+          status: 'running' as const,
+          stage: 'Downloading',
+          percent: 10,
+          elapsed: '00:00:05',
+          started_at: '2026-09-30 00:00:00',
+        },
+      };
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab activeJob={activeJob} />
+      );
+
+      // Simulate stream messages: a ping and a real log
+      act(() => {
+        onMessageCallback(': ping');
+        onMessageCallback('[Pipeline] Processing step 1');
+      });
+
+      const logText = container.textContent || '';
+      expect(logText).toContain('[Pipeline] Processing step 1');
+      expect(logText).not.toContain(': ping');
 
       unmount();
     });
