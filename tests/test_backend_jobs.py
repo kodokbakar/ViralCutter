@@ -219,6 +219,46 @@ async def test_job_event_generator_sse_stream():
     assert "event: complete\ndata: {\"status\": \"completed\", \"output_dir\": \"/tmp/out\"}\n\n" in joined
 
 
+@pytest.mark.anyio
+async def test_job_event_generator_heartbeat_ping():
+    req = JobRunRequest(url="https://youtube.com/watch?v=mock")
+    job = Job(job_id="test_ping_job", request=req)
+
+    gen = job.event_generator()
+    ping_chunk = None
+    start = time.time()
+    while time.time() - start < 2.0:
+        chunk = await anext(gen)
+        if chunk == ": ping\n\n":
+            ping_chunk = chunk
+            break
+
+    assert ping_chunk == ": ping\n\n"
+
+    # Emit complete event and ensure it resumes and finishes cleanly
+    job.emit("complete", {"status": "completed", "output_dir": "/tmp/out"})
+    next_chunk = await anext(gen)
+    assert "event: complete" in next_chunk
+
+
+@pytest.mark.anyio
+async def test_stream_job_logs_headers():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        req = JobRunRequest(url="https://youtube.com/watch?v=mock")
+        job = Job(job_id="test_headers_job", request=req)
+        with job_manager.lock:
+            job_manager.jobs[job.job_id] = job
+        job.emit("complete", {"status": "completed", "output_dir": "/tmp/out"})
+
+        async with client.stream("GET", f"/api/v1/jobs/{job.job_id}/stream") as response:
+            assert response.status_code == 200
+            assert response.headers["Cache-Control"] == "no-cache, no-transform"
+            assert response.headers["Connection"] == "keep-alive"
+            assert response.headers["X-Accel-Buffering"] == "no"
+            assert response.headers["Content-Type"] == "text/event-stream; charset=utf-8"
+
+
 def test_cli_mapping_project_name_and_video_path():
     # 1. project_name only
     req1 = JobRunRequest(project_name="my_cool_project")
