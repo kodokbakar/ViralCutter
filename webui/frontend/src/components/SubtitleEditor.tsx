@@ -11,8 +11,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Video,
 } from 'lucide-react';
-import { subtitlesApi } from '../api/client';
+import { subtitlesApi, previewApi } from '../api/client';
 import type {
   SubtitleItem,
   SubtitleStylePreviewRequest,
@@ -52,6 +53,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ currentProject }
   // Preview & Save State
   const [previewHtml, setPreviewHtml] = useState<string>('');
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [loadingVideoPreview, setLoadingVideoPreview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -142,6 +145,35 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ currentProject }
     if (typeof p.bold === 'boolean') setBold(p.bold);
     if (typeof p.uppercase === 'boolean') setUppercase(p.uppercase);
     if (typeof p.mode === 'string') setMode(p.mode as any);
+  };
+
+  const handlePreviewOnVideo = async () => {
+    setLoadingVideoPreview(true);
+    try {
+      const sampleText = entries[0]?.text || 'The quick brown fox jumps over the lazy dog';
+      const res = await previewApi.previewSubtitleVideo({
+        sample_text: sampleText,
+        subtitle_config: {
+          font,
+          fontSize,
+          color,
+          highlightColor,
+          outlineColor,
+          outlineThickness,
+          shadowColor,
+          shadowSize,
+          bold,
+          uppercase,
+          mode,
+        },
+        duration: 3.0,
+      });
+      setVideoPreviewUrl(res.preview_url);
+    } catch {
+      // Fallback
+    } finally {
+      setLoadingVideoPreview(false);
+    }
   };
 
   // Parse Raw Subtitles
@@ -566,15 +598,57 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ currentProject }
             </div>
           </div>
 
-          {/* HTML Preview (XSS Sanitize Protected) */}
+          {/* HTML Preview (XSS Sanitize Protected) & Video Preview */}
           <div className="space-y-2 pt-2 border-t border-zinc-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5 text-xs font-medium uppercase tracking-wider text-zinc-400">
                 <Eye className="h-3.5 w-3.5 text-red-400" />
                 <span>Live Rendering Preview</span>
               </div>
-              {loadingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handlePreviewOnVideo}
+                  disabled={loadingVideoPreview}
+                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] border border-zinc-700 disabled:opacity-50 transition-colors"
+                >
+                  {loadingVideoPreview ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Video className="h-3 w-3 text-red-400" />
+                  )}
+                  <span>Preview on Video</span>
+                </button>
+                {loadingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />}
+              </div>
             </div>
+
+            {/* Video Preview Player if generated */}
+            {videoPreviewUrl && (
+              <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-zinc-300">Video Sample (3s Loop)</span>
+                  <button
+                    type="button"
+                    onClick={() => setVideoPreviewUrl(null)}
+                    className="text-[11px] text-zinc-500 hover:text-zinc-300"
+                  >
+                    Hide Video
+                  </button>
+                </div>
+                <div className="w-full max-w-[180px] mx-auto aspect-[9/16] bg-black rounded-lg overflow-hidden shadow-lg border border-zinc-800 flex items-center justify-center">
+                  <video
+                    src={videoPreviewUrl}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    controls
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Security: sanitizedHtml is strictly sanitized via DOMPurify with whitelisted tags and attributes to prevent XSS */}
             <div

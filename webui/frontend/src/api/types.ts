@@ -64,6 +64,12 @@ export interface JobRunRequest {
   face_confidence_threshold?: number;
   face_dead_zone?: string;
   focus_active_speaker?: boolean;
+  active_speaker_mar?: number;
+  active_speaker_score_diff?: number;
+  active_speaker_decay?: number;
+  include_motion?: boolean;
+  active_speaker_motion_threshold?: number;
+  active_speaker_motion_sensitivity?: number;
 
   // Subtitles
   use_custom_subs?: boolean;
@@ -144,6 +150,19 @@ export interface ThumbnailRequest {
 export interface ThumbnailResponse {
   thumbnail_path: string;
   filename: string;
+}
+
+export interface SubtitleVideoPreviewRequest {
+  video_path?: string;
+  subtitle_config?: Record<string, unknown>;
+  sample_text?: string;
+  timestamp?: number;
+  duration?: number;
+}
+
+export interface SubtitleVideoPreviewResponse {
+  preview_url: string;
+  file_path: string;
 }
 
 // Library schemas
@@ -332,4 +351,17 @@ export interface SystemStatusResponse {
 export interface SystemHealthResponse {
   status: string;
   timestamp: number;
+}
+
+export interface TestAiRequest {
+  backend: string;
+  base_url?: string;
+  api_key?: string;
+  model_name?: string;
+}
+
+export interface TestAiResponse {
+  success: boolean;
+  message: string;
+  latency_ms?: number;
 }

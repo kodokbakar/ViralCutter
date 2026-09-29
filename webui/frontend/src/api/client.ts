@@ -26,8 +26,12 @@ import type {
   SubtitleSaveResponse,
   SubtitleStylePreviewRequest,
   SubtitleStylePreviewResponse,
+  SubtitleVideoPreviewRequest,
+  SubtitleVideoPreviewResponse,
   SystemHealthResponse,
   SystemStatusResponse,
+  TestAiRequest,
+  TestAiResponse,
   ThumbnailRequest,
   ThumbnailResponse,
   UploadResponse,
@@ -258,6 +262,12 @@ export const previewApi = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
+
+  previewSubtitleVideo: (req: SubtitleVideoPreviewRequest): Promise<SubtitleVideoPreviewResponse> =>
+    request<SubtitleVideoPreviewResponse>('/preview/subtitle-video', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
 };
 
 // -------------------------------------------------------------
@@ -392,4 +402,10 @@ export const systemApi = {
 
   getHealth: (): Promise<SystemHealthResponse> =>
     request<SystemHealthResponse>('/system/health'),
+
+  testAi: (req: TestAiRequest): Promise<TestAiResponse> =>
+    request<TestAiResponse>('/system/test-ai', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
 };

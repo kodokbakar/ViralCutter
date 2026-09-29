@@ -10,8 +10,9 @@ import {
   Check,
   Loader2,
   FileText,
+  Video,
 } from 'lucide-react';
-import { jobsApi, uploadApi } from '../api/client';
+import { jobsApi, uploadApi, previewApi } from '../api/client';
 import type { JobRunRequest } from '../api/types';
 
 export interface SubtitlesTabProps {
@@ -44,6 +45,11 @@ export const SubtitlesTab: React.FC<SubtitlesTabProps> = ({
   const [logs, setLogs] = useState<string[]>([]);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
+
+  // Video Preview State
+  const [isPreviewingVideo, setIsPreviewingVideo] = useState<boolean>(false);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -164,6 +170,25 @@ export const SubtitlesTab: React.FC<SubtitlesTabProps> = ({
     navigator.clipboard.writeText(logs.join('\n'));
     setCopiedLogs(true);
     setTimeout(() => setCopiedLogs(false), 2000);
+  };
+
+  const handlePreviewSubtitlesOnVideo = async () => {
+    setIsPreviewingVideo(true);
+    setPreviewError(null);
+    try {
+      const res = await previewApi.previewSubtitleVideo({
+        video_path: videoPath.trim() || undefined,
+        sample_text: prompt.trim() || 'The quick brown fox jumps over the lazy dog',
+        timestamp: 3.0,
+        duration: 3.0,
+      });
+      setVideoPreviewUrl(res.preview_url);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate video preview';
+      setPreviewError(msg);
+    } finally {
+      setIsPreviewingVideo(false);
+    }
   };
 
   return (
@@ -309,25 +334,81 @@ export const SubtitlesTab: React.FC<SubtitlesTabProps> = ({
             </div>
           </div>
 
-          {/* Trigger Task Button */}
-          <button
-            type="submit"
-            data-testid="generate-subtitles-button"
-            disabled={isSubmitting || Boolean(activeJobId)}
-            className="w-full flex items-center justify-center space-x-2 rounded-lg bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Launching Subtitle Task...</span>
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 fill-white" />
-                <span>Generate Subtitles</span>
-              </>
-            )}
-          </button>
+          {/* Preview On Video Error */}
+          {previewError && (
+            <div className="flex items-center space-x-2 text-xs text-red-400 bg-red-950/40 border border-red-800/60 p-3 rounded-lg">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{previewError}</span>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={handlePreviewSubtitlesOnVideo}
+              disabled={isPreviewingVideo}
+              className="flex-1 flex items-center justify-center space-x-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 px-4 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              {isPreviewingVideo ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Rendering 3s Preview...</span>
+                </>
+              ) : (
+                <>
+                  <Video className="h-4 w-4 text-red-400" />
+                  <span>Preview on Video</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="submit"
+              data-testid="generate-subtitles-button"
+              disabled={isSubmitting || Boolean(activeJobId)}
+              className="flex-1 flex items-center justify-center space-x-2 rounded-lg bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Launching Subtitle Task...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 fill-white" />
+                  <span>Generate Subtitles</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 3-Second Looping Video Preview Player */}
+          {videoPreviewUrl && (
+            <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-200">Subtitle Video Preview (3s Loop)</span>
+                <button
+                  type="button"
+                  onClick={() => setVideoPreviewUrl(null)}
+                  className="text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="w-full max-w-[200px] mx-auto aspect-[9/16] bg-black rounded-lg overflow-hidden shadow-lg border border-zinc-800 flex items-center justify-center">
+                <video
+                  src={videoPreviewUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  controls
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </div>
+          )}
         </form>
       </div>
 

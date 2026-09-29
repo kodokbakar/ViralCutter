@@ -51,6 +51,13 @@ export function App() {
     setCurrentTab('generator');
   };
 
+  const handleNavigateTab = (tab: string, projectName?: string) => {
+    if (projectName) {
+      setSelectedProjectName(projectName);
+    }
+    setCurrentTab(tab as TabType);
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       <Navbar
@@ -61,47 +68,48 @@ export function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {(currentTab === 'generator' || currentTab === 'jobs' || currentTab === 'upload') && (
+        <div className={(currentTab === 'generator' || currentTab === 'jobs' || currentTab === 'upload') ? 'block' : 'hidden'}>
           <GeneratorTab
             activeJob={activeJob}
             onRefreshActiveJob={checkStatus}
             defaultVideoPath={selectedVideoPath}
             defaultProjectName={selectedProjectName}
+            onNavigateTab={handleNavigateTab}
           />
-        )}
+        </div>
 
-        {currentTab === 'subtitles' && (
+        <div className={currentTab === 'subtitles' ? 'block' : 'hidden'}>
           <SubtitlesTab
             defaultVideoPath={selectedVideoPath}
             defaultProjectName={selectedProjectName}
           />
-        )}
+        </div>
 
-        {currentTab === 'watermark' && (
+        <div className={currentTab === 'watermark' ? 'block' : 'hidden'}>
           <WatermarkTab
             defaultVideoPath={selectedVideoPath}
             defaultProjectName={selectedProjectName}
           />
-        )}
+        </div>
 
-        {currentTab === 'subtitle-editor' && (
+        <div className={currentTab === 'subtitle-editor' ? 'block' : 'hidden'}>
           <SubtitleEditorTab currentProject={selectedProjectName} />
-        )}
+        </div>
 
-        {currentTab === 'library' && (
+        <div className={currentTab === 'library' ? 'block' : 'hidden'}>
           <LibraryTab onSelectVideo={handleSelectVideoForJob} />
-        )}
+        </div>
 
-        {currentTab === 'gdrive' && (
+        <div className={currentTab === 'gdrive' ? 'block' : 'hidden'}>
           <GDriveTab
             onSelectVideo={handleSelectVideoForJob}
             defaultProjectName={selectedProjectName}
           />
-        )}
+        </div>
 
-        {(currentTab === 'diagnostics' || currentTab === 'system') && (
+        <div className={(currentTab === 'diagnostics' || currentTab === 'system') ? 'block' : 'hidden'}>
           <DiagnosticsTab onRefresh={checkStatus} />
-        )}
+        </div>
       </main>
 
       <footer className="border-t border-zinc-800/80 py-4 px-6 text-center text-xs text-zinc-400">
