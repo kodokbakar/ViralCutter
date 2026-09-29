@@ -97,6 +97,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   // Subtitle Workflow Toggles (Persisted)
   const [burnSubtitles, setBurnSubtitles] = usePersistedState<boolean>('burn_subtitles', true);
   const [useCustomSubs, setUseCustomSubs] = usePersistedState<boolean>('use_custom_subs', false);
+  const [enableHookHeader, setEnableHookHeader] = usePersistedState<boolean>('enable_hook_header', true);
+  const [hookHeaderStyle, setHookHeaderStyle] = usePersistedState<'yellow_box' | 'white_box' | 'neon'>(
+    'hook_header_style',
+    'yellow_box'
+  );
 
   // AI Backend Parameters (Persisted)
   const [aiBackend, setAiBackend] = usePersistedState<'gemini' | 'g4f' | 'local' | 'custom' | 'manual'>(
@@ -552,8 +557,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       smart_remove_dead_air: smartRemoveDeadAir,
       smart_silence_threshold: smartSilenceThreshold,
 
-      // Subtitles
+      // Subtitles & Hook Header
       use_custom_subs: useCustomSubs,
+      enable_hook_header: enableHookHeader,
+      hook_header_style: hookHeaderStyle,
     };
 
     try {
@@ -855,7 +862,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             {/* 5. Subtitle Workflow Toggles */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
-                Subtitle Pipeline
+                Subtitle &amp; Hook Overlay
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-950/60 border border-zinc-800 cursor-pointer">
@@ -879,6 +886,39 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
                   />
                 </label>
+
+                <label className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-950/60 border border-zinc-800 cursor-pointer">
+                  <div>
+                    <span className="text-xs text-zinc-200 block">Hook Title Overlay</span>
+                    <span className="text-[10px] text-zinc-500">Stop-the-scroll top banner</span>
+                  </div>
+                  <input
+                    id="hook-header-toggle"
+                    type="checkbox"
+                    checked={enableHookHeader}
+                    onChange={(e) => setEnableHookHeader(e.target.checked)}
+                    className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
+                  />
+                </label>
+
+                {enableHookHeader && (
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-950/60 border border-zinc-800">
+                    <label htmlFor="hook-header-style-select" className="text-xs text-zinc-200">
+                      Hook Style
+                    </label>
+                    <select
+                      id="hook-header-style-select"
+                      aria-label="Hook Style"
+                      value={hookHeaderStyle}
+                      onChange={(e) => setHookHeaderStyle(e.target.value as 'yellow_box' | 'white_box' | 'neon')}
+                      className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-red-500"
+                    >
+                      <option value="yellow_box">Yellow Box</option>
+                      <option value="white_box">White Box</option>
+                      <option value="neon">Neon</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1425,10 +1465,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
           </form>
         </div>
 
-        {/* Live SSE Stream Console & Output Preview */}
+        {/* Live SSE Stream Console */}
         <div className="lg:col-span-6 flex flex-col space-y-6">
           {/* Execution Log Stream */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-full">
             {/* Sticky Header */}
             <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-2.5 sticky top-0 z-10">
               <div className="flex items-center space-x-2">
@@ -1474,7 +1514,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             {/* Fixed-Height Container */}
             <div
               ref={logContainerRef}
-              className="h-72 max-h-80 w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1"
+              className="h-[520px] lg:h-[640px] w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1"
             >
               {logs.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2 py-12">
@@ -1503,125 +1543,150 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               )}
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Generated Clips & Output Preview Section */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <Video className="h-5 w-5 text-red-400" />
-                <h3 className="text-base font-semibold text-white">Generated Clips &amp; Output Preview</h3>
-              </div>
-              {projectName && (
-                <button
-                  type="button"
-                  onClick={() => fetchCompletedClips(projectName)}
-                  className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-                >
-                  Refresh Clips
-                </button>
+      {/* Generated Clips & Output Preview Section (Full Width / Span 12) */}
+      <div
+        data-testid="generator-output-preview"
+        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4"
+      >
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div className="flex items-center space-x-2">
+            <Video className="h-5 w-5 text-red-400" />
+            <h3 className="text-base font-semibold text-white">Generated Clips &amp; Output Preview</h3>
+          </div>
+          {projectName && (
+            <button
+              type="button"
+              onClick={() => fetchCompletedClips(projectName)}
+              className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              Refresh Clips
+            </button>
+          )}
+        </div>
+
+        {outputClips.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-zinc-500 space-y-2 border border-dashed border-zinc-800 rounded-lg">
+            <Video className="h-8 w-8 stroke-[1.5]" />
+            <p className="text-xs">No generated video clips available yet.</p>
+            <p className="text-[11px] text-zinc-600">
+              Clips will appear here automatically when generation completes.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* 9:16 Video Player Card */}
+            <div className="lg:col-span-5 flex flex-col items-center justify-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+              {selectedClip ? (
+                <div className="w-full max-w-[320px] aspect-[9/16] bg-black rounded-lg overflow-hidden shadow-2xl flex items-center justify-center border border-zinc-800/80">
+                  <video
+                    key={selectedClip.path}
+                    src={previewApi.getVideoUrl(selectedClip.path)}
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-full max-w-[320px] aspect-[9/16] bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-600">
+                  <span className="text-xs">Select a clip to preview</span>
+                </div>
               )}
             </div>
 
-            {outputClips.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center text-zinc-500 space-y-2 border border-dashed border-zinc-800 rounded-lg">
-                <Video className="h-8 w-8 stroke-[1.5]" />
-                <p className="text-xs">No generated video clips available yet.</p>
-                <p className="text-[11px] text-zinc-600">
-                  Clips will appear here automatically when generation completes.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* 9:16 Video Player Card */}
-                {selectedClip && (
-                  <div className="flex flex-col md:flex-row gap-4 items-center bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-                    <div className="w-48 aspect-[9/16] bg-black rounded overflow-hidden shadow-lg flex items-center justify-center">
-                      <video
-                        key={selectedClip.path}
-                        src={previewApi.getVideoUrl(selectedClip.path)}
-                        controls
-                        playsInline
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-
-                    <div className="flex-1 space-y-3 w-full">
-                      <div>
-                        <h4 className="text-xs font-semibold text-zinc-100 truncate">{selectedClip.name}</h4>
-                        <p className="text-[11px] font-mono text-zinc-500">{formatBytes(selectedClip.size)}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <a
-                          href={previewApi.getVideoUrl(selectedClip.path)}
-                          download={selectedClip.name}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          <span>Download MP4</span>
-                        </a>
-
-                        <button
-                          type="button"
-                          onClick={() => onNavigateTab?.('subtitle-editor', projectName)}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          <span>Subtitle Editor</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleExportToGDrive}
-                          disabled={isExportingGdrive}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-xs font-medium text-red-200 border border-red-800/80 transition-colors disabled:opacity-50"
-                        >
-                          {isExportingGdrive ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Share2 className="h-3.5 w-3.5" />
-                          )}
-                          <span>Export to Google Drive</span>
-                        </button>
-                      </div>
-
-                      {gdriveExportMsg && (
-                        <p
-                          className={`text-xs p-2 rounded ${
-                            gdriveExportMsg.includes('failed')
-                              ? 'text-red-400 bg-red-950/30'
-                              : 'text-emerald-400 bg-emerald-950/30'
-                          }`}
-                        >
-                          {gdriveExportMsg}
-                        </p>
-                      )}
+            {/* Clip Details, Actions & Clips Grid */}
+            <div className="lg:col-span-7 space-y-5">
+              {selectedClip && (
+                <div className="bg-zinc-950/80 p-4 rounded-xl border border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="inline-block px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-[10px] font-mono text-red-300 uppercase">
+                        Isolated Output Preview
+                      </span>
+                      <h4 className="text-sm font-semibold text-zinc-100 truncate mt-1">{selectedClip.name}</h4>
+                      <p className="text-[11px] font-mono text-zinc-500">{formatBytes(selectedClip.size)}</p>
                     </div>
                   </div>
-                )}
 
-                {/* Clips Thumbnail Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <a
+                      href={previewApi.getVideoUrl(selectedClip.path)}
+                      download={selectedClip.name}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Download MP4</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab?.('subtitle-editor', projectName)}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>Subtitle Editor</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleExportToGDrive}
+                      disabled={isExportingGdrive}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-xs font-medium text-red-200 border border-red-800/80 transition-colors disabled:opacity-50"
+                    >
+                      {isExportingGdrive ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Share2 className="h-3.5 w-3.5" />
+                      )}
+                      <span>Export to Google Drive</span>
+                    </button>
+                  </div>
+
+                  {gdriveExportMsg && (
+                    <p
+                      className={`text-xs p-2 rounded ${
+                        gdriveExportMsg.includes('failed')
+                          ? 'text-red-400 bg-red-950/30'
+                          : 'text-emerald-400 bg-emerald-950/30'
+                      }`}
+                    >
+                      {gdriveExportMsg}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Clips Thumbnail Grid */}
+              <div className="space-y-2">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
+                  Generated Clips ({outputClips.length})
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 pt-1">
                   {outputClips.map((clip) => (
                     <button
                       key={clip.path}
                       type="button"
                       onClick={() => setSelectedClip(clip)}
-                      className={`p-2 rounded-lg border text-left transition-colors truncate ${
+                      className={`p-2.5 rounded-lg border text-left transition-colors truncate flex flex-col justify-between ${
                         selectedClip?.path === clip.path
                           ? 'bg-red-950/40 border-red-600 text-zinc-100'
                           : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
                       }`}
                     >
-                      <p className="text-xs font-medium truncate">{clip.name}</p>
-                      <p className="text-[10px] font-mono text-zinc-500">{formatBytes(clip.size)}</p>
+                      <div className="flex items-center space-x-1.5 overflow-hidden w-full">
+                        <Video className="h-3 w-3 shrink-0 text-red-400" />
+                        <p className="text-xs font-medium truncate">{clip.name}</p>
+                      </div>
+                      <p className="text-[10px] font-mono text-zinc-500 pl-4.5">{formatBytes(clip.size)}</p>
                     </button>
                   ))}
                 </div>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

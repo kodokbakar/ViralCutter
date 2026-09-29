@@ -372,6 +372,165 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
 
       unmount();
     });
+
+    it('relocates generator preview below controls and log console with full-width isolated output view', async () => {
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+      );
+
+      const previewSection = container.querySelector('[data-testid="generator-output-preview"]');
+      expect(previewSection).toBeTruthy();
+      expect(previewSection?.className).toContain('w-full');
+
+      // Verify that controls and execution log stream exist before preview section in DOM order
+      const form = container.querySelector('form');
+      const logHeader = Array.from(container.querySelectorAll('span')).find((s) =>
+        s.textContent?.includes('Execution Log Stream')
+      );
+      expect(form).toBeTruthy();
+      expect(logHeader).toBeTruthy();
+
+      // previewSection should come after form and log console in DOM
+      expect(Boolean(form?.compareDocumentPosition(previewSection!)! & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+      expect(Boolean(logHeader?.compareDocumentPosition(previewSection!)! & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
+      // Verify isolation: NO input video elements, file inputs, or upload dropzones inside preview section
+      expect(previewSection?.querySelector('input[type="file"]')).toBeNull();
+      expect(previewSection?.querySelector('input[type="url"]')).toBeNull();
+      expect(previewSection?.textContent).not.toContain('Video Source');
+      expect(previewSection?.textContent).not.toContain('Click to select or drop video file');
+
+      // Empty state verification
+      expect(previewSection?.textContent).toContain('No generated video clips available yet');
+
+      unmount();
+    });
+
+    it('renders isolated preview player and clip list when completed clips are fetched', async () => {
+      const mockClips = [
+        { name: 'clip_01.mp4', path: '/virals/TestProj/clip_01.mp4', size: 1048576, modified_at: 1700000000, asset_type: 'video' },
+        { name: 'clip_02.mp4', path: '/virals/TestProj/clip_02.mp4', size: 2097152, modified_at: 1700000010, asset_type: 'video' },
+      ];
+      vi.spyOn(libraryApi, 'listAssets').mockResolvedValue(mockClips);
+      const navigateMock = vi.fn();
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab
+          defaultVideoPath="/videos/test.mp4"
+          defaultProjectName="TestProj"
+          onNavigateTab={navigateMock}
+        />
+      );
+
+      // Click Refresh Clips button to trigger fetch
+      const refreshBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Refresh Clips')
+      );
+      expect(refreshBtn).toBeTruthy();
+
+      await act(async () => {
+        refreshBtn?.click();
+      });
+
+      const previewSection = container.querySelector('[data-testid="generator-output-preview"]');
+      expect(previewSection).toBeTruthy();
+
+      // Video player should be rendered with first clip
+      const videoEl = previewSection?.querySelector('video');
+      expect(videoEl).toBeTruthy();
+      expect(videoEl?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/clip_01.mp4'));
+
+      // Check clip metadata and actions
+      expect(previewSection?.textContent).toContain('clip_01.mp4');
+      expect(previewSection?.textContent).toContain('Isolated Output Preview');
+      expect(previewSection?.textContent).toContain('Download MP4');
+      expect(previewSection?.textContent).toContain('Subtitle Editor');
+      expect(previewSection?.textContent).toContain('Export to Google Drive');
+
+      // Check Subtitle Editor navigation
+      const subEditorBtn = Array.from(previewSection?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('Subtitle Editor')
+      );
+      expect(subEditorBtn).toBeTruthy();
+      act(() => {
+        subEditorBtn?.click();
+      });
+      expect(navigateMock).toHaveBeenCalledWith('subtitle-editor', 'TestProj');
+
+      // Switch to clip_02
+      const clip2Btn = Array.from(previewSection?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('clip_02.mp4')
+      );
+      expect(clip2Btn).toBeTruthy();
+      act(() => {
+        clip2Btn?.click();
+      });
+
+      const updatedVideo = previewSection?.querySelector('video');
+      expect(updatedVideo?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/clip_02.mp4'));
+
+      unmount();
+    });
+
+    it('renders hook title overlay controls and includes them in run request', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_hook_test',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+      );
+
+      // Verify Hook Title Overlay toggle is present and checked by default
+      const hookToggle = container.querySelector('#hook-header-toggle') as HTMLInputElement;
+      expect(hookToggle).toBeTruthy();
+      expect(hookToggle.checked).toBe(true);
+
+      // Verify Hook Style select is present with default yellow_box
+      const hookStyleSelect = container.querySelector('#hook-header-style-select') as HTMLSelectElement;
+      expect(hookStyleSelect).toBeTruthy();
+      expect(hookStyleSelect.value).toBe('yellow_box');
+
+      // Change style to neon
+      act(() => {
+        setNativeValue(hookStyleSelect, 'neon');
+      });
+
+      // Submit form
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enable_hook_header: true,
+          hook_header_style: 'neon',
+        })
+      );
+
+      // Toggle hook header off and verify style select is hidden
+      act(() => {
+        hookToggle.click();
+      });
+      expect(hookToggle.checked).toBe(false);
+      expect(container.querySelector('#hook-header-style-select')).toBeNull();
+
+      // Submit form again
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enable_hook_header: false,
+        })
+      );
+
+      unmount();
+    });
   });
 
   // -------------------------------------------------------------

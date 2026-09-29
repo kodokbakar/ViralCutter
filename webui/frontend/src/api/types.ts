@@ -74,6 +74,8 @@ export interface JobRunRequest {
   // Subtitles
   use_custom_subs?: boolean;
   subtitle_config?: Record<string, unknown>;
+  enable_hook_header?: boolean;
+  hook_header_style?: string;
 
   // Watermark
   watermark_mode?: 'disabled' | 'image' | 'text';
