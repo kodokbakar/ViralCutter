@@ -177,7 +177,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const logBufferRef = useRef<string[]>([]);
-  const animationFrameId = useRef<number | null>(null);
 
   // Preset Handler
   const handlePresetChange = (newPreset: GeneratorPreset) => {
@@ -281,7 +280,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     }
   }, [activeJob]);
 
-  // Smooth Log Buffering
+  // Smooth Log Buffering with Background-Resilient Timer
   const flushLogs = useCallback(() => {
     if (logBufferRef.current.length > 0) {
       const incoming = [...logBufferRef.current];
@@ -291,15 +290,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         return combined.length > 1500 ? combined.slice(combined.length - 1500) : combined;
       });
     }
-    animationFrameId.current = requestAnimationFrame(flushLogs);
   }, []);
 
   useEffect(() => {
-    animationFrameId.current = requestAnimationFrame(flushLogs);
+    const timerId = setInterval(flushLogs, 100);
     return () => {
-      if (animationFrameId.current !== null) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
+      clearInterval(timerId);
     };
   }, [flushLogs]);
 
@@ -337,31 +333,60 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     }
   }, [activeJob, projectName, fetchCompletedClips]);
 
+  // Stable callback refs to keep SSE stream subscription independent of non-critical props
+  const onRefreshActiveJobRef = useRef(onRefreshActiveJob);
+  useEffect(() => {
+    onRefreshActiveJobRef.current = onRefreshActiveJob;
+  }, [onRefreshActiveJob]);
+
+  const projectNameRef = useRef(projectName);
+  useEffect(() => {
+    projectNameRef.current = projectName;
+  }, [projectName]);
+
+  const fetchCompletedClipsRef = useRef(fetchCompletedClips);
+  useEffect(() => {
+    fetchCompletedClipsRef.current = fetchCompletedClips;
+  }, [fetchCompletedClips]);
+
   // Live SSE Stream Connection
   useEffect(() => {
     if (!trackedJobId) return;
 
     logBufferRef.current.push(`[System] Connecting to SSE log stream for job ${trackedJobId}...`);
+    flushLogs();
 
     const cleanup = jobsApi.streamLogs(
       trackedJobId,
       (line) => {
-        logBufferRef.current.push(line);
+        if (!line || line.startsWith(':')) return;
+
+        if (logBufferRef.current.length === 0) {
+          logBufferRef.current.push(line);
+          flushLogs();
+        } else {
+          logBufferRef.current.push(line);
+        }
+
         if (line.includes('COMPLETED') || line.includes('Finished processing')) {
-          onRefreshActiveJob?.();
-          if (projectName) fetchCompletedClips(projectName);
+          onRefreshActiveJobRef.current?.();
+          if (projectNameRef.current) {
+            fetchCompletedClipsRef.current(projectNameRef.current);
+          }
         }
       },
       () => {
-        onRefreshActiveJob?.();
-        if (projectName) fetchCompletedClips(projectName);
+        onRefreshActiveJobRef.current?.();
+        if (projectNameRef.current) {
+          fetchCompletedClipsRef.current(projectNameRef.current);
+        }
       }
     );
 
     return () => {
       cleanup();
     };
-  }, [trackedJobId, projectName, onRefreshActiveJob, fetchCompletedClips]);
+  }, [trackedJobId, flushLogs]);
 
   // AI Connection Test
   const handleTestAiConnection = async () => {
