@@ -77,6 +77,8 @@ class JobRunRequest(BaseModel):
     # Subtitles
     use_custom_subs: bool = Field(default=False, description="Use custom subtitle styling")
     subtitle_config: Optional[Dict[str, Any]] = Field(default=None, description="Subtitle config dictionary")
+    enable_hook_header: bool = Field(default=True, description="Enable AI hook title overlay banner")
+    hook_header_style: str = Field(default="yellow_box", description="Style preset for hook header: yellow_box, white_box, neon")
 
     # Watermark
     watermark_mode: str = Field(default="disabled", description="disabled, image, text")
@@ -267,6 +269,14 @@ class JobRunRequest(BaseModel):
             tmp.close()
             self._temp_files.append(tmp.name)
             cmd.extend(["--subtitle-config", tmp.name])
+
+        # Hook Header
+        if self.enable_hook_header:
+            cmd.append("--enable-hook-header")
+            if self.hook_header_style:
+                cmd.extend(["--hook-header-style", str(self.hook_header_style)])
+        else:
+            cmd.append("--no-enable-hook-header")
 
         # Watermark
         cmd.extend(["--watermark-mode", str(self.watermark_mode)])

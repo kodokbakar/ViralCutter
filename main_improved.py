@@ -178,6 +178,8 @@ def main():
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", action="store_true", help="Skip downloading YouTube subtitles")
     parser.add_argument("--translate-target", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
+    parser.add_argument("--enable-hook-header", "--enable_hook_header", dest="enable_hook_header", action=argparse.BooleanOptionalAction, default=True, help="Enable AI Hook Title Overlay (Stop-the-Scroll Header)")
+    parser.add_argument("--hook-header-style", "--hook_header_style", dest="hook_header_style", default="yellow_box", choices=["yellow_box", "white_box", "neon"], help="Style preset for AI Hook Header")
     parser.add_argument("--smart-clipping", action="store_true", help="Enable Automated Smart-Clipping")
     parser.add_argument("--smart-clipping-mode", choices=["splice", "continuous"], default="splice", help="Smart-clipping mode: 'splice' (Hook+Core+Payoff) or 'continuous'")
     parser.add_argument("--smart-snap-margin", type=float, default=0.05, help="Word snapping safety margin in seconds (default: 0.05)")
@@ -920,9 +922,11 @@ def main():
             # -------------------------------
 
             sub_config = get_subtitle_config(args.subtitle_config)
-            
+            if "enable_hook_header" not in sub_config:
+                sub_config["enable_hook_header"] = args.enable_hook_header
+            if "hook_header_style" not in sub_config:
+                sub_config["hook_header_style"] = args.hook_header_style
 
-            
             # Passa o dicionário desempacotado como argumentos, mais o project_folder
             try:
                 adjust_subtitles.adjust(

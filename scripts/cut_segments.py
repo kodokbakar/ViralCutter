@@ -155,7 +155,15 @@ def cut(segments, project_folder="tmp", skip_video=False):
             json_output_filename = f"{base_name}_processed.json"
             json_output_path = os.path.join(subs_folder, json_output_filename)
             
-            cut_json.cut_json_transcript(input_json_path, json_output_path, start_time_seconds, end_time_seconds)
+            seg_hook_title = segment.get("hook_title") or segment.get("title")
+            cut_json.cut_json_transcript(
+                input_json_path,
+                json_output_path,
+                start_time_seconds,
+                end_time_seconds,
+                hook_title=seg_hook_title,
+                title=segment.get("title")
+            )
             # --------------------
 
             print("\n" + "="*50 + "\n")

@@ -33,6 +33,76 @@ try:
 except ImportError:
     HAS_LLAMA_CPP = False
 
+def build_hook_title_prompt(transcript_chunk: str, language_instruction: str = "Same Language as Transcript") -> str:
+    """
+    Builds a focused prompt for LLM to extract/generate a concise, high-impact hook title
+    (Stop-the-Scroll Header) from the provided transcript.
+    """
+    return f"""You are an elite short-form video strategist and copywriter.
+Analyze the transcript below and generate a high-converting, curiosity-inducing "Stop-the-Scroll" hook title.
+
+RULES:
+1. Short & Punchy: strictly 4 to 7 words.
+2. ALL CAPS.
+3. High Impact: Provoke curiosity, FOMO, shock, or urgent value (e.g. 'RAHASIA CUAN DARI AI?!', 'JANGAN LAKUKAN HAL INI!').
+4. Language: Output in the {language_instruction}.
+5. Return JSON ONLY with key "hook_title".
+
+TRANSCRIPT:
+{transcript_chunk}
+
+OUTPUT JSON ONLY:
+{{"hook_title": "YOUR HOOK TITLE HERE"}}"""
+
+
+def extract_hook_title_from_response(response_text: str, fallback: str = "VIRAL HOOK") -> str:
+    """
+    Extracts and normalizes a hook title from LLM JSON response or raw string.
+    """
+    if not response_text:
+        return fallback.strip().upper()
+
+    # Try json parse
+    try:
+        data = clean_json_response(response_text)
+        if isinstance(data, dict):
+            if data.get("hook_title"):
+                return str(data["hook_title"]).strip().upper()
+            if data.get("title"):
+                return str(data["title"]).strip().upper()
+            segments = data.get("segments", [])
+            if segments and isinstance(segments[0], dict):
+                cand = segments[0].get("hook_title") or segments[0].get("title")
+                if cand:
+                    return str(cand).strip().upper()
+    except Exception:
+        pass
+
+    # Direct json loads attempt
+    try:
+        data = json.loads(response_text)
+        if isinstance(data, dict):
+            cand = data.get("hook_title") or data.get("title")
+            if cand:
+                return str(cand).strip().upper()
+    except Exception:
+        pass
+
+    # Regex search for "hook_title": "..."
+    match = re.search(r'["\']hook_title["\']\s*:\s*["\']([^"\']+)["\']', response_text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().upper()
+
+    # Plain text cleanup if response is just a line of text
+    lines = [line.strip().strip('"\'`') for line in response_text.splitlines() if line.strip()]
+    if lines:
+        first_line = lines[0]
+        if not first_line.startswith(("{", "[", "```")):
+            return first_line.strip().upper()
+
+    return fallback.strip().upper()
+
+
 def clean_json_response(response_text):
     """
     Limpa a resposta focando em encontrar o objeto JSON que contém a chave "segments".
@@ -699,11 +769,16 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 duration = tempo_maximo
 
             # Construct Final Segment
+            title = seg.get('title', 'Viral Segment')
+            hook_title = seg.get('hook_title') or title or 'VIRAL HOOK'
+            hook_title = str(hook_title).strip().upper()
+
             processed_segments.append({
-                "title": seg.get('title', 'Viral Segment'),
+                "title": title,
+                "hook_title": hook_title,
                 "start_time": final_start_time,
                 "end_time": final_end_time,
-                "hook": seg.get('title', ''), 
+                "hook": seg.get('hook') or title, 
                 "reasoning": seg.get('reasoning', ''),
                 "score": seg.get('score', 0),
                 "duration": duration
@@ -836,7 +911,7 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
 {context_instruction}
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
-IMPORTANT: Output "Title", "Hook", and "Reasoning" in the SAME LANGUAGE as the transcript (e.g., if transcript is Portuguese, output Portuguese).
+IMPORTANT: Output "Title", "Hook Title", and "Reasoning" in the SAME LANGUAGE as the transcript (e.g., if transcript is Indonesian, output Indonesian).
 TRANSCRIPT:
 {transcript_chunk}
 OUTPUT JSON ONLY:
@@ -850,7 +925,8 @@ OUTPUT JSON ONLY:
                         "start_text": "Exact first 5-10 words of the segment",
                         "end_text": "Exact last 5-10 words of the segment",
                         "start_time_ref": "Value of closest (XXs) tag",
-                        "title": "Viral Hook Title (Same Language as Transcript)",
+                        "title": "Viral Segment Title (Same Language as Transcript)",
+                        "hook_title": "High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g., 'RAHASIA CUAN DARI AI?!')",
                         "reasoning": "Why this is viral? Hook? Value? (Same Language as Transcript)",
                         "score": 95
                     }

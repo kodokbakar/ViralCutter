@@ -1,4 +1,5 @@
 import functools
+import json
 import cv2
 import numpy as np
 import os
@@ -1278,6 +1279,24 @@ def edit(project_folder="tmp", face_model="insightface", face_mode="auto", detec
                          if os.path.exists(new_timeline_path): os.remove(new_timeline_path)
                          os.rename(old_timeline_path, new_timeline_path)
                          print(f"Renamed Timeline to Title: {new_timeline_name}")
+
+                     # Inject hook_title into timeline JSON for downstream subtitle/header rendering
+                     if os.path.exists(new_timeline_path):
+                         try:
+                             seg_hook = None
+                             if segments_data and index < len(segments_data):
+                                 seg_hook = segments_data[index].get("hook_title") or segments_data[index].get("title")
+                             if seg_hook:
+                                 with open(new_timeline_path, "r", encoding="utf-8") as tf:
+                                     tl_content = json.load(tf)
+                                 if isinstance(tl_content, list):
+                                     for item in tl_content:
+                                         if isinstance(item, dict):
+                                             item["hook_title"] = str(seg_hook).strip().upper()
+                                     with open(new_timeline_path, "w", encoding="utf-8") as tf:
+                                         json.dump(tl_content, tf, indent=2)
+                         except Exception:
+                             pass
                          
                      # 4. Rename Coords JSON
                      old_coords_name = f"temp_video_no_audio_{index}_coords.json"

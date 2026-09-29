@@ -43,7 +43,7 @@ def process_segments(data, start_time, end_time):
             
     return {'segments': new_segments}
 
-def cut_json_transcript(input_json_path, output_json_path, start_time, end_time):
+def cut_json_transcript(input_json_path, output_json_path, start_time, end_time, hook_title=None, title=None):
     """
     Lê o input.json (WhisperX), recorta o trecho e salva em output_json_path com timestamps ajustados.
     """
@@ -55,7 +55,11 @@ def cut_json_transcript(input_json_path, output_json_path, start_time, end_time)
         with open(input_json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        new_data = process_segments(data, start_time, end_time)
+        new_data: dict = dict(process_segments(data, start_time, end_time))
+        if hook_title:
+            new_data['hook_title'] = str(hook_title).strip().upper()
+        if title:
+            new_data['title'] = str(title).strip()
         
         with open(output_json_path, 'w', encoding='utf-8') as f:
             json.dump(new_data, f, indent=2, ensure_ascii=False)

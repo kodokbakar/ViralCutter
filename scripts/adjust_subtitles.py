@@ -4,6 +4,42 @@ import os
 
 from scripts import subtitle_fonts
 
+HOOK_HEADER_STYLES = {
+    "yellow_box": {
+        "primary": "&H0000FFFF",  # Yellow in ASS BBGGRR
+        "back": "&H00000000",     # Solid Black Bounding Box
+        "outline": "&H00000000",
+    },
+    "white_box": {
+        "primary": "&H00FFFFFF",  # White
+        "back": "&H00000000",     # Solid Black Bounding Box
+        "outline": "&H00000000",
+    },
+    "neon": {
+        "primary": "&H0000FF00",  # Neon Green
+        "back": "&H00000000",     # Solid Black Bounding Box
+        "outline": "&H00000000",
+    },
+}
+
+def format_hook_title(text: str, max_line_chars: int = 24) -> str:
+    """Wraps hook title into balanced lines if it exceeds width limit."""
+    cleaned = str(text).strip().upper()
+    if len(cleaned) <= max_line_chars or " " not in cleaned:
+        return cleaned
+    words = cleaned.split()
+    half = len(cleaned) / 2
+    cur_len = 0
+    split_idx = 1
+    min_dist = float("inf")
+    for i, w in enumerate(words[:-1]):
+        cur_len += len(w) + 1
+        dist = abs(cur_len - half)
+        if dist < min_dist:
+            min_dist = dist
+            split_idx = i + 1
+    return "\\N".join([" ".join(words[:split_idx]), " ".join(words[split_idx:])])
+
 def format_time_ass(time_seconds):
     hours = int(time_seconds // 3600)
     minutes = int((time_seconds % 3600) // 60)
@@ -16,7 +52,10 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                            words_per_block, gap_limit, mode, vertical_position, alignment,
                            font, outline_color, shadow_color, bold, italic, underline,
                             strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                            face_modes={}, remove_punctuation=True):
+                            face_modes={}, remove_punctuation=True,
+                            enable_hook_header=True, hook_header_style="yellow_box",
+                            hook_font_size=22, hook_margin_v=40, hook_title=None,
+                            hook_duration=None, **kwargs):
     """
     Generates a single ASS file from a JSON input.
     """
@@ -98,25 +137,125 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         return
 
     # 4. Generate Content
-    header_ass = f"""[Script Info]
-    Title: Dynamic Subtitles
-    ScriptType: v4.00+
-    PlayDepth: 0
-    PlayResX: 360
-    PlayResY: 640
+    header_styles = [
+        f"Style: Default,{ass_font_name},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1"
+    ]
+    if enable_hook_header:
+        hook_style_cfg = HOOK_HEADER_STYLES.get(hook_header_style, HOOK_HEADER_STYLES["yellow_box"])
+        hook_primary = hook_style_cfg["primary"]
+        hook_back = hook_style_cfg["back"]
+        hook_outline = hook_style_cfg["outline"]
+        header_styles.append(
+            f"Style: HookHeader,{ass_font_name},{hook_font_size},{hook_primary},&H00000000,{hook_outline},{hook_back},1,0,0,0,100,100,0,0,3,4,0,8,15,15,{hook_margin_v},1"
+        )
 
-    [V4+ Styles]
-    Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-    Style: Default,{ass_font_name},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1
+    styles_block = "\n".join(header_styles)
 
-    [Events]
-    Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-    """
+    header_ass = (
+        "[Script Info]\n"
+        "Title: Dynamic Subtitles\n"
+        "ScriptType: v4.00+\n"
+        "PlayDepth: 0\n"
+        "PlayResX: 360\n"
+        "PlayResY: 640\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"{styles_block}\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    # Resolve Hook Title
+    resolved_hook_title = ""
+    if enable_hook_header:
+        if hook_title:
+            resolved_hook_title = str(hook_title).strip().upper()
+        elif isinstance(json_data, dict):
+            resolved_hook_title = json_data.get("hook_title") or ""
+            if not resolved_hook_title and "title" in json_data:
+                resolved_hook_title = json_data.get("title")
+
+        if not resolved_hook_title and timeline_data:
+            if isinstance(timeline_data, list):
+                for seg in timeline_data:
+                    if isinstance(seg, dict) and seg.get("hook_title"):
+                        resolved_hook_title = seg["hook_title"]
+                        break
+            elif isinstance(timeline_data, dict):
+                resolved_hook_title = timeline_data.get("hook_title") or ""
+
+        if not resolved_hook_title:
+            try:
+                vs_path = os.path.join(project_folder, "viral_segments.txt")
+                if os.path.exists(vs_path):
+                    with open(vs_path, "r", encoding="utf-8") as vf:
+                        vs_data = json.load(vf)
+                        segments_list = vs_data.get("segments", [])
+                        if idx is not None and 0 <= idx < len(segments_list):
+                            resolved_hook_title = segments_list[idx].get("hook_title") or segments_list[idx].get("title", "")
+                        else:
+                            for seg in segments_list:
+                                s_title = seg.get("title", "")
+                                safe_s_title = "".join([c for c in s_title if c.isalnum() or c in " _-"]).strip().replace(" ", "_")
+                                if safe_s_title and safe_s_title in base_name:
+                                    resolved_hook_title = seg.get("hook_title") or s_title
+                                    break
+            except Exception:
+                pass
+
+        if not resolved_hook_title and base_name:
+            clean_name = re.sub(r"^\d{3}_", "", base_name).replace("_processed", "").replace("_", " ").strip()
+            if clean_name and not clean_name.lower().startswith("temp_video") and not clean_name.lower().startswith("output"):
+                resolved_hook_title = clean_name
+
+        if resolved_hook_title:
+            resolved_hook_title = str(resolved_hook_title).strip().upper()
+
+    # Calculate Clip End Time
+    clip_end_time = 0.0
+    for segment in json_data.get('segments', []):
+        try:
+            clip_end_time = max(clip_end_time, float(segment.get('end', 0.0)))
+        except (ValueError, TypeError):
+            pass
+        for w in segment.get('words', []):
+            if isinstance(w, dict) and 'end' in w:
+                try:
+                    clip_end_time = max(clip_end_time, float(w['end']))
+                except (ValueError, TypeError):
+                    pass
+
+    if timeline_data and isinstance(timeline_data, list):
+        for seg in timeline_data:
+            if isinstance(seg, dict) and 'end' in seg:
+                try:
+                    clip_end_time = max(clip_end_time, float(seg['end']))
+                except (ValueError, TypeError):
+                    pass
+
+    if clip_end_time <= 0.0:
+        clip_end_time = float(json_data.get('duration', 60.0))
+
+    hook_end_time = clip_end_time
+    if hook_duration is not None and float(hook_duration) > 0:
+        hook_end_time = min(float(hook_duration), clip_end_time) if clip_end_time > 0 else float(hook_duration)
+    elif isinstance(json_data, dict) and json_data.get("hook_duration"):
+        try:
+            h_dur = float(json_data["hook_duration"])
+            if h_dur > 0:
+                hook_end_time = min(h_dur, clip_end_time) if clip_end_time > 0 else h_dur
+        except (ValueError, TypeError):
+            pass
 
     total_lines_written = 0
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(header_ass)
 
+        if enable_hook_header and resolved_hook_title:
+            formatted_hook = format_hook_title(resolved_hook_title)
+            hook_end_ass = format_time_ass(hook_end_time)
+            f.write(f"Dialogue: 1,0:00:00.00,{hook_end_ass},HookHeader,,0,0,0,,{formatted_hook}\n")
+            total_lines_written += 1
 
         last_end_time = 0.0
 
@@ -279,6 +418,12 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
     os.makedirs(output_dir, exist_ok=True)
 
     remove_punctuation = kwargs.get('remove_punctuation', True)
+    enable_hook_header = kwargs.get('enable_hook_header', True)
+    hook_header_style = kwargs.get('hook_header_style', 'yellow_box')
+    hook_font_size = kwargs.get('hook_font_size', 22)
+    hook_margin_v = kwargs.get('hook_margin_v', 40)
+    hook_title_arg = kwargs.get('hook_title', None)
+    hook_duration = kwargs.get('hook_duration', None)
 
     # Load face modes if available
     face_modes = {}
@@ -308,7 +453,13 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
                            words_per_block, gap_limit, mode, vertical_position, alignment,
                            font, outline_color, shadow_color, bold, italic, underline,
                            strikeout, border_style, outline_thickness, shadow_size, uppercase,
-                           face_modes, remove_punctuation)
+                           face_modes, remove_punctuation,
+                           enable_hook_header=enable_hook_header,
+                           hook_header_style=hook_header_style,
+                           hook_font_size=hook_font_size,
+                           hook_margin_v=hook_margin_v,
+                           hook_title=hook_title_arg,
+                           hook_duration=hook_duration)
 
             print(f"Processed file: {filename} -> {output_filename}")
 
