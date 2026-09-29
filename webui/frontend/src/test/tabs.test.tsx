@@ -9,7 +9,7 @@ import { LibraryTab } from '../components/LibraryTab';
 import { GDriveTab } from '../components/GDriveTab';
 import { DiagnosticsTab } from '../components/DiagnosticsTab';
 import { Navbar } from '../components/Navbar';
-import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi, uploadApi } from '../api/client';
+import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi, uploadApi, previewApi } from '../api/client';
 import type { ActiveJobResponse, SystemStatusResponse } from '../api/types';
 
 // Mock EventSource for jsdom environment
@@ -274,6 +274,62 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
 
       unmount();
     });
+
+    it('triggers AI connection test via Test Connection button', async () => {
+      const testAiMock = vi.spyOn(systemApi, 'testAi').mockResolvedValue({
+        success: true,
+        message: 'AI Provider is ready',
+        latency_ms: 120,
+      });
+
+      const { container, unmount } = renderComponent(<GeneratorTab />);
+
+      const testBtn = container.querySelector('[data-testid="test-ai-button"]') as HTMLButtonElement;
+      expect(testBtn).toBeTruthy();
+
+      await act(async () => {
+        testBtn.click();
+      });
+
+      expect(testAiMock).toHaveBeenCalled();
+      expect(container.textContent).toContain('AI Provider is ready');
+      expect(container.textContent).toContain('120ms');
+
+      unmount();
+    });
+
+    it('sets workflow to 2 when burn subtitles toggle is unchecked', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_noburn_123',
+        status: 'queued',
+        message: 'Job submitted',
+      });
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/test.mp4" />
+      );
+
+      const burnToggle = container.querySelector('#burn-subtitles-toggle') as HTMLInputElement;
+      expect(burnToggle).toBeTruthy();
+      expect(burnToggle.checked).toBe(true);
+
+      act(() => {
+        burnToggle.click();
+      });
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workflow: '2',
+        })
+      );
+
+      unmount();
+    });
   });
 
   // -------------------------------------------------------------
@@ -324,6 +380,40 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       );
 
       expect(streamMock).toHaveBeenCalledWith('job_sub_777', expect.any(Function), expect.any(Function));
+
+      unmount();
+    });
+
+    it('triggers subtitle preview on video via Preview on Video button', async () => {
+      const previewVideoMock = vi.spyOn(previewApi, 'previewSubtitleVideo').mockResolvedValue({
+        preview_url: '/api/v1/preview/video?path=%2Ftmp%2Ftest_preview.mp4',
+        file_path: '/tmp/test_preview.mp4',
+      });
+
+      const { container, unmount } = renderComponent(
+        <SubtitlesTab defaultVideoPath="/videos/lecture.mp4" />
+      );
+
+      const previewBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Preview on Video')
+      );
+      expect(previewBtn).toBeTruthy();
+
+      await act(async () => {
+        previewBtn?.click();
+      });
+
+      expect(previewVideoMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          video_path: '/videos/lecture.mp4',
+          duration: 3.0,
+        })
+      );
+
+      expect(container.textContent).toContain('Subtitle Video Preview (3s Loop)');
+      const videoEl = container.querySelector('video');
+      expect(videoEl).toBeTruthy();
+      expect(videoEl?.getAttribute('src')).toBe('/api/v1/preview/video?path=%2Ftmp%2Ftest_preview.mp4');
 
       unmount();
     });
