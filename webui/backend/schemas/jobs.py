@@ -137,7 +137,7 @@ class JobRunRequest(BaseModel):
 
         self.cleanup_temp_files()
 
-        cmd = [python_exec, script_path]
+        cmd = [python_exec, "-u", script_path]
 
         # Input source
         if self.project_path:

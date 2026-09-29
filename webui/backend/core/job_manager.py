@@ -287,6 +287,7 @@ class JobManager:
         work_dir = str(MAIN_SCRIPT_PATH.parent)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
         if job.request.whisper_batch_size:
             env["VIRALCUTTER_WHISPER_BATCH_SIZE"] = str(int(job.request.whisper_batch_size))
         if job.request.whisper_chunk_size:
@@ -339,6 +340,7 @@ class JobManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    universal_newlines=True,
                     bufsize=1,
                     start_new_session=True,
                     env=env,

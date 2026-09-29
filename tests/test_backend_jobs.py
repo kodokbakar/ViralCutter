@@ -73,7 +73,8 @@ def test_job_run_request_cli_mapping():
     cmd = req.to_cli_args(python_exec="python3", script_path="main_improved.py")
 
     assert cmd[0] == "python3"
-    assert cmd[1] == "main_improved.py"
+    assert cmd[1] == "-u"
+    assert cmd[2] == "main_improved.py"
     assert "--url" in cmd
     assert cmd[cmd.index("--url") + 1] == "https://youtube.com/watch?v=123"
     assert "--segments" in cmd
@@ -336,5 +337,44 @@ async def test_cancel_non_blocking_fastapi_event_loop():
         res_cancel = await cancel_task
         assert res_cancel.status_code == 200
         assert res_cancel.json()["status"] == "cancelled"
+
+
+def test_unbuffered_subprocess_execution(monkeypatch):
+    import subprocess
+    captured = {}
+    original_popen = subprocess.Popen
+
+    def mock_popen(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return original_popen(
+            [sys.executable, "-c", "import sys; print('unbuffered_line')"],
+            cwd=kwargs.get("cwd"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+
+    monkeypatch.setattr(subprocess, "Popen", mock_popen)
+
+    req = JobRunRequest(project_name="test_unbuffered")
+    job = Job(job_id="test_unbuffered_job", request=req)
+    job_manager._run_job_process(job)
+
+    cmd = captured["args"][0]
+    kwargs = captured["kwargs"]
+
+    assert cmd[1] == "-u"
+    assert kwargs.get("bufsize") == 1
+    assert kwargs.get("text") is True
+    assert kwargs.get("universal_newlines") is True
+    assert kwargs["env"].get("PYTHONUNBUFFERED") == "1"
+    assert kwargs["env"].get("PYTHONIOENCODING") == "utf-8"
+
+    log_events = [ev for ev in job.events if ev["event"] == "log"]
+    assert any("unbuffered_line" in ev["data"]["message"] for ev in log_events)
+
 
 
