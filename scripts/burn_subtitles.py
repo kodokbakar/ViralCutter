@@ -1,6 +1,10 @@
+import functools
 import os
 import shlex
 import subprocess
+
+# Explicitly flush all standard output prints immediately
+print = functools.partial(print, flush=True)
 
 from scripts import (
     subtitle_fonts,
@@ -270,7 +274,6 @@ def burn_video_file(
         subprocess.run(
             command,
             check=True,
-            capture_output=True,
             text=True,
         )
 

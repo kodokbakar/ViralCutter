@@ -1,7 +1,11 @@
+import functools
 from scripts import cut_json
 import os
 import subprocess
 import json
+
+# Explicitly flush all standard output prints immediately
+print = functools.partial(print, flush=True)
 
 def cut(segments, project_folder="tmp", skip_video=False):
 
@@ -100,8 +104,8 @@ def cut(segments, project_folder="tmp", skip_video=False):
             output_filename = f"{base_name}_original_scale.mp4"
             output_path = os.path.join(cuts_folder, output_filename)
 
-            print(f"Processing segment {i+1}/{len(segments)}")
-            print(f"Start time: {start_time}, Duration: {duration}")
+            print(f"Processing segment {i+1}/{len(segments)}", flush=True)
+            print(f"Start time: {start_time}, Duration: {duration}", flush=True)
             # print(f"Executing command: {' '.join(command)}")
 
             # VIDEO GENERATION
@@ -135,14 +139,14 @@ def cut(segments, project_folder="tmp", skip_video=False):
                 ])
 
                 try:
-                    subprocess.run(command, check=True, capture_output=True, text=True)
+                    subprocess.run(command, check=True, text=True)
                     if os.path.exists(output_path):
                         file_size = os.path.getsize(output_path)
-                        print(f"Generated segment: {output_filename}, Size: {file_size} bytes")
+                        print(f"Generated segment: {output_filename}, Size: {file_size} bytes", flush=True)
                 except subprocess.CalledProcessError as e:
-                    print(f"Error executing ffmpeg: {e}")
+                    print(f"Error executing ffmpeg: {e}", flush=True)
             else:
-                print(f"Skipping video generation for {output_filename} (using existing). check json...")
+                print(f"Skipping video generation for {output_filename} (using existing). check json...", flush=True)
             
             # --- JSON CUTTING (ALWAYS RUN) ---
             end_time_seconds = start_time_seconds + float(duration_seconds)

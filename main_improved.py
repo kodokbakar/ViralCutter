@@ -1,5 +1,9 @@
 import os
 import sys
+import functools
+
+# Explicitly flush all standard output prints immediately
+print = functools.partial(print, flush=True)
 
 # Suppress unnecessary logs before importing heavy libs
 os.environ["ORT_LOGGING_LEVEL"] = "3" 

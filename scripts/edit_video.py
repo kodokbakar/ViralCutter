@@ -1,7 +1,11 @@
+import functools
 import cv2
 import numpy as np
 import os
 import subprocess
+
+# Explicitly flush all standard output prints immediately
+print = functools.partial(print, flush=True)
 import mediapipe as mp
 from scripts.one_face import crop_and_resize_single_face, resize_with_padding, detect_face_or_body, crop_center_zoom
 from scripts.two_face import crop_and_resize_two_faces, detect_face_or_body_two_faces

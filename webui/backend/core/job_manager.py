@@ -203,6 +203,7 @@ class Job:
     async def event_generator(self):
         import asyncio
         cursor = 0
+        last_activity = time.time()
         while True:
             events_to_yield = []
             with self.lock:
@@ -215,11 +216,17 @@ class Job:
                 event_name = ev.get("event", "message")
                 data_str = json.dumps(ev.get("data", {}))
                 yield f"event: {event_name}\ndata: {data_str}\n\n"
+                last_activity = time.time()
                 if event_name in ("complete", "error"):
                     return
 
             if is_done and cursor >= len(self.events):
                 break
+
+            now = time.time()
+            if not events_to_yield and (now - last_activity) >= 1.0:
+                yield ": ping\n\n"
+                last_activity = now
 
             await asyncio.sleep(0.05)
 
