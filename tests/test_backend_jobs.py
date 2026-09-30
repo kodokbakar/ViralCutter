@@ -417,4 +417,54 @@ def test_unbuffered_subprocess_execution(monkeypatch):
     assert any("unbuffered_line" in ev["data"]["message"] for ev in log_events)
 
 
+def test_job_run_request_whisper_and_chunk_tuning_cli_args():
+    req = JobRunRequest(
+        video_path="input.mp4",
+        chunk_size=40000,
+        whisper_batch_size=16,
+        whisper_chunk_size=20,
+    )
+    cmd = req.to_cli_args(python_exec="python3", script_path="main_improved.py")
+    assert "--chunk-size" in cmd
+    assert cmd[cmd.index("--chunk-size") + 1] == "40000"
+    assert "--whisper-batch-size" in cmd
+    assert cmd[cmd.index("--whisper-batch-size") + 1] == "16"
+    assert "--whisper-chunk-size" in cmd
+    assert cmd[cmd.index("--whisper-chunk-size") + 1] == "20"
+
+
+def test_job_run_request_whisper_and_chunk_bounds():
+    from pydantic import ValidationError
+
+    # Valid minimums and maximums
+    req_min = JobRunRequest(chunk_size=1000, whisper_batch_size=1, whisper_chunk_size=5)
+    assert req_min.chunk_size == 1000
+    assert req_min.whisper_batch_size == 1
+    assert req_min.whisper_chunk_size == 5
+
+    req_max = JobRunRequest(chunk_size=200000, whisper_batch_size=64, whisper_chunk_size=60)
+    assert req_max.chunk_size == 200000
+    assert req_max.whisper_batch_size == 64
+    assert req_max.whisper_chunk_size == 60
+
+    # chunk_size invalid bounds
+    with pytest.raises(ValidationError):
+        JobRunRequest(chunk_size=999)
+    with pytest.raises(ValidationError):
+        JobRunRequest(chunk_size=200001)
+
+    # whisper_batch_size invalid bounds
+    with pytest.raises(ValidationError):
+        JobRunRequest(whisper_batch_size=0)
+    with pytest.raises(ValidationError):
+        JobRunRequest(whisper_batch_size=65)
+
+    # whisper_chunk_size invalid bounds
+    with pytest.raises(ValidationError):
+        JobRunRequest(whisper_chunk_size=4)
+    with pytest.raises(ValidationError):
+        JobRunRequest(whisper_chunk_size=61)
+
+
+
 

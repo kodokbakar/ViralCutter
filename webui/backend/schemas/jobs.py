@@ -40,14 +40,14 @@ class JobRunRequest(BaseModel):
     prompt_file: Optional[str] = Field(default=None, description="Path to AI prompt file")
     prompt_template: Optional[str] = Field(default=None, description="Raw text of prompt template override")
     whisper_preset: str = Field(default="custom", description="Preset: fast, balanced, accurate, custom")
-    whisper_batch_size: Optional[int] = Field(default=None, description="Whisper batch size override")
-    whisper_chunk_size: Optional[int] = Field(default=None, description="Whisper chunk size override")
+    whisper_batch_size: Optional[int] = Field(default=None, ge=1, le=64, description="Whisper batch size override")
+    whisper_chunk_size: Optional[int] = Field(default=None, ge=5, le=60, description="Whisper chunk size override")
 
     # AI backend
     ai_backend: str = Field(default="gemini", description="AI backend: gemini, g4f, local, custom, manual")
     ai_base_url: Optional[str] = Field(default=None, description="Custom AI base URL")
     api_key: Optional[str] = Field(default=None, description="AI API key")
-    chunk_size: Optional[int] = Field(default=None, description="Chunk size for LLM input")
+    chunk_size: Optional[int] = Field(default=None, ge=1000, le=200000, description="Chunk size for LLM input")
     ai_model_name: Optional[str] = Field(default=None, description="Model name override")
 
     # Smart clipping
@@ -203,9 +203,9 @@ class JobRunRequest(BaseModel):
         cmd.extend(["--model", str(self.model)])
         cmd.extend(["--language", str(self.language)])
         cmd.extend(["--whisper-preset", str(self.whisper_preset)])
-        if self.whisper_batch_size:
+        if self.whisper_batch_size is not None:
             cmd.extend(["--whisper-batch-size", str(int(self.whisper_batch_size))])
-        if self.whisper_chunk_size:
+        if self.whisper_chunk_size is not None:
             cmd.extend(["--whisper-chunk-size", str(int(self.whisper_chunk_size))])
 
         # AI
@@ -225,7 +225,7 @@ class JobRunRequest(BaseModel):
             cmd.extend(["--ai-base-url", str(self.ai_base_url).strip()])
         if self.ai_model_name:
             cmd.extend(["--ai-model-name", str(self.ai_model_name)])
-        if self.chunk_size:
+        if self.chunk_size is not None:
             cmd.extend(["--chunk-size", str(int(self.chunk_size))])
 
         # Smart clipping
