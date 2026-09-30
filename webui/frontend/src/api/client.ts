@@ -32,6 +32,7 @@ import type {
   SystemStatusResponse,
   TestAiRequest,
   TestAiResponse,
+  PromptTemplateResponse,
   ThumbnailRequest,
   ThumbnailResponse,
   UploadResponse,
@@ -408,4 +409,7 @@ export const systemApi = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
+
+  getPromptTemplate: (): Promise<PromptTemplateResponse> =>
+    request<PromptTemplateResponse>('/system/prompt-template'),
 };

@@ -325,6 +325,58 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('pre-injects default prompt template from server and allows reset to default', async () => {
+      const defaultTemplateText = 'Default Prompt: {transcript_chunk} {json_template}';
+      const promptMock = vi.spyOn(systemApi, 'getPromptTemplate').mockResolvedValue({
+        template: defaultTemplateText,
+      });
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      // Allow useEffect to resolve getPromptTemplate
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(promptMock).toHaveBeenCalled();
+
+      // Open AI Prompt Template editor
+      const toggleEditorBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('AI Prompt Template')
+      );
+      expect(toggleEditorBtn).toBeTruthy();
+      act(() => {
+        toggleEditorBtn?.click();
+      });
+
+      const textarea = container.querySelector('#ai-prompt-template-textarea') as HTMLTextAreaElement;
+      expect(textarea).toBeTruthy();
+      expect(textarea.value).toBe(defaultTemplateText);
+      expect(container.textContent).toContain('Default Template');
+
+      // Edit prompt template
+      act(() => {
+        setNativeValue(textarea, 'Custom prompt for test');
+      });
+      expect(textarea.value).toBe('Custom prompt for test');
+      expect(container.textContent).toContain('Custom Active');
+
+      // Click Reset to Default
+      const resetBtn = container.querySelector('#reset-prompt-template-btn') as HTMLButtonElement;
+      expect(resetBtn).toBeTruthy();
+      await act(async () => {
+        resetBtn.click();
+        await Promise.resolve();
+      });
+
+      expect(textarea.value).toBe(defaultTemplateText);
+      expect(container.textContent).toContain('Default Template');
+
+      unmount();
+    });
+
     it('displays active job status banner and supports cancellation', async () => {
       const cancelMock = vi.spyOn(jobsApi, 'cancel').mockResolvedValue({
         status: 'cancelled',

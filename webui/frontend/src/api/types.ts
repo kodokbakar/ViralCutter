@@ -367,3 +367,7 @@ export interface TestAiResponse {
   message: string;
   latency_ms?: number;
 }
+
+export interface PromptTemplateResponse {
+  template: string;
+}

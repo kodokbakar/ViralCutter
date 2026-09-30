@@ -166,6 +166,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   // AI Prompt Template Editor (Persisted)
   const [showPromptEditor, setShowPromptEditor] = useState<boolean>(false);
   const [promptTemplate, setPromptTemplate] = usePersistedState<string>('prompt_template', '');
+  const [defaultPromptTemplate, setDefaultPromptTemplate] = useState<string>('');
+  const [isLoadingPromptTemplate, setIsLoadingPromptTemplate] = useState<boolean>(false);
   const [promptSavedMsg, setPromptSavedMsg] = useState<boolean>(false);
 
   // File Selection State
@@ -299,6 +301,49 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       setTrackedJobId(activeJob.job.job_id);
     }
   }, [activeJob]);
+
+  // Synchronize Default Prompt Template & Pre-injection
+  useEffect(() => {
+    let isMounted = true;
+    systemApi
+      .getPromptTemplate()
+      .then((res) => {
+        if (!isMounted) return;
+        setDefaultPromptTemplate(res.template);
+        setPromptTemplate((current) => {
+          if (!current || !current.trim()) {
+            return res.template;
+          }
+          return current;
+        });
+      })
+      .catch((err) => {
+        console.warn('Failed to load default prompt template:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleResetPromptTemplate = async () => {
+    setIsLoadingPromptTemplate(true);
+    try {
+      const res = await systemApi.getPromptTemplate();
+      setDefaultPromptTemplate(res.template);
+      setPromptTemplate(res.template);
+      setPromptSavedMsg(false);
+    } catch (err) {
+      console.warn('Failed to reset prompt template:', err);
+    } finally {
+      setIsLoadingPromptTemplate(false);
+    }
+  };
+
+  const isCustomPromptTemplate = Boolean(
+    promptTemplate.trim() &&
+      defaultPromptTemplate.trim() &&
+      promptTemplate.trim() !== defaultPromptTemplate.trim()
+  );
 
   // Smooth Log Buffering with Background-Resilient Timer
   const flushLogs = useCallback(() => {
@@ -1366,14 +1411,21 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <span>AI Prompt Template</span>
                   {showPromptEditor ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                 </button>
-                {promptTemplate && (
-                  <span className="text-[10px] text-red-400 font-mono">Custom Active</span>
+                {isCustomPromptTemplate ? (
+                  <span className="text-[10px] text-amber-400 font-mono bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/60">
+                    Custom Active
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-zinc-400 font-mono bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700">
+                    Default Template
+                  </span>
                 )}
               </div>
 
               {showPromptEditor && (
                 <div className="bg-zinc-950/70 border border-zinc-800 rounded-lg p-3 space-y-3">
                   <textarea
+                    id="ai-prompt-template-textarea"
                     rows={4}
                     value={promptTemplate}
                     onChange={(e) => {
@@ -1386,13 +1438,13 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <button
                       type="button"
-                      onClick={() => {
-                        setPromptTemplate('');
-                        setPromptSavedMsg(false);
-                      }}
-                      className="text-zinc-400 hover:text-zinc-200"
+                      id="reset-prompt-template-btn"
+                      onClick={handleResetPromptTemplate}
+                      disabled={isLoadingPromptTemplate}
+                      className="text-zinc-400 hover:text-zinc-200 disabled:opacity-50 flex items-center space-x-1"
                     >
-                      Reset to Default
+                      {isLoadingPromptTemplate && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                      <span>Reset to Default</span>
                     </button>
                     <div className="flex items-center space-x-2">
                       {promptSavedMsg && <span className="text-emerald-400 text-[11px]">Saved!</span>}
