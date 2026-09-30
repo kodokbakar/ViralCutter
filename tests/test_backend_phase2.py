@@ -534,6 +534,29 @@ def test_system_health():
     assert res_legacy.json() == {"status": "ok"}
 
 
+def test_system_prompt_template():
+    res = client.get("/api/v1/system/prompt-template")
+    assert res.status_code == 200
+    data = res.json()
+    assert "template" in data
+    assert "{transcript_chunk}" in data["template"]
+    assert "{json_template}" in data["template"]
+
+
+def test_system_prompt_template_fallback(monkeypatch):
+    from pathlib import Path
+    from webui.backend.api.v1 import system
+
+    # Point BASE_DIR to non-existent folder
+    monkeypatch.setattr(system, "BASE_DIR", Path("/non/existent/path"))
+    res = client.get("/api/v1/system/prompt-template")
+    assert res.status_code == 200
+    data = res.json()
+    assert "template" in data
+    assert "{transcript_chunk}" in data["template"]
+    assert "{json_template}" in data["template"]
+
+
 def test_root_fallback():
     res = client.get("/")
     assert res.status_code == 200

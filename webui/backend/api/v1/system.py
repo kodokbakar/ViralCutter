@@ -11,8 +11,9 @@ from typing import Any, Dict
 from fastapi import APIRouter
 
 from scripts.create_viral_segments import verify_ai_connection
-from webui.backend.config import VIRALS_DIR
+from webui.backend.config import BASE_DIR, VIRALS_DIR
 from webui.backend.schemas.system import (
+    PromptTemplateResponse,
     SystemHealthResponse,
     SystemStatusResponse,
     TestAIRequest,
@@ -20,6 +21,63 @@ from webui.backend.schemas.system import (
 )
 
 router = APIRouter()
+
+DEFAULT_PROMPT_TEMPLATE = """You are a World-Class Viral Video Editor and Storyteller. You are an expert at finding "gold nuggets" in long transcripts that can stand alone as viral TikToks/Reels/Shorts.
+
+Your goal is to extract segments that have **Perfect Narrative Completeness** (Start, Middle, End) while respecting time constraints.
+
+### INPUT FORMAT EXPLAINED
+The transcript below is a continuous text stream with embedded **Time Tags** like `(12s)`.
+- Example: `"Hello world (0s). Today we are going to (3s) fly to the moon."`
+- These tags represent the approximate timestamp of the *preceding* text.
+- Use them to calculate duration. Duration = (End Tag - Start Tag).
+
+### STRICT VIRAL RULES (The "ViralCutter Standard"):
+1.  **NO "GARBAGE" STARTS:**
+    -   NEVER start with filler words ("Um", "Uh", "So...", "And then").
+    -   NEVER start with low-energy intros ("Hi guys, welcome back").
+    -   **ALWAYS** start with a Hook: A strong statement, a question, or an action verb.
+    -   *Bad Start:* "(10s) So, I was thinking..."
+    -   *Good Start:* "(12s) I almost died yesterday."
+
+2.  **THE "STANDALONE" TEST:**
+    -   Can this segment be shown to a stranger without ANY context?
+    -   If it contains "That's why *he* said that" (and "he" is unknown), it FAILS. Eliminate or expand context.
+
+3.  **NARRATIVE ARC:**
+    -   **Start:** Hook (0-3s).
+    -   **Middle:** Value/Story (Retain attention).
+    -   **End:** Punchline/Conclusion (Satisfying ending). NEVER cut mid-sentence.
+
+4.  **DURATION MATH:**
+    -   Use the `(XXs)` tags to estimate duration.
+    -   CONSTRAINT: Segment MUST be between {min_duration}s and {max_duration}s.
+
+5.  **AI HOOK TITLE (STOP-THE-SCROLL HEADER):**
+    -   High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g. "RAHASIA CUAN DARI AI?!", "JANGAN LAKUKAN HAL INI!").
+    -   Must induce FOMO, extreme curiosity, or urgent interest to stop viewers from scrolling.
+    -   In the SAME LANGUAGE as the transcript.
+
+### YOUR TASK:
+Analyze the transcript below. Find {amount} potential viral segments.
+
+TRANSCRIPT:
+{transcript_chunk}
+
+### OUTPUT FORMAT (JSON ONLY):
+{json_template}
+
+Return ONLY VALID JSON. No markdown, no commentary."""
+
+
+def _read_prompt_template_sync() -> str:
+    prompt_path = BASE_DIR / "prompt.txt"
+    if prompt_path.is_file():
+        try:
+            return prompt_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return DEFAULT_PROMPT_TEMPLATE
 
 
 def _get_gpu_status_sync() -> Dict[str, Any]:
@@ -170,3 +228,12 @@ async def test_ai_connection(req: TestAIRequest):
         message=message,
         latency_ms=latency_ms,
     )
+
+
+@router.get("/prompt-template", response_model=PromptTemplateResponse)
+async def get_prompt_template():
+    """
+    Get the default AI prompt template from prompt.txt with fallback.
+    """
+    template = await asyncio.to_thread(_read_prompt_template_sync)
+    return PromptTemplateResponse(template=template)

@@ -27,3 +27,7 @@ class TestAIResponse(BaseModel):
     success: bool = Field(..., description="Whether the connection test succeeded")
     message: str = Field(..., description="Status or error message")
     latency_ms: Optional[int] = Field(default=None, description="Response latency in milliseconds")
+
+
+class PromptTemplateResponse(BaseModel):
+    template: str = Field(..., description="Default AI prompt template content")
