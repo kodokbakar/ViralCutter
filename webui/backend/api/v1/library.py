@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import List, Optional
@@ -20,6 +21,7 @@ from webui.backend.core.security import (
 from webui.backend.schemas.library import (
     AssetItem,
     ExportResponse,
+    GeneratedClipItem,
     ProjectDetail,
     ProjectRenameRequest,
     ProjectSummary,
@@ -141,6 +143,205 @@ async def get_project_detail(project_name: str):
         )
 
     return await asyncio.to_thread(_get_detail_sync)
+
+
+def _probe_duration_sync(file_path: Path) -> Optional[float]:
+    try:
+        ffprobe_bin = shutil.which("ffprobe")
+        if not ffprobe_bin:
+            return None
+        import subprocess
+        res = subprocess.run(
+            [
+                ffprobe_bin,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(file_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return round(float(res.stdout.strip()), 2)
+    except Exception:
+        pass
+    return None
+
+
+def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
+    # 1. Primary: burned_sub/
+    burned_dir = proj_dir / "burned_sub"
+    burned_files = []
+    if burned_dir.is_dir():
+        burned_files = [
+            p for p in burned_dir.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in ALLOWED_VIDEO_EXTENSIONS
+            and "input" not in p.name.lower()
+        ]
+
+    if burned_files:
+        folder_type = "burned_sub"
+        selected_files = sorted(burned_files, key=lambda p: p.name)
+    else:
+        # Fallback to final/
+        final_dir = proj_dir / "final"
+        final_files = []
+        if final_dir.is_dir():
+            final_files = [
+                p for p in final_dir.iterdir()
+                if p.is_file()
+                and p.suffix.lower() in ALLOWED_VIDEO_EXTENSIONS
+                and "input" not in p.name.lower()
+                and "temp_video_no_audio" not in p.name.lower()
+            ]
+        if final_files:
+            folder_type = "final"
+            selected_files = sorted(final_files, key=lambda p: p.name)
+        else:
+            return []
+
+    # 2. Read viral segments metadata
+    segments_list = []
+    for seg_candidate in ["viral_segments.json", "viral_segments.txt"]:
+        seg_file = proj_dir / seg_candidate
+        if seg_file.is_file():
+            try:
+                with open(seg_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and isinstance(data.get("segments"), list):
+                    segments_list = data["segments"]
+                    break
+                elif isinstance(data, list):
+                    segments_list = data
+                    break
+            except Exception:
+                pass
+
+    clips: List[GeneratedClipItem] = []
+    for i, clip_file in enumerate(selected_files):
+        fname = clip_file.name
+        stem = clip_file.stem
+        clean_stem = re.sub(r'(_subtitled|_processed)$', '', stem, flags=re.IGNORECASE)
+
+        # Timeline lookup
+        hook_from_timeline = None
+        for tl_dir in [proj_dir / "final", proj_dir / "burned_sub", proj_dir]:
+            for tl_name in [f"{clean_stem}_timeline.json", f"{stem}_timeline.json"]:
+                tl_p = tl_dir / tl_name
+                if tl_p.is_file():
+                    try:
+                        with open(tl_p, "r", encoding="utf-8") as tf:
+                            tl_data = json.load(tf)
+                        if isinstance(tl_data, list):
+                            for item in tl_data:
+                                if isinstance(item, dict) and item.get("hook_title"):
+                                    hook_from_timeline = str(item["hook_title"]).strip()
+                                    break
+                        elif isinstance(tl_data, dict) and tl_data.get("hook_title"):
+                            hook_from_timeline = str(tl_data["hook_title"]).strip()
+                        if hook_from_timeline:
+                            break
+                    except Exception:
+                        pass
+            if hook_from_timeline:
+                break
+
+        # Match segment
+        matched_seg = None
+        for seg in segments_list:
+            if isinstance(seg, dict):
+                sf = seg.get("filename") or seg.get("filepath")
+                if sf and (sf == fname or Path(sf).name == fname or Path(sf).stem == clean_stem):
+                    matched_seg = seg
+                    break
+
+        if not matched_seg:
+            idx_match = re.search(r'(?:output|segment|clip|_|^)(\d+)', stem, re.IGNORECASE)
+            if not idx_match:
+                idx_match = re.search(r'(\d+)', stem)
+            if idx_match:
+                idx_num = int(idx_match.group(1))
+                if 0 <= idx_num < len(segments_list) and isinstance(segments_list[idx_num], dict):
+                    matched_seg = segments_list[idx_num]
+                elif 0 <= (idx_num - 1) < len(segments_list) and isinstance(segments_list[idx_num - 1], dict):
+                    matched_seg = segments_list[idx_num - 1]
+
+        if not matched_seg and i < len(segments_list) and isinstance(segments_list[i], dict):
+            matched_seg = segments_list[i]
+
+        score = None
+        hook_title = hook_from_timeline
+        duration = None
+
+        if matched_seg:
+            raw_score = matched_seg.get("score")
+            if raw_score is None:
+                raw_score = matched_seg.get("virality_score")
+            if raw_score is not None:
+                try:
+                    score = float(raw_score)
+                except (ValueError, TypeError):
+                    score = None
+
+            if not hook_title:
+                cand_title = matched_seg.get("hook_title") or matched_seg.get("title")
+                if cand_title:
+                    hook_title = str(cand_title).strip()
+
+            dur_cand = matched_seg.get("duration")
+            if dur_cand is not None:
+                try:
+                    duration = float(dur_cand)
+                except (ValueError, TypeError):
+                    pass
+            if duration is None:
+                st = matched_seg.get("start_time") or matched_seg.get("start")
+                et = matched_seg.get("end_time") or matched_seg.get("end")
+                if st is not None and et is not None:
+                    try:
+                        duration = round(float(et) - float(st), 2)
+                    except (ValueError, TypeError):
+                        pass
+
+        if duration is None:
+            duration = _probe_duration_sync(clip_file)
+
+        clips.append(
+            GeneratedClipItem(
+                name=fname,
+                path=str(clip_file.resolve()),
+                size=clip_file.stat().st_size,
+                folder_type=folder_type,
+                score=score,
+                hook_title=hook_title,
+                duration=duration,
+            )
+        )
+
+    return clips
+
+
+@router.get("/projects/{project_name}/clips", response_model=List[GeneratedClipItem])
+async def get_project_clips(project_name: str):
+    """
+    List generated output video clips for a project, prioritized from burned_sub/
+    with automatic fallback to final/. Intermediate cuts/ and input.mp4 are excluded.
+    Extracts AI virality score and hook title metadata from viral_segments / timeline files.
+    """
+    safe_name = sanitize_project_name(project_name)
+    proj_dir = VIRALS_DIR / safe_name
+
+    if _is_protected_project_dir(proj_dir, safe_name) or not proj_dir.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project '{safe_name}' not found",
+        )
+
+    return await asyncio.to_thread(_get_project_clips_sync, proj_dir)
 
 
 @router.patch("/projects/{project_name}")

@@ -1,7 +1,7 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 from fastapi import HTTPException, status
 
 from webui.backend.config import BASE_DIR, PREVIEWS_DIR, UPLOADS_DIR, VIRALS_DIR
@@ -94,3 +94,19 @@ def validate_safe_path(
         )
 
     return target
+
+
+def is_drive_path(path: Any) -> bool:
+    """Check if path resides within Google Drive mount boundary (/content/drive)."""
+    if not path:
+        return False
+    path_str = str(path).replace("\\", "/")
+    if path_str.startswith("/content/drive") or "/content/drive" in path_str:
+        return True
+    try:
+        p = Path(str(path)).resolve()
+        drive_root = Path("/content/drive").resolve()
+        return p == drive_root or drive_root in p.parents
+    except Exception:
+        return False
+

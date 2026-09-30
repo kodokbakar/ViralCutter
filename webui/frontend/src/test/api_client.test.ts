@@ -162,6 +162,31 @@ describe('API Client Layer', () => {
 
     const downloadUrl = libraryApi.getDownloadUrl('virals/export.zip');
     expect(downloadUrl).toBe('/api/v1/library/export/download?path=virals%2Fexport.zip');
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          name: '000_clip_subtitled.mp4',
+          path: '/virals/my_p/burned_sub/000_clip_subtitled.mp4',
+          size: 1048576,
+          folder_type: 'burned_sub',
+          score: 95,
+          hook_title: 'CRAZY HOOK',
+          duration: 35.5,
+        },
+      ],
+    } as Response);
+
+    const clips = await libraryApi.getProjectClips('my_p');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/v1/library/projects/my_p/clips',
+      expect.objectContaining({ method: 'GET' })
+    );
+    expect(clips).toHaveLength(1);
+    expect(clips[0].score).toBe(95);
+    expect(clips[0].hook_title).toBe('CRAZY HOOK');
+    expect(clips[0].folder_type).toBe('burned_sub');
   });
 
   it('correctly dispatches gdriveApi.listVideos to /gdrive/videos', async () => {

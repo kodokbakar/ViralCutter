@@ -36,3 +36,13 @@ class ExportResponse(BaseModel):
     zip_path: str = Field(..., description="Path to generated project export zip")
     filename: str = Field(..., description="Filename of zip export")
     size_bytes: int = Field(..., description="Size of exported zip in bytes")
+
+
+class GeneratedClipItem(BaseModel):
+    name: str = Field(..., description="Clip file name")
+    path: str = Field(..., description="Absolute file path")
+    size: int = Field(..., description="File size in bytes")
+    folder_type: str = Field(..., description="Folder source: burned_sub or final")
+    score: Optional[float] = Field(default=None, description="AI Virality Score (0-100)")
+    hook_title: Optional[str] = Field(default=None, description="AI Hook title or headline")
+    duration: Optional[float] = Field(default=None, description="Clip duration in seconds")

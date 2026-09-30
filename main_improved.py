@@ -590,7 +590,7 @@ def main():
                 print(i18n("Error: No URL or Google Drive video selected and no existing video selected."))
                 sys.exit(1)
                 
-            print(i18n("Starting download..."))
+            print(i18n("Starting download..."), flush=True)
             if args.gdrive_file_id:
                 download_result = download_video.download_from_gdrive_file_id(
                     args.gdrive_file_id,
@@ -615,7 +615,7 @@ def main():
             print("DEBUG: Using existing video logic.")
             project_folder = os.path.dirname(input_video)
             
-        print(f"Project Folder: {project_folder}")
+        print(f"Project Folder: {project_folder}", flush=True)
 
         watermark_config = watermark.build_config(
             mode=args.watermark_mode,
@@ -660,7 +660,7 @@ def main():
             # Actually 'adjust_subtitles' reads from 'project_folder/subs'.
             # viral_segments = True # Removed to avoid overwritting dict loaded earlier
         else:
-            print(i18n("Transcribing with model {}...").format(args.model))
+            print(i18n("Transcribing with model {}...").format(args.model), flush=True)
             # Se skip config, args.model é default
             srt_file, tsv_file = transcribe_video.transcribe(
                 input_video,
@@ -715,7 +715,7 @@ def main():
                             prompt_file_arg=args.prompt_file,
                         )
                     else:
-                        print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
+                        print(i18n("Creating viral segments using {}...").format(ai_backend.upper()), flush=True)
                         viral_segments = create_viral_segments.create(
                             num_segments,
                             viral_mode,
@@ -809,25 +809,25 @@ def main():
                     skip_cutting = True
             
             if skip_cutting:
-                print(i18n("Skipping Video Rendering (using existing cuts), but updating Subtitle JSONs..."))
+                print(i18n("Skipping Video Rendering (using existing cuts), but updating Subtitle JSONs..."), flush=True)
             else:
-                print(i18n("Cutting segments..."))
+                print(i18n("Cutting segments..."), flush=True)
 
             cut_segments.cut(viral_segments, project_folder=project_folder, skip_video=skip_cutting)
         
         # 5. Workflow Check
         if workflow_choice == "2":
-            print(i18n("Cut Only selected. Skipping Face Crop and Subtitles."))
-            print(i18n(f"Process completed! Check your results in: {project_folder}"))
+            print(i18n("Cut Only selected. Skipping Face Crop and Subtitles."), flush=True)
+            print(i18n(f"Process completed! Check your results in: {project_folder}"), flush=True)
             sys.exit(0)
 
         # 5. Edit Video / Preserve Original Framing
         if workflow_choice != "3":
             if face_mode == "none":
-                print(i18n("Face mode none selected. Skipping face detection and preserving source framing..."))
+                print(i18n("Face mode none selected. Skipping face detection and preserving source framing..."), flush=True)
                 preserve_segments.preserve_original_scale(project_folder=project_folder)
             else:
-                print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
+                print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode), flush=True)
 
                 from scripts import edit_video
 
@@ -906,10 +906,11 @@ def main():
                 print(
                     i18n(
                         "Applying watermark before subtitles..."
-                    )
+                    ),
+                    flush=True,
                 )
 
-            print(i18n("Processing subtitles..."))
+            print(i18n("Processing subtitles..."), flush=True)
             # transcribe_cuts removido: JSON de legenda já é gerado no corte
             # transcribe_cuts.transcribe(project_folder=project_folder)
             
@@ -1016,7 +1017,7 @@ def main():
             print(i18n("Error saving configuration JSON: {}").format(e))
         # -------------------------------------
 
-        print(i18n("Process completed! Check your results in: {}").format(project_folder))
+        print(i18n("Process completed! Check your results in: {}").format(project_folder), flush=True)
 
     except Exception as e:
         print(i18n("\nAn error occurred: {}").format(str(e)))

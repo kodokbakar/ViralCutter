@@ -228,7 +228,10 @@ class Job:
                 yield ": ping\n\n"
                 last_activity = now
 
-            await asyncio.sleep(0.05)
+            if not events_to_yield:
+                await asyncio.sleep(0.05)
+            else:
+                await asyncio.sleep(0)
 
 
 class JobManager:

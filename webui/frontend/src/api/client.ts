@@ -12,6 +12,7 @@ import type {
   GDriveImportResponse,
   GDriveStatusResponse,
   GDriveVideoItem,
+  GeneratedClipItem,
   JobResponse,
   JobRunRequest,
   JobStatusResponse,
@@ -147,21 +148,49 @@ export const jobsApi = {
       }
     };
 
+    const handleComplete = (event: Event) => {
+      const msgEvent = event as MessageEvent;
+      try {
+        const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
+        const outDir = parsed?.output_dir ? ` in ${parsed.output_dir}` : '';
+        onMessage(`[System] Job COMPLETED successfully${outDir}.`);
+      } catch {
+        onMessage('[System] Job COMPLETED.');
+      }
+    };
+
+    const handleErrorEvent = (event: Event) => {
+      const msgEvent = event as MessageEvent;
+      if (msgEvent.data) {
+        try {
+          const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
+          const errMsg = parsed?.error || parsed?.message || JSON.stringify(parsed);
+          onMessage(`[System Error] ${errMsg}`);
+        } catch {
+          onMessage(`[System Error] ${String(msgEvent.data)}`);
+        }
+      }
+    };
+
     eventSource.onmessage = handleMessage as (this: EventSource, ev: MessageEvent) => void;
     eventSource.addEventListener('message', handleMessage);
     eventSource.addEventListener('log', handleMessage);
     eventSource.addEventListener('progress', handleMessage);
+    eventSource.addEventListener('complete', handleComplete);
 
-    if (onError) {
-      eventSource.onerror = (e) => {
+    eventSource.onerror = (e) => {
+      if ('data' in e && (e as MessageEvent).data) {
+        handleErrorEvent(e);
+      } else if (onError) {
         onError(e);
-      };
-    }
+      }
+    };
 
     return () => {
       eventSource.removeEventListener('message', handleMessage);
       eventSource.removeEventListener('log', handleMessage);
       eventSource.removeEventListener('progress', handleMessage);
+      eventSource.removeEventListener('complete', handleComplete);
       eventSource.close();
     };
   },
@@ -281,6 +310,9 @@ export const libraryApi = {
   getProject: (projectName: string): Promise<ProjectDetail> =>
     request<ProjectDetail>(`/library/projects/${encodeURIComponent(projectName)}`),
 
+  getClips: (projectName: string): Promise<GeneratedClipItem[]> =>
+    request<GeneratedClipItem[]>(`/library/projects/${encodeURIComponent(projectName)}/clips`),
+
   renameProject: (
     projectName: string,
     newName: string
@@ -310,6 +342,9 @@ export const libraryApi = {
     const q = params.toString();
     return request<AssetItem[]>(`/library/assets${q ? `?${q}` : ''}`);
   },
+
+  getProjectClips: (projectName: string): Promise<GeneratedClipItem[]> =>
+    request<GeneratedClipItem[]>(`/library/projects/${encodeURIComponent(projectName)}/clips`),
 
   deleteAsset: (
     filePathOrProject: string,

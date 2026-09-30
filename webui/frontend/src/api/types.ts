@@ -200,6 +200,17 @@ export interface ExportResponse {
   size_bytes: number;
 }
 
+export interface GeneratedClipItem {
+  name: string;
+  path: string;
+  size: number;
+  folder_type: 'burned_sub' | 'final';
+  score?: number | null;
+  hook_title?: string | null;
+  duration?: number | null;
+  modified_at?: number | null;
+}
+
 // Subtitle schemas
 export interface SubtitleItem {
   index: number;

@@ -612,6 +612,66 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('renders burned_sub clips with AI score badge and hook title from getProjectClips', async () => {
+      const mockGeneratedClips = [
+        {
+          name: '000_ClipAlpha_subtitled.mp4',
+          path: '/virals/TestProj/burned_sub/000_ClipAlpha_subtitled.mp4',
+          size: 1048576,
+          folder_type: 'burned_sub' as const,
+          score: 95,
+          hook_title: 'VIRAL HOOK TITLE',
+          duration: 35,
+        },
+        {
+          name: '001_ClipBeta_subtitled.mp4',
+          path: '/virals/TestProj/burned_sub/001_ClipBeta_subtitled.mp4',
+          size: 2097152,
+          folder_type: 'burned_sub' as const,
+          score: 75,
+          hook_title: 'ANOTHER HOOK',
+          duration: 40,
+        },
+      ];
+      vi.spyOn(libraryApi, 'getProjectClips').mockResolvedValue(mockGeneratedClips);
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab
+          defaultVideoPath="/videos/test.mp4"
+          defaultProjectName="TestProj"
+        />
+      );
+
+      const refreshBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Refresh Clips')
+      );
+      expect(refreshBtn).toBeTruthy();
+
+      await act(async () => {
+        refreshBtn?.click();
+      });
+
+      const previewSection = container.querySelector('[data-testid="generator-output-preview"]');
+      expect(previewSection).toBeTruthy();
+
+      // Check folder type badge
+      expect(previewSection?.textContent).toContain('Burned Subtitles (Ready to Post)');
+
+      // Check hook title
+      expect(previewSection?.textContent).toContain('VIRAL HOOK TITLE');
+
+      // Check AI score badges
+      const selectedScore = previewSection?.querySelector('[data-testid="selected-clip-score"]');
+      expect(selectedScore?.textContent).toBe('Score: 95');
+
+      const clipScoreBadges = previewSection?.querySelectorAll('[data-testid="clip-score-badge"]');
+      expect(clipScoreBadges?.length).toBe(2);
+      expect(clipScoreBadges?.[0]?.textContent).toBe('Score: 95');
+      expect(clipScoreBadges?.[1]?.textContent).toBe('Score: 75');
+
+      unmount();
+    });
+
     it('renders hook title overlay controls and includes them in run request', async () => {
       const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
         job_id: 'job_hook_test',

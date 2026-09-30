@@ -1090,13 +1090,13 @@ OUTPUT JSON ONLY:
                         pass
 
         elif ai_mode == "gemini":
-            print(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...")
+            print(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...", flush=True)
             response_text = call_gemini(prompt, api_key, model_name=model_name)
         elif ai_mode == "g4f":
-            print(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...")
+            print(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...", flush=True)
             response_text = call_g4f(prompt, model_name=model_name)
         elif ai_mode == "local" and local_llm_instance:
-            print(f"Processing chunk {i+1} with Local LLM...")
+            print(f"Processing chunk {i+1} with Local LLM...", flush=True)
             try:
                 output = local_llm_instance.create_chat_completion(
                     messages=[
@@ -1108,10 +1108,10 @@ OUTPUT JSON ONLY:
                 )
                 response_text = output['choices'][0]['message']['content']
             except Exception as e:
-                print(f"Error evaluating local model: {e}")
+                print(f"Error evaluating local model: {e}", flush=True)
                 response_text = "{}"
         elif ai_mode == "custom":
-            print(f"Enviando chunk {i+1} para Custom API (Base: {base_url}, Model: {model_name})...")
+            print(f"Enviando chunk {i+1} para Custom API (Base: {base_url}, Model: {model_name})...", flush=True)
             try:
                 response_text = call_custom_api(prompt, base_url=base_url, api_key=api_key, model_name=model_name)
             except Exception as e:

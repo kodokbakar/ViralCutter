@@ -51,6 +51,7 @@ async def stream_job_logs(job_id: str):
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Content-Encoding": "identity",
             "Content-Type": "text/event-stream; charset=utf-8",
         },
     )

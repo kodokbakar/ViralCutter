@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, PrivateAttr
 
 from webui.backend.config import VIRALS_DIR
+from webui.backend.core.security import is_drive_path
 
 
 class JobRunRequest(BaseModel):
@@ -117,10 +118,13 @@ class JobRunRequest(BaseModel):
             pass
         project_dir.mkdir(parents=True, exist_ok=True)
         if not target.exists():
-            try:
-                os.link(str(src), str(target))
-            except OSError:
-                shutil.copy(str(src), str(target))
+            if is_drive_path(src):
+                shutil.copy2(str(src), str(target))
+            else:
+                try:
+                    os.link(str(src), str(target))
+                except OSError:
+                    shutil.copy2(str(src), str(target))
 
     def cleanup_temp_files(self) -> None:
         """Remove any temporary files created for CLI args."""
@@ -143,9 +147,19 @@ class JobRunRequest(BaseModel):
 
         # Input source
         if self.project_path:
-            proj_dir = Path(self.project_path)
-            if self.video_path:
-                self._ensure_input_video(proj_dir, self.video_path)
+            raw_proj = Path(self.project_path)
+            if is_drive_path(raw_proj):
+                proj_name = self.project_name or raw_proj.name
+                proj_dir = VIRALS_DIR / proj_name
+                proj_dir.mkdir(parents=True, exist_ok=True)
+                if self.video_path:
+                    self._ensure_input_video(proj_dir, self.video_path)
+                elif (raw_proj / "input.mp4").is_file():
+                    self._ensure_input_video(proj_dir, str(raw_proj / "input.mp4"))
+            else:
+                proj_dir = raw_proj
+                if self.video_path:
+                    self._ensure_input_video(proj_dir, self.video_path)
             cmd.extend(["--project-path", str(proj_dir)])
             cmd.append("--skip-youtube-subs")
         elif self.project_name:
@@ -156,7 +170,21 @@ class JobRunRequest(BaseModel):
             cmd.append("--skip-youtube-subs")
         elif self.video_path:
             vid_path = Path(self.video_path)
-            if vid_path.is_dir():
+            if is_drive_path(vid_path):
+                if vid_path.is_dir():
+                    proj_name = self.project_name or vid_path.name
+                    proj_dir = VIRALS_DIR / proj_name
+                    if (vid_path / "input.mp4").is_file():
+                        self._ensure_input_video(proj_dir, str(vid_path / "input.mp4"))
+                elif vid_path.name == "input.mp4":
+                    proj_name = self.project_name or vid_path.parent.name
+                    proj_dir = VIRALS_DIR / proj_name
+                    self._ensure_input_video(proj_dir, str(vid_path))
+                else:
+                    proj_name = self.project_name or vid_path.stem
+                    proj_dir = VIRALS_DIR / proj_name
+                    self._ensure_input_video(proj_dir, str(vid_path))
+            elif vid_path.is_dir():
                 proj_dir = vid_path
             elif vid_path.name == "input.mp4":
                 proj_dir = vid_path.parent

@@ -20,7 +20,7 @@ import {
   Share2,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem } from '../api/types';
 
 export interface GeneratorTabProps {
   activeJob?: ActiveJobResponse | null;
@@ -191,8 +191,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [trackedJobId, setTrackedJobId] = useState<string | null>(null);
 
   // Completed Clips Preview & Export State
-  const [outputClips, setOutputClips] = useState<AssetItem[]>([]);
-  const [selectedClip, setSelectedClip] = useState<AssetItem | null>(null);
+  const [outputClips, setOutputClips] = useState<GeneratedClipItem[]>([]);
+  const [selectedClip, setSelectedClip] = useState<GeneratedClipItem | null>(null);
   const [isExportingGdrive, setIsExportingGdrive] = useState<boolean>(false);
   const [gdriveExportMsg, setGdriveExportMsg] = useState<string | null>(null);
 
@@ -358,7 +358,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   }, []);
 
   useEffect(() => {
-    const timerId = setInterval(flushLogs, 100);
+    const timerId = setInterval(flushLogs, 50);
     return () => {
       clearInterval(timerId);
     };
@@ -368,7 +368,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   useEffect(() => {
     if (autoScroll && logContainerRef.current) {
       const { scrollHeight, scrollTop, clientHeight } = logContainerRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 80;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
       if (isAtBottom) {
         logContainerRef.current.scrollTop = scrollHeight;
       }
@@ -379,18 +379,35 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const fetchCompletedClips = useCallback(async (proj: string) => {
     if (!proj) return;
     try {
-      const assets = await libraryApi.listAssets(proj);
-      const clips = (assets || []).filter(
-        (a: AssetItem) => a.asset_type === 'video' || a.name.toLowerCase().endsWith('.mp4')
-      );
-      setOutputClips(clips);
-      if (clips.length > 0 && !selectedClip) {
-        setSelectedClip(clips[0]);
+      let clips: GeneratedClipItem[] = [];
+      try {
+        clips = await libraryApi.getProjectClips(proj);
+      } catch {
+        const assets = await libraryApi.listAssets(proj);
+        clips = (assets || [])
+          .filter((a: AssetItem) => a.asset_type === 'video' || a.name.toLowerCase().endsWith('.mp4'))
+          .map((a: AssetItem) => ({
+            name: a.name,
+            path: a.path,
+            size: a.size,
+            folder_type: (a.path.includes('burned_sub') ? 'burned_sub' : 'final') as 'burned_sub' | 'final',
+            modified_at: a.modified_at,
+          }));
+      }
+      setOutputClips(clips || []);
+      if (clips && clips.length > 0) {
+        setSelectedClip((prev) => {
+          if (!prev) return clips[0];
+          const matched = clips.find((c) => c.path === prev.path);
+          return matched || clips[0];
+        });
+      } else {
+        setSelectedClip(null);
       }
     } catch {
       // Ignored if project folder doesn't exist yet
     }
-  }, [selectedClip]);
+  }, []);
 
   useEffect(() => {
     if (activeJob?.job?.status === 'completed' && projectName) {
@@ -426,14 +443,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       (line) => {
         if (!line || line.startsWith(':')) return;
 
-        if (logBufferRef.current.length === 0) {
-          logBufferRef.current.push(line);
-          flushLogs();
-        } else {
-          logBufferRef.current.push(line);
-        }
+        logBufferRef.current.push(line);
+        flushLogs();
 
-        if (line.includes('COMPLETED') || line.includes('Finished processing')) {
+        if (line.includes('COMPLETED') || line.includes('Finished processing') || line.includes('Process completed')) {
           onRefreshActiveJobRef.current?.();
           if (projectNameRef.current) {
             fetchCompletedClipsRef.current(projectNameRef.current);
@@ -1730,11 +1743,44 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                 <div className="bg-zinc-950/80 p-4 rounded-xl border border-zinc-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="inline-block px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-[10px] font-mono text-red-300 uppercase">
-                        Isolated Output Preview
-                      </span>
-                      <h4 className="text-sm font-semibold text-zinc-100 truncate mt-1">{selectedClip.name}</h4>
-                      <p className="text-[11px] font-mono text-zinc-500">{formatBytes(selectedClip.size)}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-block px-2 py-0.5 rounded bg-red-950/80 border border-red-800 text-[10px] font-mono text-red-300 uppercase">
+                          Isolated Output Preview
+                        </span>
+                        {selectedClip.folder_type === 'burned_sub' ? (
+                          <span className="inline-block px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800 text-[10px] font-mono text-emerald-300 uppercase">
+                            Burned Subtitles (Ready to Post)
+                          </span>
+                        ) : selectedClip.folder_type === 'final' ? (
+                          <span className="inline-block px-2 py-0.5 rounded bg-amber-950/80 border border-amber-800 text-[10px] font-mono text-amber-300 uppercase">
+                            Clean 9:16 (No Subtitles)
+                          </span>
+                        ) : null}
+                        {selectedClip.score !== undefined && selectedClip.score !== null && (
+                          <span
+                            data-testid="selected-clip-score"
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                              selectedClip.score >= 80
+                                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80'
+                                : 'bg-amber-950/90 text-amber-300 border-amber-700/80'
+                            }`}
+                          >
+                            Score: {selectedClip.score}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-sm font-semibold text-zinc-100 truncate mt-1">
+                        {selectedClip.hook_title || selectedClip.name}
+                      </h4>
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-zinc-500">
+                        {selectedClip.hook_title && selectedClip.hook_title !== selectedClip.name && (
+                          <span className="truncate max-w-[200px]">{selectedClip.name}</span>
+                        )}
+                        <span>{formatBytes(selectedClip.size)}</span>
+                        {selectedClip.duration !== undefined && selectedClip.duration !== null && (
+                          <span>{selectedClip.duration}s</span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1797,17 +1843,36 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                       key={clip.path}
                       type="button"
                       onClick={() => setSelectedClip(clip)}
-                      className={`p-2.5 rounded-lg border text-left transition-colors truncate flex flex-col justify-between ${
+                      className={`p-2.5 rounded-lg border text-left transition-colors truncate flex flex-col justify-between gap-1.5 ${
                         selectedClip?.path === clip.path
                           ? 'bg-red-950/40 border-red-600 text-zinc-100'
                           : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
                       }`}
                     >
-                      <div className="flex items-center space-x-1.5 overflow-hidden w-full">
-                        <Video className="h-3 w-3 shrink-0 text-red-400" />
-                        <p className="text-xs font-medium truncate">{clip.name}</p>
+                      <div className="flex items-center justify-between w-full gap-1">
+                        <div className="flex items-center space-x-1.5 overflow-hidden">
+                          <Video className="h-3 w-3 shrink-0 text-red-400" />
+                          <p className="text-xs font-medium truncate">{clip.hook_title || clip.name}</p>
+                        </div>
+                        {clip.score !== undefined && clip.score !== null && (
+                          <span
+                            data-testid="clip-score-badge"
+                            className={`shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                              clip.score >= 80
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-700/60'
+                                : 'bg-amber-950 text-amber-300 border-amber-700/60'
+                            }`}
+                          >
+                            Score: {clip.score}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-[10px] font-mono text-zinc-500 pl-4.5">{formatBytes(clip.size)}</p>
+                      <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 w-full pl-4.5">
+                        <span>{formatBytes(clip.size)}</span>
+                        {clip.duration !== undefined && clip.duration !== null && (
+                          <span>{clip.duration}s</span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
