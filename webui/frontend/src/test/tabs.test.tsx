@@ -186,6 +186,44 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('renders whisper tuning inputs and includes batch and chunk size in run request', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_whisper',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      const batchInput = container.querySelector('#whisper-batch-size-input') as HTMLInputElement;
+      const chunkInput = container.querySelector('#whisper-chunk-size-input') as HTMLInputElement;
+      expect(batchInput).toBeTruthy();
+      expect(chunkInput).toBeTruthy();
+      expect(batchInput.value).toBe('8');
+      expect(chunkInput.value).toBe('10');
+
+      act(() => {
+        setNativeValue(batchInput, '16');
+        setNativeValue(chunkInput, '20');
+      });
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          whisper_batch_size: 16,
+          whisper_chunk_size: 20,
+        })
+      );
+
+      unmount();
+    });
+
     it('handles AI backend configuration and includes fields in run request', async () => {
       const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
         job_id: 'job_gen_custom_ai',

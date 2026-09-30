@@ -85,6 +85,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [workflow, setWorkflow] = useState<'1' | '2' | '3'>('1');
   const [language, setLanguage] = useState<string>('auto');
 
+  // Whisper Performance Tuning (Persisted)
+  const [whisperBatchSize, setWhisperBatchSize] = usePersistedState<number>('whisper_batch_size', 8);
+  const [whisperChunkSize, setWhisperChunkSize] = usePersistedState<number>('whisper_chunk_size', 10);
+
   // Segmentation & Duration Parity Parameters (Persisted)
   const [segments, setSegments] = usePersistedState<number>('segments', 3);
   const [viral, setViral] = usePersistedState<boolean>('viral', true);
@@ -515,6 +519,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       model,
       language,
       whisper_preset: preset === 'fast' ? 'fast' : preset === 'accurate' ? 'accurate' : 'balanced',
+      whisper_batch_size: whisperBatchSize,
+      whisper_chunk_size: whisperChunkSize,
 
       // Segmentation & Duration
       segments,
@@ -771,6 +777,39 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <option value="de">German (de)</option>
                   <option value="ja">Japanese (ja)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Whisper Performance Tuning */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label htmlFor="whisper-batch-size-input" className="block text-xs font-medium text-zinc-300">
+                  Whisper Batch Size
+                </label>
+                <input
+                  id="whisper-batch-size-input"
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={whisperBatchSize}
+                  onChange={(e) => setWhisperBatchSize(Math.max(1, Math.min(64, parseInt(e.target.value) || 1)))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="whisper-chunk-size-input" className="block text-xs font-medium text-zinc-300">
+                  Whisper Chunk Size (s)
+                </label>
+                <input
+                  id="whisper-chunk-size-input"
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={whisperChunkSize}
+                  onChange={(e) => setWhisperChunkSize(Math.max(5, Math.min(60, parseInt(e.target.value) || 5)))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
+                />
               </div>
             </div>
 
