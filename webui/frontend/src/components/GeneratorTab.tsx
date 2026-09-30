@@ -34,6 +34,13 @@ export type GeneratorPreset = 'viral_shorts' | 'fast' | 'balanced' | 'accurate' 
 export type VideoOrientation = '9:16' | '16:9' | '1:1';
 export type InputMode = 'upload' | 'youtube' | 'path';
 
+export const AI_BACKEND_DEFAULT_CHUNKS: Record<string, number> = {
+  custom: 40000,
+  gemini: 70000,
+  g4f: 70000,
+  local: 30000,
+};
+
 function usePersistedState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(() => {
     try {
@@ -111,6 +118,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [aiBackend, setAiBackend] = usePersistedState<'gemini' | 'g4f' | 'local' | 'custom' | 'manual'>(
     'ai_backend',
     'gemini'
+  );
+  const [chunkSize, setChunkSize] = usePersistedState<number>(
+    'chunk_size',
+    AI_BACKEND_DEFAULT_CHUNKS['gemini'] ?? 70000
   );
   const [apiKey, setApiKey] = usePersistedState<string>('api_key', '');
   const [aiBaseUrl, setAiBaseUrl] = usePersistedState<string>('ai_base_url', '');
@@ -533,6 +544,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
       // AI Backend
       ai_backend: aiBackend,
+      chunk_size: chunkSize,
       api_key: apiKey.trim() || undefined,
       ai_base_url: aiBaseUrl.trim() || undefined,
       ai_model_name: aiModelName.trim() || undefined,
@@ -984,8 +996,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                 aria-label="AI Backend"
                 value={aiBackend}
                 onChange={(e) => {
-                  setAiBackend(e.target.value as any);
+                  const newBackend = e.target.value as any;
+                  setAiBackend(newBackend);
                   setAiTestResult(null);
+                  if (AI_BACKEND_DEFAULT_CHUNKS[newBackend]) {
+                    setChunkSize(AI_BACKEND_DEFAULT_CHUNKS[newBackend]);
+                  }
                 }}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
               >
@@ -995,6 +1011,27 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                 <option value="custom">Custom (OpenAI API)</option>
                 <option value="manual">Manual</option>
               </select>
+
+              {/* AI Chunk Size Control */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="ai-chunk-size-input" className="block text-xs font-medium text-zinc-300">
+                    AI Chunk Size (characters)
+                  </label>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    Suggested: {AI_BACKEND_DEFAULT_CHUNKS[aiBackend] ?? 15000}
+                  </span>
+                </div>
+                <input
+                  id="ai-chunk-size-input"
+                  type="number"
+                  min={1000}
+                  max={150000}
+                  value={chunkSize}
+                  onChange={(e) => setChunkSize(parseInt(e.target.value) || 1000)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
+                />
+              </div>
 
               {/* AI Test Result Alert */}
               {aiTestResult && (

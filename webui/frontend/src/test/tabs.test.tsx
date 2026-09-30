@@ -275,6 +275,56 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('auto-suggests chunk size based on AI backend and allows manual edit', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_chunk_test',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      const aiBackendSelect = container.querySelector('#ai-backend-select') as HTMLSelectElement;
+      const chunkSizeInput = container.querySelector('#ai-chunk-size-input') as HTMLInputElement;
+
+      // Default backend is gemini -> 70000
+      expect(chunkSizeInput.value).toBe('70000');
+
+      // Change to custom -> auto-suggests 40000
+      act(() => {
+        setNativeValue(aiBackendSelect, 'custom');
+      });
+      expect(chunkSizeInput.value).toBe('40000');
+
+      // Change to local -> auto-suggests 30000
+      act(() => {
+        setNativeValue(aiBackendSelect, 'local');
+      });
+      expect(chunkSizeInput.value).toBe('30000');
+
+      // Manual edit to 50000
+      act(() => {
+        setNativeValue(chunkSizeInput, '50000');
+      });
+      expect(chunkSizeInput.value).toBe('50000');
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai_backend: 'local',
+          chunk_size: 50000,
+        })
+      );
+
+      unmount();
+    });
+
     it('displays active job status banner and supports cancellation', async () => {
       const cancelMock = vi.spyOn(jobsApi, 'cancel').mockResolvedValue({
         status: 'cancelled',
