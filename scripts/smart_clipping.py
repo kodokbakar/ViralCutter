@@ -444,7 +444,9 @@ def run_smart_clipping_pipeline(
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
     base_url: Optional[str] = None,
-    num_segments: int = 3
+    num_segments: int = 3,
+    chunk_size_arg: Optional[Any] = None,
+    prompt_file_arg: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     End-to-end automated smart clipping pipeline:
@@ -514,8 +516,10 @@ def run_smart_clipping_pipeline(
             ai_mode=ai_backend,
             api_key=api_key,
             project_folder=project_folder,
+            chunk_size_arg=chunk_size_arg,
             model_name_arg=ai_model_name,
-            base_url_arg=base_url
+            prompt_file_arg=prompt_file_arg,
+            base_url_arg=base_url,
         )
 
     clips_folder = os.path.join(project_folder, "smart_clips")

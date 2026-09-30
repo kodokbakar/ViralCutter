@@ -510,7 +510,7 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
-def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360):
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=4096):
     """
     Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
     """
@@ -535,7 +535,8 @@ def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", time
         "messages": [
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.5
+        "temperature": 0.5,
+        "max_tokens": max_tokens or 4096,
     }
 
     response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
@@ -545,8 +546,12 @@ def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", time
     data = response.json()
     choices = data.get("choices", [])
     if choices and isinstance(choices, list):
-        msg = choices[0].get("message", {})
-        content = msg.get("content", "")
+        choice = choices[0]
+        finish_reason = choice.get("finish_reason")
+        msg = choice.get("message", {})
+        content = msg.get("content") or ""
+        if finish_reason == "length" and not str(content).strip():
+            print("[WARN] Custom API response was truncated due to token limit (finish_reason=length). Consider using a direct instruct model or increasing token limit.")
         if content:
             return content
 
