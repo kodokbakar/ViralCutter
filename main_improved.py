@@ -705,6 +705,7 @@ def main():
                             remove_dead_air=args.smart_remove_dead_air,
                             silence_threshold=args.smart_silence_threshold,
                             num_segments=num_segments,
+                            chunk_size=int(args.chunk_size) if args.chunk_size else 20000,
                         )
                     else:
                         print(i18n("Creating viral segments using {}...").format(ai_backend.upper()))
