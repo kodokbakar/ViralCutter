@@ -1,8 +1,8 @@
 import os
 import json
+import math
 import subprocess
 from typing import List, Dict, Tuple, Optional, Any
-
 def extract_words_from_transcript(transcript_data: Any) -> List[Dict[str, Any]]:
     """
     Extracts flat word list with start, end, word from transcript data dict or list.
@@ -193,6 +193,85 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
   ]
 }}
 """
+
+def chunk_transcript_text(
+    transcript_text: str,
+    chunk_size: int = 20000,
+    overlap_size: int = 2000
+) -> List[str]:
+    """
+    Splits long transcript text into overlapping chunks respecting word boundaries.
+    """
+    if not transcript_text:
+        return []
+    if len(transcript_text) <= chunk_size:
+        return [transcript_text]
+
+    chunks = []
+    start = 0
+    content_len = len(transcript_text)
+    overlap = max(500, min(overlap_size, int(chunk_size * 0.1)))
+
+    while start < content_len:
+        end = min(start + chunk_size, content_len)
+        if end < content_len:
+            last_space = transcript_text.rfind(' ', start, end)
+            if last_space != -1 and last_space > start:
+                end = last_space
+        chunk = transcript_text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= content_len:
+            break
+        next_start = max(start + 1, end - overlap)
+        safe_space = transcript_text.rfind(' ', start, next_start)
+        if safe_space != -1:
+            start = safe_space + 1
+        else:
+            start = next_start
+    return chunks
+
+def query_ai_backend(
+    prompt: str,
+    ai_backend: str,
+    api_key: Optional[str] = None,
+    ai_model_name: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> str:
+    """
+    Safely queries chosen AI backend with exception handling.
+    """
+    from scripts import create_viral_segments
+    try:
+        if ai_backend == "gemini":
+            return create_viral_segments.call_gemini(
+                prompt,
+                api_key=api_key,
+                model_name=ai_model_name or "gemini-2.5-flash-lite-preview-09-2025"
+            )
+        elif ai_backend == "g4f":
+            return create_viral_segments.call_g4f(
+                prompt,
+                model_name=ai_model_name or "gpt-4o-mini"
+            )
+        elif ai_backend == "local":
+            return create_viral_segments.call_local_llm(
+                prompt,
+                model_name=ai_model_name
+            )
+        elif ai_backend == "custom":
+            return create_viral_segments.call_custom_api(
+                prompt,
+                base_url=base_url or "http://localhost:11434/v1",
+                api_key=api_key or "",
+                model_name=ai_model_name or "gpt-4o-mini"
+            )
+        else:
+            print(f"[SMART-CLIPPING] Unrecognized AI backend: {ai_backend}")
+            return ""
+    except Exception as e:
+        print(f"[SMART-CLIPPING] Error querying {ai_backend.upper()}: {e}")
+        return ""
 
 def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
     """
@@ -444,7 +523,8 @@ def run_smart_clipping_pipeline(
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
     base_url: Optional[str] = None,
-    num_segments: int = 3
+    num_segments: int = 3,
+    chunk_size: Optional[int] = 20000
 ) -> Dict[str, Any]:
     """
     End-to-end automated smart clipping pipeline:
@@ -475,33 +555,53 @@ def run_smart_clipping_pipeline(
     transcript_segments = create_viral_segments.load_transcript(project_folder)
     transcript_text = create_viral_segments.preprocess_transcript_for_ai(transcript_segments)
 
-    prompt = build_narrative_prompt(
-        transcript_text=transcript_text,
-        target_min=min_duration,
-        target_max=max_duration,
-        num_topics=num_segments
-    )
+    effective_chunk_size = int(chunk_size) if chunk_size and int(chunk_size) > 0 else 20000
+    chunks = chunk_transcript_text(transcript_text, chunk_size=effective_chunk_size)
+    if not chunks:
+        chunks = [transcript_text]
 
-    # Query LLM backend
-    print(f"[SMART-CLIPPING] Analyzing narrative context using {ai_backend.upper()}...")
-    llm_response = ""
-    if ai_backend == "gemini":
-        llm_response = create_viral_segments.call_gemini(prompt, api_key=api_key, model_name=ai_model_name or "gemini-2.5-flash-lite-preview-09-2025")
-    elif ai_backend == "g4f":
-        llm_response = create_viral_segments.call_g4f(prompt, model_name=ai_model_name or "gpt-4o-mini")
-    elif ai_backend == "local":
-        llm_response = create_viral_segments.call_local_llm(prompt, model_name=ai_model_name)
-    elif ai_backend == "custom":
-        llm_response = create_viral_segments.call_custom_api(
-            prompt,
-            base_url=base_url or "http://localhost:11434/v1",
-            api_key=api_key or "",
-            model_name=ai_model_name or "gpt-4o-mini"
+    print(f"[SMART-CLIPPING] Analyzing narrative context using {ai_backend.upper()} ({len(chunks)} chunk(s), chunk_size: {effective_chunk_size})...")
+
+    topics_per_chunk = max(1, int(math.ceil(num_segments / len(chunks)))) if len(chunks) > 1 else num_segments
+    all_extracted_topics = []
+
+    for chunk_idx, chunk in enumerate(chunks):
+        if len(chunks) > 1:
+            print(f"[SMART-CLIPPING] Processing chunk {chunk_idx + 1}/{len(chunks)}...")
+
+        prompt = build_narrative_prompt(
+            transcript_text=chunk,
+            target_min=min_duration,
+            target_max=max_duration,
+            num_topics=topics_per_chunk
         )
-    else:
-        print("[SMART-CLIPPING] Manual AI backend selected or unrecognized; relying on fallback.")
+        llm_response = query_ai_backend(
+            prompt=prompt,
+            ai_backend=ai_backend,
+            api_key=api_key,
+            ai_model_name=ai_model_name,
+            base_url=base_url
+        )
+        chunk_topics = parse_narrative_topics(llm_response)
+        if chunk_topics:
+            all_extracted_topics.extend(chunk_topics)
 
-    topics = parse_narrative_topics(llm_response)
+    all_extracted_topics.sort(key=lambda t: float(t.get("score", 0) or 0), reverse=True)
+    topics = []
+    for t in all_extracted_topics:
+        h_start = float(t.get("segments", {}).get("hook", {}).get("start_time", 0.0) or 0.0)
+        if not any(abs(h_start - float(u.get("segments", {}).get("hook", {}).get("start_time", 0.0) or 0.0)) < 10.0 for u in topics):
+            topics.append(t)
+        if len(topics) >= num_segments:
+            break
+
+    if len(topics) < num_segments and len(all_extracted_topics) > len(topics):
+        for t in all_extracted_topics:
+            if t not in topics:
+                topics.append(t)
+            if len(topics) >= num_segments:
+                break
+
     if not topics:
         print("[SMART-CLIPPING] Warning: No narrative topics parsed from LLM response. Using segment fallbacks.")
         # Fallback to standard viral segments if parsing fails
@@ -514,6 +614,7 @@ def run_smart_clipping_pipeline(
             ai_mode=ai_backend,
             api_key=api_key,
             project_folder=project_folder,
+            chunk_size_arg=effective_chunk_size,
             model_name_arg=ai_model_name,
             base_url_arg=base_url
         )

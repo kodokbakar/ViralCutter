@@ -3,6 +3,8 @@ from scripts.smart_clipping import (
     build_narrative_prompt,
     parse_narrative_topics,
     snap_narrative_topic_segments,
+    chunk_transcript_text,
+    query_ai_backend,
 )
 
 SAMPLE_LLM_RESPONSE = """
@@ -81,3 +83,24 @@ def test_snap_narrative_topic_segments():
     # Payoff: start near 49.90 -> snapped 49.85; end near 60.25 -> snapped 60.30
     assert payoff["snapped_start"] == pytest.approx(49.85, abs=0.02)
     assert payoff["snapped_end"] == pytest.approx(60.30, abs=0.02)
+
+def test_chunk_transcript_text_short():
+    text = "Short transcript under limit."
+    chunks = chunk_transcript_text(text, chunk_size=100)
+    assert len(chunks) == 1
+    assert chunks[0] == text
+
+def test_chunk_transcript_text_long():
+    words = ["word" + str(i) for i in range(200)]
+    text = " ".join(words)
+    chunks = chunk_transcript_text(text, chunk_size=200, overlap_size=40)
+    assert len(chunks) > 1
+    # All words must be represented across chunks
+    assert "word0" in chunks[0]
+    assert "word199" in chunks[-1]
+
+def test_query_ai_backend_safe_on_error():
+    from unittest.mock import patch
+    with patch("scripts.create_viral_segments.call_custom_api", side_effect=Exception("Read timed out")):
+        resp = query_ai_backend("prompt", ai_backend="custom", base_url="http://fake:1234/v1")
+        assert resp == ""
