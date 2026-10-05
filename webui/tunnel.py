@@ -17,7 +17,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 CLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
 WORKING_DIR = Path(__file__).resolve().parent.parent
@@ -270,3 +270,82 @@ def stop_cloudflare_tunnel():
 # Alias for naming consistency
 CloudflareTunnel = CloudflaredTunnel
 
+
+
+class NgrokTunnel:
+    """Manages the lifecycle of an ngrok tunnel safely."""
+
+    def __init__(
+        self,
+        port: int = 7860,
+        token: Optional[str] = None,
+        region: str = "ap",
+    ):
+        if not (1 <= int(port) <= 65535):
+            raise ValueError(f"Invalid port: {port}")
+        self.port = int(port)
+        self.token = token or os.environ.get("NGROK_AUTHTOKEN") or os.environ.get("NGROK_TOKEN")
+        self.region = region
+        self.tunnel = None
+        self.url: Optional[str] = None
+
+    def start(self) -> Optional[str]:
+        if not self.token or not str(self.token).strip():
+            print("[WARN] Ngrok authtoken not provided. Provide --ngrok-token or set NGROK_AUTHTOKEN.")
+            return None
+        try:
+            try:
+                from pyngrok import ngrok, conf
+            except ImportError:
+                print("[INFO] Installing pyngrok package...")
+                uv_bin = shutil.which("uv")
+                if uv_bin:
+                    subprocess.run([uv_bin, "pip", "install", "--python", sys.executable, "pyngrok"], check=False)
+                else:
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pyngrok"], check=False)
+                from pyngrok import ngrok, conf
+
+            conf.get_default().region = self.region
+            ngrok.set_auth_token(str(self.token).strip())
+            self.tunnel = ngrok.connect(self.port)
+            self.url = self.tunnel.public_url
+            return self.url
+        except Exception as e:
+            print(f"[WARN] Error launching ngrok tunnel: {e}")
+            return None
+
+    def stop(self):
+        if self.tunnel:
+            try:
+                from pyngrok import ngrok
+                ngrok.disconnect(self.tunnel.public_url)
+            except Exception:
+                pass
+            self.tunnel = None
+            self.url = None
+
+
+_active_ngrok_tunnel: Optional[NgrokTunnel] = None
+
+
+def start_ngrok_tunnel(
+    port: int = 7860,
+    token: Optional[str] = None,
+    region: str = "ap",
+) -> Tuple[Optional[Any], Optional[str]]:
+    """Convenience helper for ngrok tunnel: returns (tunnel_obj, url)."""
+    global _active_ngrok_tunnel
+    if _active_ngrok_tunnel is not None:
+        _active_ngrok_tunnel.stop()
+
+    _active_ngrok_tunnel = NgrokTunnel(port=port, token=token, region=region)
+    url = _active_ngrok_tunnel.start()
+    return _active_ngrok_tunnel.tunnel, url
+
+
+def stop_ngrok_tunnel():
+    """Stop any currently active ngrok tunnel."""
+    global _active_ngrok_tunnel
+    if _active_ngrok_tunnel is not None:
+        _active_ngrok_tunnel.stop()
+        _active_ngrok_tunnel = None

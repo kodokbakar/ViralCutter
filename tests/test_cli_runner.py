@@ -27,6 +27,10 @@ def test_cli_parser_tunnel_options():
     args_none = parser.parse_args(["--tunnel", "none"])
     assert args_none.tunnel == "none"
 
+    args_ngrok = parser.parse_args(["--tunnel", "ngrok", "--ngrok-token", "tok123"])
+    assert args_ngrok.tunnel == "ngrok"
+    assert args_ngrok.ngrok_token == "tok123"
+
     args_gradio = parser.parse_args(["--tunnel", "gradio"])
     assert args_gradio.tunnel == "gradio"
 

@@ -143,3 +143,40 @@ def test_start_and_stop_cloudflare_tunnel_helper():
 
         stop_cloudflare_tunnel()
         mock_stop.assert_called()
+
+
+def test_ngrok_tunnel_port_validation():
+    from webui.tunnel import NgrokTunnel
+    with pytest.raises(ValueError):
+        NgrokTunnel(port=0)
+    with pytest.raises(ValueError):
+        NgrokTunnel(port=70000)
+
+
+def test_start_ngrok_tunnel_no_token():
+    from webui.tunnel import start_ngrok_tunnel
+    with patch.dict("os.environ", {}, clear=True):
+        tunnel, url = start_ngrok_tunnel(port=7860, token=None)
+        assert tunnel is None
+        assert url is None
+
+
+def test_start_ngrok_tunnel_success():
+    from webui.tunnel import start_ngrok_tunnel, stop_ngrok_tunnel
+    mock_tunnel = MagicMock()
+    mock_tunnel.public_url = "https://test.ngrok-free.app"
+    mock_ngrok = MagicMock()
+    mock_ngrok.connect.return_value = mock_tunnel
+    mock_conf = MagicMock()
+    mock_pyngrok = MagicMock()
+    mock_pyngrok.ngrok = mock_ngrok
+    mock_pyngrok.conf = mock_conf
+
+    with patch.dict("sys.modules", {"pyngrok": mock_pyngrok, "pyngrok.ngrok": mock_ngrok, "pyngrok.conf": mock_conf}):
+        tunnel, url = start_ngrok_tunnel(port=7860, token="test-token-123", region="ap")
+        assert url == "https://test.ngrok-free.app"
+        mock_ngrok.set_auth_token.assert_called_with("test-token-123")
+        mock_ngrok.connect.assert_called_with(7860)
+
+        stop_ngrok_tunnel()
+        mock_ngrok.disconnect.assert_called_with("https://test.ngrok-free.app")

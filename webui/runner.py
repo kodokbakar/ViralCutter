@@ -33,7 +33,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tunnel",
-        choices=["cloudflare", "gradio", "both", "none"],
+        choices=["cloudflare", "gradio", "ngrok", "both", "none"],
         default=None,
         help="Tunnel type for Colab/remote access (default: cloudflare in colab, none otherwise)",
     )
@@ -41,6 +41,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--legacy-gradio",
         action="store_true",
         help="Launch legacy Gradio interface as fallback if specified",
+    )
+    parser.add_argument(
+        "--ngrok-token",
+        type=str,
+        default=None,
+        help="Ngrok authtoken for tunnel access",
     )
     parser.add_argument(
         "--host",

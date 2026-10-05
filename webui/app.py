@@ -2328,22 +2328,34 @@ def launch_legacy_gradio(args, host: str = "0.0.0.0", port: int = 7860, tunnel_t
         pass
 
     use_cloudflare = tunnel_type in ["cloudflare", "both"]
+    use_ngrok = tunnel_type == "ngrok"
     cf_proc = None
     cf_url = None
+    ngrok_proc = None
+    ngrok_url = None
+
     if use_cloudflare:
         print("Starting high-speed Cloudflare Tunnel (low latency)...")
         cf_proc, cf_url = start_cloudflare_tunnel(port=port, host="127.0.0.1")
+
+    if use_ngrok:
+        print("Starting low-latency Ngrok Tunnel (Region AP)...")
+        from webui.tunnel import start_ngrok_tunnel
+        ngrok_proc, ngrok_url = start_ngrok_tunnel(port=port, token=getattr(args, "ngrok_token", None))
 
     if cf_url:
         print("\n" + "=" * 76)
         print("🚀 HIGH-SPEED CLOUDFLARE TUNNEL ACTIVE (Legacy Gradio):")
         print(f"🔗 Public URL: {cf_url}")
         print("=" * 76 + "\n")
-    elif use_cloudflare:
-        print("[WARN] Cloudflare tunnel unavailable; continuing with direct server launch...")
-
-    enable_share = (tunnel_type == "both") or (tunnel_type == "gradio") or (use_cloudflare and not cf_url and getattr(args, "colab", False))
-
+    elif ngrok_url:
+        print("\n" + "=" * 76)
+        print("🚀 HIGH-SPEED NGROK TUNNEL ACTIVE (Legacy Gradio - Real-time SSE):")
+        print(f"🔗 Public URL: {ngrok_url}")
+        print("=" * 76 + "\n")
+    elif use_cloudflare or use_ngrok:
+        print("[WARN] Tunnel unavailable; continuing with direct server launch...")
+    enable_share = (tunnel_type == "both") or (tunnel_type == "gradio") or (use_cloudflare and not cf_url and getattr(args, "colab", False)) or (use_ngrok and not ngrok_url and getattr(args, "colab", False))
     if getattr(args, "colab", False):
         app, local_url, share_url = demo.queue().launch(
             share=enable_share,
