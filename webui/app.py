@@ -2355,9 +2355,13 @@ def start_ngrok_tunnel(port=7860, token=None, region="ap"):
             from pyngrok import ngrok, conf
         except ImportError:
             print("[INFO] Installing pyngrok package...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pyngrok"], check=False)
+            import shutil
+            uv_bin = shutil.which("uv")
+            if uv_bin:
+                subprocess.run([uv_bin, "pip", "install", "--python", sys.executable, "pyngrok"], check=False)
+            else:
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pyngrok"], check=False)
             from pyngrok import ngrok, conf
-
         conf.get_default().region = region
         ngrok.set_auth_token(str(token).strip())
         tunnel = ngrok.connect(port)
