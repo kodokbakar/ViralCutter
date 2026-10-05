@@ -2344,6 +2344,27 @@ def start_cloudflare_tunnel(port=7860, timeout=25):
     except Exception as e:
         print(f"[WARN] Error launching cloudflared process: {e}")
         return None, None
+
+def start_ngrok_tunnel(port=7860, token=None, region="ap"):
+    token = token or os.environ.get("NGROK_AUTHTOKEN") or os.environ.get("NGROK_TOKEN")
+    if not token or not str(token).strip():
+        print("[WARN] Ngrok authtoken not provided. Provide --ngrok-token or set NGROK_AUTHTOKEN.")
+        return None, None
+    try:
+        try:
+            from pyngrok import ngrok, conf
+        except ImportError:
+            print("[INFO] Installing pyngrok package...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pyngrok"], check=False)
+            from pyngrok import ngrok, conf
+
+        conf.get_default().region = region
+        ngrok.set_auth_token(str(token).strip())
+        tunnel = ngrok.connect(port)
+        return tunnel, tunnel.public_url
+    except Exception as e:
+        print(f"[WARN] Error launching ngrok tunnel: {e}")
+        return None, None
 if __name__ == "__main__":
     import webbrowser
     import threading
@@ -2352,7 +2373,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--colab", action="store_true", help="Run in Google Colab mode")
-    parser.add_argument("--tunnel", choices=["cloudflare", "gradio", "both", "none"], default="cloudflare", help="Tunnel type for Colab/remote access (default: cloudflare)")
+    parser.add_argument("--tunnel", choices=["cloudflare", "gradio", "ngrok", "both", "none"], default="cloudflare", help="Tunnel type for Colab/remote access (default: cloudflare)")
+    parser.add_argument("--ngrok-token", default=None, help="Ngrok authtoken for tunnel access")
     args = parser.parse_args()
 
     if args.colab:
@@ -2365,22 +2387,34 @@ if __name__ == "__main__":
             pass
 
         use_cloudflare = args.tunnel in ["cloudflare", "both"]
+        use_ngrok = (args.tunnel == "ngrok")
         cf_proc = None
         cf_url = None
+        ngrok_proc = None
+        ngrok_url = None
+
         if use_cloudflare:
             print("Starting high-speed Cloudflare Tunnel (low latency)...")
             cf_proc, cf_url = start_cloudflare_tunnel(port=7860)
 
-        enable_share = (args.tunnel == "both") or (args.tunnel == "gradio") or (use_cloudflare and not cf_url)
+        if use_ngrok:
+            print("Starting low-latency Ngrok Tunnel (Region AP)...")
+            ngrok_proc, ngrok_url = start_ngrok_tunnel(port=7860, token=args.ngrok_token)
+
+        enable_share = (args.tunnel == "both") or (args.tunnel == "gradio") or (use_cloudflare and not cf_url) or (use_ngrok and not ngrok_url)
 
         if cf_url:
             print("\n" + "=" * 76)
             print("🚀 HIGH-SPEED CLOUDFLARE TUNNEL ACTIVE (Jakarta/Singapore Edge Routing):")
             print(f"🔗 Public URL: {cf_url}")
             print("=" * 76 + "\n")
-        elif use_cloudflare:
-            print("[WARN] Cloudflare tunnel unavailable; falling back to Gradio share=True...")
-
+        elif ngrok_url:
+            print("\n" + "=" * 76)
+            print("🚀 HIGH-SPEED NGROK TUNNEL ACTIVE (Singapore AP Region - Real-time SSE):")
+            print(f"🔗 Public URL: {ngrok_url}")
+            print("=" * 76 + "\n")
+        elif use_cloudflare or use_ngrok:
+            print("[WARN] Tunnel unavailable; falling back to Gradio share=True...")
         app, local_url, share_url = demo.queue().launch(
             share=enable_share,
             allowed_paths=allowed_dirs,
