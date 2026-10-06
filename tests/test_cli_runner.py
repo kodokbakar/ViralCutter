@@ -169,3 +169,14 @@ def test_clean_subprocess_direct_webui_app_import():
     assert res.returncode == 0, f"Subprocess failed with stderr: {res.stderr}"
 
 
+def test_launch_modern_webui_starts_ngrok_tunnel():
+    parser = build_cli_parser()
+    args = parser.parse_args(["--tunnel", "ngrok", "--ngrok-token", "dummy-tok"])
+
+    with patch("webui.backend.config.ensure_directories"), \
+         patch("webui.runner.ensure_frontend_built"), \
+         patch("uvicorn.run"), \
+         patch("webui.tunnel.start_ngrok_tunnel", return_value=(MagicMock(), "https://dummy.ngrok-free.app")) as mock_ngrok:
+        launch_modern_webui(args, host="0.0.0.0", port=7860, tunnel_type="ngrok")
+        mock_ngrok.assert_called_once_with(port=7860, token="dummy-tok")
+

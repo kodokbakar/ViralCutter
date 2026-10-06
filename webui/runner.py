@@ -110,6 +110,9 @@ def launch_modern_webui(args, host: str = "0.0.0.0", port: int = 7860, tunnel_ty
 
     tunnel: Optional[CloudflaredTunnel] = None
     use_cloudflare = tunnel_type in ["cloudflare", "both"]
+    use_ngrok = tunnel_type == "ngrok"
+    ngrok_tunnel = None
+
     if use_cloudflare:
         print("Starting high-speed Cloudflare Tunnel for FastAPI + React SPA...")
         tunnel = CloudflaredTunnel(port=port, host="127.0.0.1")
@@ -122,12 +125,28 @@ def launch_modern_webui(args, host: str = "0.0.0.0", port: int = 7860, tunnel_ty
         else:
             print("[WARN] Cloudflare tunnel could not be established; accessing locally/on network.")
 
+    elif use_ngrok:
+        print("Starting low-latency Ngrok Tunnel (Region AP)...")
+        from webui.tunnel import start_ngrok_tunnel
+        token = getattr(args, "ngrok_token", None) or os.environ.get("NGROK_AUTHTOKEN")
+        ngrok_tunnel, ngrok_url = start_ngrok_tunnel(port=port, token=token)
+        if ngrok_url:
+            print("\n" + "=" * 76)
+            print("🚀 HIGH-SPEED NGROK TUNNEL ACTIVE (FastAPI + React SPA):")
+            print(f"🔗 Public URL: {ngrok_url}")
+            print("=" * 76 + "\n")
+        else:
+            print("[WARN] Ngrok tunnel could not be established; accessing locally/on network.")
+
     def cleanup():
-        nonlocal tunnel
+        nonlocal tunnel, ngrok_tunnel
         if tunnel:
             tunnel.stop()
             tunnel = None
-
+        if ngrok_tunnel:
+            from webui.tunnel import stop_ngrok_tunnel
+            stop_ngrok_tunnel()
+            ngrok_tunnel = None
     atexit.register(cleanup)
 
     def _sig_handler(signum, frame):
