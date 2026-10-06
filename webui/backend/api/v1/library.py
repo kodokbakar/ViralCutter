@@ -191,26 +191,29 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
 
     # 2. Read viral segments metadata
     segments_list = []
-    for seg_candidate in ["viral_segments.json", "viral_segments.txt"]:
-        seg_file = proj_dir / seg_candidate
-        if seg_file.is_file():
-            try:
-                with open(seg_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and isinstance(data.get("segments"), list):
-                    segments_list = data["segments"]
-                    break
-                elif isinstance(data, list):
-                    segments_list = data
-                    break
-            except Exception:
-                pass
+    for s_dir in [proj_dir, proj_dir / "smart_clips", proj_dir / "cuts", proj_dir / "final"]:
+        for seg_candidate in ["viral_segments.json", "viral_segments.txt"]:
+            seg_file = s_dir / seg_candidate
+            if seg_file.is_file():
+                try:
+                    with open(seg_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict) and isinstance(data.get("segments"), list):
+                        segments_list = data["segments"]
+                        break
+                    elif isinstance(data, list):
+                        segments_list = data
+                        break
+                except Exception:
+                    pass
+        if segments_list:
+            break
 
     clips: List[GeneratedClipItem] = []
     for i, clip_file in enumerate(selected_files):
         fname = clip_file.name
         stem = clip_file.stem
-        clean_stem = re.sub(r'(_subtitled|_processed)$', '', stem, flags=re.IGNORECASE)
+        clean_stem = re.sub(r'(_subtitled|_processed|_original_scale)+$', '', stem, flags=re.IGNORECASE)
 
         # Timeline lookup
         hook_from_timeline = None
@@ -239,10 +242,20 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
         matched_seg = None
         for seg in segments_list:
             if isinstance(seg, dict):
-                sf = seg.get("filename") or seg.get("filepath")
-                if sf and (sf == fname or Path(sf).name == fname or Path(sf).stem == clean_stem):
+                sf = seg.get("filename") or seg.get("filepath") or seg.get("smart_clip_path")
+                if sf and (sf == fname or Path(sf).name == fname or Path(sf).stem == clean_stem or Path(sf).stem == stem):
                     matched_seg = seg
                     break
+
+        if not matched_seg:
+            for seg in segments_list:
+                if isinstance(seg, dict):
+                    t = str(seg.get("title") or seg.get("hook_title") or "").strip()
+                    if t:
+                        safe_t = re.sub(r'[^\w\s]', '', t).replace(' ', '_').lower()
+                        if safe_t and (safe_t in stem.lower() or stem.lower() in safe_t):
+                            matched_seg = seg
+                            break
 
         if not matched_seg:
             idx_match = re.search(r'(?:output|segment|clip|_|^)(\d+)', stem, re.IGNORECASE)
@@ -263,15 +276,21 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
         duration = None
 
         if matched_seg:
-            raw_score = matched_seg.get("score")
-            if raw_score is None:
-                raw_score = matched_seg.get("virality_score")
+            raw_score = (
+                matched_seg.get("score")
+                or matched_seg.get("virality_score")
+                or matched_seg.get("rating")
+                or matched_seg.get("ai_rating")
+            )
             if raw_score is not None:
                 try:
-                    score = float(raw_score)
+                    if isinstance(raw_score, str):
+                        raw_clean = re.sub(r'[^\d.]', '', raw_score.split('/')[0])
+                        score = float(raw_clean)
+                    else:
+                        score = float(raw_score)
                 except (ValueError, TypeError):
                     score = None
-
             if not hook_title:
                 cand_title = matched_seg.get("hook_title") or matched_seg.get("title")
                 if cand_title:

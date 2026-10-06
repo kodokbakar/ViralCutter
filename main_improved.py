@@ -399,7 +399,7 @@ def main():
         project_folder_anticipated = os.path.dirname(input_video)
         viral_segments_file = os.path.join(project_folder_anticipated, "viral_segments.txt")
         
-        if os.path.exists(viral_segments_file):
+        if os.path.exists(viral_segments_file) and not getattr(args, "smart_clipping", False):
              print(i18n("\nExisting viral segments found: {}").format(viral_segments_file))
              if args.skip_prompts:
                  use_existing_json = 'yes'
