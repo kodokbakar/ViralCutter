@@ -666,8 +666,8 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
 
       const clipScoreBadges = previewSection?.querySelectorAll('[data-testid="clip-score-badge"]');
       expect(clipScoreBadges?.length).toBe(2);
-      expect(clipScoreBadges?.[0]?.textContent).toBe('Score: 95');
-      expect(clipScoreBadges?.[1]?.textContent).toBe('Score: 75');
+      expect(clipScoreBadges?.[0]?.textContent).toBe('AI Rating: 95/100');
+      expect(clipScoreBadges?.[1]?.textContent).toBe('AI Rating: 75/100');
 
       unmount();
     });

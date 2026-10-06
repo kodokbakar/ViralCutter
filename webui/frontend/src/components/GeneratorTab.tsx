@@ -18,7 +18,6 @@ import {
   UserCheck,
   Sparkles,
   Share2,
-  ArrowDown,
   Search,
   WrapText,
 } from 'lucide-react';
@@ -189,7 +188,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
   const [trackedJobId, setTrackedJobId] = useState<string | null>(null);
 
@@ -202,8 +200,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const logBufferRef = useRef<string[]>([]);
-  const logEndRef = useRef<HTMLDivElement>(null);
-  const [userScrolledUp, setUserScrolledUp] = useState<boolean>(false);
   const [logFilter, setLogFilter] = useState<'all' | 'error' | 'stage' | 'cmd'>('all');
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
   const [wordWrap, setWordWrap] = useState<boolean>(true);
@@ -371,37 +367,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       clearInterval(timerId);
     };
   }, [flushLogs]);
-
-  const scrollToBottom = useCallback((smooth = false) => {
-    if (logEndRef.current && typeof logEndRef.current.scrollIntoView === 'function') {
-      logEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
-    } else if (logContainerRef.current) {
-      if (typeof logContainerRef.current.scrollTo === 'function') {
-        logContainerRef.current.scrollTo({
-          top: logContainerRef.current.scrollHeight,
-          behavior: smooth ? 'smooth' : 'auto',
-        });
-      } else {
-        logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (autoScroll && !userScrolledUp) {
-      const raf = requestAnimationFrame(() => {
-        scrollToBottom(false);
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  }, [logs, autoScroll, userScrolledUp, scrollToBottom]);
-
-  const handleLogScroll = () => {
-    if (!logContainerRef.current) return;
-    const { scrollHeight, scrollTop, clientHeight } = logContainerRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 40;
-    setUserScrolledUp(!isNearBottom);
-  };
 
   const errorCount = React.useMemo(() => logs.filter((l) => l.includes('ERROR') || l.includes('[System Error]')).length, [logs]);
   const stageCount = React.useMemo(() => logs.filter((l) => l.includes('[STAGE]') || l.includes('[STEP]')).length, [logs]);
@@ -765,10 +730,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       )}
 
       {/* Main Grid: Controls + Live Stream Console */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Generator Controls Form */}
-        <div className="lg:col-span-6 space-y-6">
-          <form onSubmit={handleRunJob} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-5">
+        <div className="lg:col-span-6 flex flex-col h-full space-y-6">
+          <form onSubmit={handleRunJob} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-5 flex-1 flex flex-col justify-between">
             <div className="flex items-center space-x-2 border-b border-zinc-800 pb-3">
               <Sliders className="h-5 w-5 text-red-400" />
               <h2 className="text-base font-semibold text-white">Generator Controls</h2>
@@ -1648,9 +1613,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         </div>
 
         {/* Live SSE Stream Console */}
-        <div className="lg:col-span-6 flex flex-col space-y-6">
+        <div className="lg:col-span-6 flex flex-col h-full space-y-6">
           {/* Execution Log Stream */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-full">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-full flex-1">
             {/* Sticky Header with Title, Badges, and Main Controls */}
             <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 px-4 py-2.5 sticky top-0 z-10 space-y-2">
               <div className="flex items-center justify-between">
@@ -1677,22 +1642,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     <WrapText className="h-3 w-3" />
                     <span className="text-[11px]">Wrap</span>
                   </button>
-
-                  <label className="flex items-center space-x-1.5 text-zinc-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={autoScroll}
-                      onChange={(e) => {
-                        setAutoScroll(e.target.checked);
-                        if (e.target.checked) {
-                          setUserScrolledUp(false);
-                          scrollToBottom(false);
-                        }
-                      }}
-                      className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-3.5 w-3.5"
-                    />
-                    <span>Auto-scroll</span>
-                  </label>
 
                   <button
                     type="button"
@@ -1768,12 +1717,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               </div>
             </div>
 
-            {/* Relative Wrapper for Log Container and Floating Jump-to-Bottom Button */}
-            <div className="relative flex-1 min-h-0">
+            {/* Relative Wrapper for Log Container stretching to fill height */}
+            <div className="relative flex-1 min-h-0 flex flex-col h-full">
               <div
                 ref={logContainerRef}
-                onScroll={handleLogScroll}
-                className={`h-[520px] lg:h-[640px] w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1 ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'}`}
+                className={`flex-1 h-full w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1 min-h-[480px] ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'}`}
               >
                 {filteredLogs.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2 py-12">
@@ -1806,24 +1754,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     </div>
                   ))
                 )}
-                <div ref={logEndRef} className="h-0 w-0" />
               </div>
-
-              {/* Floating Jump to Latest Button when Scrolled Up */}
-              {userScrolledUp && logs.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserScrolledUp(false);
-                    setAutoScroll(true);
-                    scrollToBottom(true);
-                  }}
-                  className="absolute bottom-4 right-6 z-20 flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-xl text-xs font-semibold transition-all duration-150 animate-bounce cursor-pointer border border-red-400/30"
-                >
-                  <ArrowDown className="h-3.5 w-3.5" />
-                  <span>Jump to latest</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -1984,40 +1915,63 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     burned_sub
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 pt-1">
+                <div className="flex flex-col space-y-2 pt-1">
                   {outputClips.map((clip) => (
                     <button
                       key={clip.path}
                       type="button"
                       onClick={() => setSelectedClip(clip)}
-                      className={`p-2.5 rounded-lg border text-left transition-colors truncate flex flex-col justify-between gap-1.5 ${
+                      className={`p-3 rounded-lg border text-left transition-all flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 ${
                         selectedClip?.path === clip.path
-                          ? 'bg-red-950/40 border-red-600 text-zinc-100'
-                          : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                          ? 'bg-red-950/40 border-red-600 text-zinc-100 shadow-sm'
+                          : 'bg-zinc-950/70 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full gap-1">
-                        <div className="flex items-center space-x-1.5 overflow-hidden">
-                          <Video className="h-3 w-3 shrink-0 text-red-400" />
-                          <p className="text-xs font-medium truncate">{clip.hook_title || clip.name}</p>
+                      <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                        <Video className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-zinc-100 leading-snug break-words">
+                            {clip.hook_title || clip.name}
+                          </p>
+                          {clip.hook_title && clip.name !== clip.hook_title && (
+                            <p className="text-[11px] font-mono text-zinc-500 truncate pt-0.5">
+                              {clip.name}
+                            </p>
+                          )}
                         </div>
-                        {clip.score !== undefined && clip.score !== null && (
+                      </div>
+
+                      <div className="flex items-center space-x-2.5 shrink-0 text-xs font-mono self-end sm:self-center">
+                        <span className="text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80">
+                          {formatBytes(clip.size)}
+                        </span>
+
+                        {clip.score !== undefined && clip.score !== null ? (
                           <span
                             data-testid="clip-score-badge"
-                            className={`shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                            className={`font-bold px-2 py-0.5 rounded border text-[11px] ${
                               clip.score >= 80
-                                ? 'bg-emerald-950 text-emerald-300 border-emerald-700/60'
-                                : 'bg-amber-950 text-amber-300 border-amber-700/60'
+                                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/60'
+                                : clip.score >= 70
+                                ? 'bg-amber-950/90 text-amber-300 border-amber-700/60'
+                                : 'bg-zinc-900 text-zinc-400 border-zinc-800'
                             }`}
                           >
-                            Score: {clip.score}
+                            AI Rating: {clip.score}/100
+                          </span>
+                        ) : (
+                          <span
+                            data-testid="clip-score-badge"
+                            className="text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 text-[11px]"
+                          >
+                            AI Rating: N/A
                           </span>
                         )}
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 w-full pl-4.5">
-                        <span>{formatBytes(clip.size)}</span>
+
                         {clip.duration !== undefined && clip.duration !== null && (
-                          <span>{clip.duration}s</span>
+                          <span className="text-zinc-400 font-medium pl-1">
+                            {clip.duration}s
+                          </span>
                         )}
                       </div>
                     </button>
