@@ -18,6 +18,9 @@ import {
   UserCheck,
   Sparkles,
   Share2,
+  ArrowDown,
+  Search,
+  WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
 import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem } from '../api/types';
@@ -199,6 +202,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const logBufferRef = useRef<string[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const [userScrolledUp, setUserScrolledUp] = useState<boolean>(false);
+  const [logFilter, setLogFilter] = useState<'all' | 'error' | 'stage' | 'cmd'>('all');
+  const [logSearchQuery, setLogSearchQuery] = useState<string>('');
+  const [wordWrap, setWordWrap] = useState<boolean>(true);
 
   // Preset Handler
   const handlePresetChange = (newPreset: GeneratorPreset) => {
@@ -364,18 +372,51 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     };
   }, [flushLogs]);
 
-  // Smart Auto-scroll: Only auto-scroll if near bottom
-  useEffect(() => {
-    if (autoScroll && logContainerRef.current) {
-      const { scrollHeight, scrollTop, clientHeight } = logContainerRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
-      if (isAtBottom) {
-        logContainerRef.current.scrollTop = scrollHeight;
+  const scrollToBottom = useCallback((smooth = false) => {
+    if (logEndRef.current && typeof logEndRef.current.scrollIntoView === 'function') {
+      logEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+    } else if (logContainerRef.current) {
+      if (typeof logContainerRef.current.scrollTo === 'function') {
+        logContainerRef.current.scrollTo({
+          top: logContainerRef.current.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto',
+        });
+      } else {
+        logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
       }
     }
-  }, [logs, autoScroll]);
+  }, []);
 
-  // Refresh Output Clips When Job Completes
+  useEffect(() => {
+    if (autoScroll && !userScrolledUp) {
+      const raf = requestAnimationFrame(() => {
+        scrollToBottom(false);
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [logs, autoScroll, userScrolledUp, scrollToBottom]);
+
+  const handleLogScroll = () => {
+    if (!logContainerRef.current) return;
+    const { scrollHeight, scrollTop, clientHeight } = logContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 40;
+    setUserScrolledUp(!isNearBottom);
+  };
+
+  const errorCount = React.useMemo(() => logs.filter((l) => l.includes('ERROR') || l.includes('[System Error]')).length, [logs]);
+  const stageCount = React.useMemo(() => logs.filter((l) => l.includes('[STAGE]') || l.includes('[STEP]')).length, [logs]);
+
+  const filteredLogs = React.useMemo(() => {
+    return logs.filter((line) => {
+      if (logFilter === 'error' && !line.includes('ERROR') && !line.includes('[System Error]')) return false;
+      if (logFilter === 'stage' && !line.includes('[STAGE]') && !line.includes('[STEP]')) return false;
+      if (logFilter === 'cmd' && !line.includes('[CMD]') && !line.includes('Command:')) return false;
+      if (logSearchQuery.trim() && !line.toLowerCase().includes(logSearchQuery.toLowerCase())) return false;
+      return true;
+    });
+  }, [logs, logFilter, logSearchQuery]);
+
+  // Refresh Output Clips When Job Completes (Strictly from burned_sub/)
   const fetchCompletedClips = useCallback(async (proj: string) => {
     if (!proj) return;
     try {
@@ -385,12 +426,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       } catch {
         const assets = await libraryApi.listAssets(proj);
         clips = (assets || [])
-          .filter((a: AssetItem) => a.asset_type === 'video' || a.name.toLowerCase().endsWith('.mp4'))
+          .filter((a: AssetItem) => a.path.includes('burned_sub') && (a.asset_type === 'video' || a.name.toLowerCase().endsWith('.mp4')))
           .map((a: AssetItem) => ({
             name: a.name,
             path: a.path,
             size: a.size,
-            folder_type: (a.path.includes('burned_sub') ? 'burned_sub' : 'final') as 'burned_sub' | 'final',
+            folder_type: 'burned_sub' as const,
             modified_at: a.modified_at,
           }));
       }
@@ -1610,77 +1651,178 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         <div className="lg:col-span-6 flex flex-col space-y-6">
           {/* Execution Log Stream */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-full">
-            {/* Sticky Header */}
-            <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 py-2.5 sticky top-0 z-10">
-              <div className="flex items-center space-x-2">
-                <Terminal className="h-4 w-4 text-red-400" />
-                <span className="text-xs font-mono font-semibold text-zinc-200">Execution Log Stream</span>
-                {trackedJobId && (
-                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
-                    {trackedJobId}
+            {/* Sticky Header with Title, Badges, and Main Controls */}
+            <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 px-4 py-2.5 sticky top-0 z-10 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Terminal className="h-4 w-4 text-red-400" />
+                  <span className="text-xs font-mono font-semibold text-zinc-200">Execution Log Stream</span>
+                  {trackedJobId && (
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+                      {trackedJobId}
+                    </span>
+                  )}
+                  <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+                    {logs.length} lines
                   </span>
-                )}
+                </div>
+
+                <div className="flex items-center space-x-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setWordWrap(!wordWrap)}
+                    title={wordWrap ? 'Disable wrap' : 'Enable wrap'}
+                    className={`flex items-center space-x-1 px-2 py-1 rounded transition-colors ${wordWrap ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300'}`}
+                  >
+                    <WrapText className="h-3 w-3" />
+                    <span className="text-[11px]">Wrap</span>
+                  </button>
+
+                  <label className="flex items-center space-x-1.5 text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoScroll}
+                      onChange={(e) => {
+                        setAutoScroll(e.target.checked);
+                        if (e.target.checked) {
+                          setUserScrolledUp(false);
+                          scrollToBottom(false);
+                        }
+                      }}
+                      className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-3.5 w-3.5"
+                    />
+                    <span>Auto-scroll</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyLogs}
+                    className="flex items-center space-x-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                  >
+                    {copiedLogs ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    <span>Copy</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogs([])}
+                    className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2 text-xs">
-                <label className="flex items-center space-x-1.5 text-zinc-400 cursor-pointer">
+              {/* Sub-toolbar: Quick Filter Pills & Search Box */}
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/60">
+                <div className="flex items-center space-x-1 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('all')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${logFilter === 'all' ? 'bg-zinc-800 text-white font-medium' : 'text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    All ({logs.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('error')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${logFilter === 'error' ? 'bg-red-950/80 text-red-300 border border-red-800/60' : errorCount > 0 ? 'text-red-400 hover:text-red-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  >
+                    Errors {errorCount > 0 && `(${errorCount})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('stage')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${logFilter === 'stage' ? 'bg-purple-950/80 text-purple-300 border border-purple-800/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    Stages {stageCount > 0 && `(${stageCount})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogFilter('cmd')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${logFilter === 'cmd' ? 'bg-amber-950/80 text-amber-300 border border-amber-800/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    Cmds
+                  </button>
+                </div>
+
+                <div className="relative flex items-center">
+                  <Search className="h-3 w-3 text-zinc-500 absolute left-2 pointer-events-none" />
                   <input
-                    type="checkbox"
-                    checked={autoScroll}
-                    onChange={(e) => setAutoScroll(e.target.checked)}
-                    className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-3.5 w-3.5"
+                    type="text"
+                    value={logSearchQuery}
+                    onChange={(e) => setLogSearchQuery(e.target.value)}
+                    placeholder="Search logs..."
+                    className="pl-7 pr-4 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 w-32 sm:w-40"
                   />
-                  <span>Auto-scroll</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleCopyLogs}
-                  className="flex items-center space-x-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
-                >
-                  {copiedLogs ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  <span>Copy</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLogs([])}
-                  className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
-                >
-                  Clear
-                </button>
+                  {logSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setLogSearchQuery('')}
+                      className="absolute right-1 text-zinc-500 hover:text-zinc-300 text-[10px]"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Fixed-Height Container */}
-            <div
-              ref={logContainerRef}
-              className="h-[520px] lg:h-[640px] w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1"
-            >
-              {logs.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2 py-12">
-                  <Terminal className="h-8 w-8 stroke-[1.5]" />
-                  <span>No log output yet. Launch a job to see real-time output.</span>
-                </div>
-              ) : (
-                logs.map((line, idx) => (
-                  <div
-                    key={idx}
-                    className={`leading-relaxed whitespace-pre-wrap break-all ${
-                      line.includes('[System Error]') || line.includes('ERROR')
-                        ? 'text-red-400'
-                        : line.includes('[System]')
-                        ? 'text-cyan-400 font-semibold'
-                        : line.includes('WARNING')
-                        ? 'text-amber-400'
-                        : line.includes('Progress:') || line.includes('%')
-                        ? 'text-emerald-400'
-                        : 'text-zinc-300'
-                    }`}
-                  >
-                    {line}
+            {/* Relative Wrapper for Log Container and Floating Jump-to-Bottom Button */}
+            <div className="relative flex-1 min-h-0">
+              <div
+                ref={logContainerRef}
+                onScroll={handleLogScroll}
+                className={`h-[520px] lg:h-[640px] w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1 ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'}`}
+              >
+                {filteredLogs.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2 py-12">
+                    <Terminal className="h-8 w-8 stroke-[1.5]" />
+                    <span>{logs.length === 0 ? 'No log output yet. Launch a job to see real-time output.' : 'No logs match current filter or search.'}</span>
                   </div>
-                ))
+                ) : (
+                  filteredLogs.map((line, idx) => (
+                    <div
+                      key={idx}
+                      className={`leading-relaxed ${
+                        line.includes('[System Error]') || line.includes('ERROR')
+                          ? 'text-red-400 bg-red-950/20 px-1 rounded'
+                          : line.includes('[STAGE]') || line.includes('[STEP]')
+                          ? 'text-purple-300 font-semibold bg-purple-950/20 px-1 rounded'
+                          : line.includes('[CMD]') || line.includes('Command:')
+                          ? 'text-amber-300 font-medium'
+                          : line.includes('[CONFIG]')
+                          ? 'text-cyan-300'
+                          : line.includes('[System]')
+                          ? 'text-cyan-400 font-semibold'
+                          : line.includes('WARNING')
+                          ? 'text-amber-400'
+                          : line.includes('Progress:') || line.includes('%')
+                          ? 'text-emerald-400'
+                          : 'text-zinc-300'
+                      }`}
+                    >
+                      {line}
+                    </div>
+                  ))
+                )}
+                <div ref={logEndRef} className="h-0 w-0" />
+              </div>
+
+              {/* Floating Jump to Latest Button when Scrolled Up */}
+              {userScrolledUp && logs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserScrolledUp(false);
+                    setAutoScroll(true);
+                    scrollToBottom(true);
+                  }}
+                  className="absolute bottom-4 right-6 z-20 flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-xl text-xs font-semibold transition-all duration-150 animate-bounce cursor-pointer border border-red-400/30"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                  <span>Jump to latest</span>
+                </button>
               )}
             </div>
           </div>
@@ -1834,9 +1976,14 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
               {/* Clips Thumbnail Grid */}
               <div className="space-y-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
-                  Generated Clips ({outputClips.length})
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                    Generated Clips ({outputClips.length})
+                  </span>
+                  <span className="text-[10px] text-zinc-500 bg-zinc-800/80 px-1.5 py-0.5 rounded font-mono">
+                    burned_sub
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 pt-1">
                   {outputClips.map((clip) => (
                     <button

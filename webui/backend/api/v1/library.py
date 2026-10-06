@@ -183,26 +183,11 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
             and "input" not in p.name.lower()
         ]
 
-    if burned_files:
-        folder_type = "burned_sub"
-        selected_files = sorted(burned_files, key=lambda p: p.name)
-    else:
-        # Fallback to final/
-        final_dir = proj_dir / "final"
-        final_files = []
-        if final_dir.is_dir():
-            final_files = [
-                p for p in final_dir.iterdir()
-                if p.is_file()
-                and p.suffix.lower() in ALLOWED_VIDEO_EXTENSIONS
-                and "input" not in p.name.lower()
-                and "temp_video_no_audio" not in p.name.lower()
-            ]
-        if final_files:
-            folder_type = "final"
-            selected_files = sorted(final_files, key=lambda p: p.name)
-        else:
-            return []
+    if not burned_files:
+        return []
+
+    folder_type = "burned_sub"
+    selected_files = sorted(burned_files, key=lambda p: p.name)
 
     # 2. Read viral segments metadata
     segments_list = []

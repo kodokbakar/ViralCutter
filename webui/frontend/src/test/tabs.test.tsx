@@ -548,8 +548,8 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
 
     it('renders isolated preview player and clip list when completed clips are fetched', async () => {
       const mockClips = [
-        { name: 'clip_01.mp4', path: '/virals/TestProj/clip_01.mp4', size: 1048576, modified_at: 1700000000, asset_type: 'video' },
-        { name: 'clip_02.mp4', path: '/virals/TestProj/clip_02.mp4', size: 2097152, modified_at: 1700000010, asset_type: 'video' },
+        { name: 'clip_01.mp4', path: '/virals/TestProj/burned_sub/clip_01.mp4', size: 1048576, modified_at: 1700000000, asset_type: 'video' },
+        { name: 'clip_02.mp4', path: '/virals/TestProj/burned_sub/clip_02.mp4', size: 2097152, modified_at: 1700000010, asset_type: 'video' },
       ];
       vi.spyOn(libraryApi, 'listAssets').mockResolvedValue(mockClips);
       const navigateMock = vi.fn();
@@ -578,7 +578,7 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       // Video player should be rendered with first clip
       const videoEl = previewSection?.querySelector('video');
       expect(videoEl).toBeTruthy();
-      expect(videoEl?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/clip_01.mp4'));
+      expect(videoEl?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/burned_sub/clip_01.mp4'));
 
       // Check clip metadata and actions
       expect(previewSection?.textContent).toContain('clip_01.mp4');
@@ -607,7 +607,7 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       });
 
       const updatedVideo = previewSection?.querySelector('video');
-      expect(updatedVideo?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/clip_02.mp4'));
+      expect(updatedVideo?.getAttribute('src')).toBe(previewApi.getVideoUrl('/virals/TestProj/burned_sub/clip_02.mp4'));
 
       unmount();
     });

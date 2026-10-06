@@ -175,9 +175,9 @@ def test_project_clips_endpoint_burned_sub_priority(tmp_path, monkeypatch):
         assert "cuts" not in c["path"]
 
 
-def test_project_clips_endpoint_fallback_to_final(tmp_path, monkeypatch):
+def test_project_clips_endpoint_burned_sub_only(tmp_path, monkeypatch):
     """
-    Test fallback to final/ when burned_sub/ is missing or empty (e.g. Cut Only workflow).
+    Test that clips endpoint strictly requires burned_sub/ and does not fallback to final/.
     """
     mock_virals = tmp_path / "VIRALS"
     mock_virals.mkdir(parents=True, exist_ok=True)
@@ -186,39 +186,40 @@ def test_project_clips_endpoint_fallback_to_final(tmp_path, monkeypatch):
     proj_dir = mock_virals / "TestProjectCutOnly"
     proj_dir.mkdir(parents=True, exist_ok=True)
 
-    # Empty burned_sub or non-existent
-    (proj_dir / "burned_sub").mkdir(parents=True, exist_ok=True)
-
-    # final/ videos
+    # final/ videos should not be included if burned_sub is empty
     final_dir = proj_dir / "final"
     final_dir.mkdir(parents=True, exist_ok=True)
     (final_dir / "000_CutOnly.mp4").write_bytes(b"cut only video")
-    # temp_video_no_audio should be ignored
-    (final_dir / "temp_video_no_audio_0.mp4").write_bytes(b"temp video")
 
-    # viral_segments.txt
+    res = client.get("/api/v1/library/projects/TestProjectCutOnly/clips")
+    assert res.status_code == 200
+    assert res.json() == []
+
+    # Now put clip inside burned_sub/
+    burned_dir = proj_dir / "burned_sub"
+    burned_dir.mkdir(parents=True, exist_ok=True)
+    (burned_dir / "000_BurnedSub.mp4").write_bytes(b"burned subtitle video")
+
     segments_data = {
         "segments": [
             {
                 "score": 91,
-                "hook_title": "CUT ONLY HOOK",
+                "hook_title": "BURNED HOOK",
                 "duration": 25.5,
             }
         ]
     }
     (proj_dir / "viral_segments.txt").write_text(json.dumps(segments_data), encoding="utf-8")
 
-    res = client.get("/api/v1/library/projects/TestProjectCutOnly/clips")
-    assert res.status_code == 200
-    clips = res.json()
-
+    res2 = client.get("/api/v1/library/projects/TestProjectCutOnly/clips")
+    assert res2.status_code == 200
+    clips = res2.json()
     assert len(clips) == 1
-    assert clips[0]["folder_type"] == "final"
-    assert clips[0]["name"] == "000_CutOnly.mp4"
+    assert clips[0]["folder_type"] == "burned_sub"
+    assert clips[0]["name"] == "000_BurnedSub.mp4"
     assert clips[0]["score"] == 91.0
-    assert clips[0]["hook_title"] == "CUT ONLY HOOK"
+    assert clips[0]["hook_title"] == "BURNED HOOK"
     assert clips[0]["duration"] == 25.5
-
 
 def test_project_clips_endpoint_404(tmp_path, monkeypatch):
     mock_virals = tmp_path / "VIRALS"
