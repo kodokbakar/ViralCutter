@@ -47,6 +47,95 @@ def format_time_ass(time_seconds):
     centiseconds = int((time_seconds % 1) * 100)
     return f"{hours:01}:{minutes:02}:{seconds:02}.{centiseconds:02}"
 
+
+def interpolate_word_timestamps(raw_words, seg_start=0.0, seg_end=0.0):
+    """
+    Interpolates missing (None/empty) timestamps for unaligned words (such as numbers/digits
+    that character-level Wav2Vec2 CTC models cannot align because digits are not in vocabulary).
+    Guarantees that no word (including numbers) is ever dropped from subtitles!
+    """
+    if not raw_words:
+        return []
+
+    words = []
+    for w in raw_words:
+        if isinstance(w, dict) and w.get("word"):
+            words.append(dict(w))
+        elif isinstance(w, str) and w.strip():
+            words.append({"word": w.strip()})
+
+    n = len(words)
+    if n == 0:
+        return []
+
+    def get_valid_float(val):
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    for w in words:
+        w["start"] = get_valid_float(w.get("start"))
+        w["end"] = get_valid_float(w.get("end"))
+
+    i = 0
+    while i < n:
+        if words[i]["start"] is None or words[i]["end"] is None:
+            j = i
+            while j < n and (words[j]["start"] is None or words[j]["end"] is None):
+                j += 1
+
+            prev_end = seg_start
+            if i > 0 and words[i - 1]["end"] is not None:
+                prev_end = words[i - 1]["end"]
+
+            next_start = max(prev_end + 0.1 * (j - i), seg_end)
+            if j < n and words[j]["start"] is not None:
+                next_start = words[j]["start"]
+
+            gap = max(0.05 * (j - i), next_start - prev_end)
+            step = gap / (j - i)
+
+            for k in range(i, j):
+                w_s = round(prev_end + (k - i) * step, 3)
+                w_e = round(prev_end + (k - i + 1) * step, 3)
+                words[k]["start"] = w_s
+                words[k]["end"] = max(w_s + 0.04, w_e)
+
+            i = j
+        else:
+            i += 1
+
+    return words
+
+
+def reconcile_segment_words(segment):
+    """
+    Ensures segment has complete words list with no missing/dropped numbers or tokens.
+    """
+    raw_words = segment.get('words', [])
+    try:
+        seg_start = float(segment.get('start', 0.0) or 0.0)
+    except (ValueError, TypeError):
+        seg_start = 0.0
+    try:
+        seg_end = float(segment.get('end', seg_start + 1.0) or (seg_start + 1.0))
+    except (ValueError, TypeError):
+        seg_end = seg_start + 1.0
+    seg_text = str(segment.get('text', '')).strip()
+
+    if not raw_words:
+        if not seg_text:
+            return []
+        text_tokens = seg_text.split()
+        dur = max(0.1, seg_end - seg_start)
+        step = dur / len(text_tokens)
+        return [{"word": tok, "start": round(seg_start + idx * step, 3), "end": round(seg_start + (idx + 1) * step, 3)} for idx, tok in enumerate(text_tokens)]
+
+    # Interpolate any missing / None timestamps
+    return interpolate_word_timestamps(raw_words, seg_start=seg_start, seg_end=seg_end)
 def generate_ass_from_file(input_path, output_path, project_folder,
                            base_color, base_size, highlight_size, highlight_color,
                            words_per_block, gap_limit, mode, vertical_position, alignment,
@@ -260,34 +349,9 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         last_end_time = 0.0
 
         for segment in json_data.get('segments', []):
-            raw_words = segment.get('words', [])
-            valid_words = []
-            for w in raw_words:
-                if isinstance(w, dict) and 'word' in w and 'start' in w and 'end' in w:
-                    try:
-                        s = float(w['start'])
-                        e = float(w['end'])
-                        if e > s:
-                            valid_words.append({**w, 'start': s, 'end': e})
-                    except (ValueError, TypeError):
-                        continue
-
-            # Fallback if no word-level timestamps were provided: split segment text evenly
+            valid_words = reconcile_segment_words(segment)
             if not valid_words:
-                seg_text = str(segment.get('text', '')).strip()
-                try:
-                    s = float(segment.get('start', 0.0))
-                    e = float(segment.get('end', s + 1.0))
-                    if e > s and seg_text:
-                        words = seg_text.split()
-                        if words:
-                            word_dur = (e - s) / len(words)
-                            for idx_w, w_str in enumerate(words):
-                                w_s = s + idx_w * word_dur
-                                w_e = s + (idx_w + 1) * word_dur
-                                valid_words.append({'word': w_str, 'start': w_s, 'end': w_e})
-                except (ValueError, TypeError):
-                    pass
+                continue
 
             valid_words.sort(key=lambda x: x['start'])
             for idx in range(len(valid_words) - 1):
@@ -295,7 +359,6 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                 nxt = valid_words[idx + 1]
                 if curr['end'] > nxt['start']:
                     curr['end'] = max(curr['start'] + 0.05, nxt['start'])
-
             total_words = len(valid_words)
             i = 0
             while i < total_words:

@@ -520,6 +520,16 @@ def transcribe(
             else:
                  print("Continuando com transcrição bruta.")
 
+        # Ensure all unaligned words (such as digits/numbers unaligned by Wav2Vec2) have interpolated timestamps
+        if result and isinstance(result.get("segments"), list):
+            try:
+                from scripts.adjust_subtitles import reconcile_segment_words
+                for seg in result["segments"]:
+                    if isinstance(seg, dict):
+                        seg["words"] = reconcile_segment_words(seg)
+            except Exception as rec_err:
+                print(f"[WARN] Error reconciling unaligned words: {rec_err}")
+
         # 5. Salvar Resultados
         log_step("Saving transcription outputs...")
         from whisperx.utils import get_writer
