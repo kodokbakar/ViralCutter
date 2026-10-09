@@ -1,4 +1,5 @@
 import functools
+import re
 import os
 import shlex
 import subprocess
@@ -544,12 +545,10 @@ def burn(
             videos_folder,
             video_file,
         )
+        clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', video_name)
         output_file = os.path.join(
             output_folder,
-            (
-                f"{video_name}"
-                "_subtitled.mp4"
-            ),
+            f"{clean_clip_name}.mp4",
         )
 
         if watermark_enabled:

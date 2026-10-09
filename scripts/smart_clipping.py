@@ -636,9 +636,6 @@ def run_smart_clipping_pipeline(
 
         title = snapped_topic.get("title", f"Smart_Clip_{idx+1}")
         safe_title = "".join(c for c in title if c.isalnum() or c in " _-").strip().replace(" ", "_")[:50]
-        output_filename = f"clip_{idx+1:03d}_{safe_title}.mp4"
-        output_clip_path = os.path.join(clips_folder, output_filename)
-
         raw_subsegs = []
         if mode == "continuous":
             start = hook.get("snapped_start", hook.get("start_time", 0.0))
@@ -658,6 +655,17 @@ def run_smart_clipping_pipeline(
                 segments_to_splice.extend(slices)
             else:
                 segments_to_splice.append((s, e))
+
+        text_score = snapped_topic.get("score", 85)
+        audio_energy = 75.0
+        if os.path.exists(input_video) and segments_to_splice:
+            hook_s, hook_e = segments_to_splice[0]
+            audio_energy = compute_audio_energy_score(input_video, hook_s, hook_e)
+        final_score = compute_hybrid_virality_score(text_score, audio_energy)
+
+        output_filename = f"{idx+1:03d}_{final_score}_{safe_title}.mp4"
+        output_clip_path = os.path.join(clips_folder, output_filename)
+
         if os.path.exists(input_video) and segments_to_splice:
             print(f"[SMART-CLIPPING] Splicing topic {idx+1}/{len(topics)}: '{title}' ({len(segments_to_splice)} parts)...")
             try:
@@ -670,14 +678,6 @@ def run_smart_clipping_pipeline(
         total_duration = sum(e - s for s, e in segments_to_splice) if segments_to_splice else (latest_end - earliest_start)
 
         full_text = " ".join([hook.get("text", ""), core.get("text", ""), payoff.get("text", "")]).strip()
-
-        text_score = snapped_topic.get("score", 85)
-        audio_energy = 75.0
-        if os.path.exists(input_video) and segments_to_splice:
-            hook_s, hook_e = segments_to_splice[0]
-            audio_energy = compute_audio_energy_score(input_video, hook_s, hook_e)
-        final_score = compute_hybrid_virality_score(text_score, audio_energy)
-
         viral_segments_list.append({
             "title": title,
             "score": final_score,

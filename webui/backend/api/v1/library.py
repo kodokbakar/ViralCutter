@@ -215,6 +215,16 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
         stem = clip_file.stem
         clean_stem = re.sub(r'(_subtitled|_processed|_original_scale)+$', '', stem, flags=re.IGNORECASE)
 
+        # Extract score and title directly from filename if formatted as nomor_score_judul (e.g. 001_95_Judul)
+        name_match = re.match(r"^(\d+)_(\d+)_(.+)$", clean_stem)
+        name_score = None
+        name_title = None
+        if name_match:
+            try:
+                name_score = float(name_match.group(2))
+                name_title = name_match.group(3).replace("_", " ").strip()
+            except (ValueError, TypeError):
+                pass
         # Timeline lookup
         hook_from_timeline = None
         for tl_dir in [proj_dir / "final", proj_dir / "burned_sub", proj_dir]:
@@ -291,8 +301,11 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
                         score = float(raw_score)
                 except (ValueError, TypeError):
                     score = None
+
+            if score is None and name_score is not None:
+                score = name_score
             if not hook_title:
-                cand_title = matched_seg.get("hook_title") or matched_seg.get("title")
+                cand_title = matched_seg.get("hook_title") or matched_seg.get("title") or name_title
                 if cand_title:
                     hook_title = str(cand_title).strip()
 
@@ -310,7 +323,10 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
                         duration = round(float(et) - float(st), 2)
                     except (ValueError, TypeError):
                         pass
-
+        elif name_score is not None:
+            score = name_score
+            if not hook_title and name_title:
+                hook_title = name_title
         if duration is None:
             duration = _probe_duration_sync(clip_file)
 

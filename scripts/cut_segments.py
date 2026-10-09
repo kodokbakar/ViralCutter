@@ -96,11 +96,23 @@ def cut(segments, project_folder="tmp", skip_video=False):
                     start_time_str = str(start_time)
 
             # Título para nome de arquivo
-            title = segment.get("title", f"Segment_{i}")
+            title = segment.get("title", f"Segment_{i+1}")
             safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
             safe_title = safe_title.replace(" ", "_")[:60]
-            base_name = f"{i:03d}_{safe_title}"
 
+            order_num = segment.get("order") if segment.get("order") is not None else (i + 1)
+            try:
+                order_num = int(order_num)
+            except (ValueError, TypeError):
+                order_num = i + 1
+
+            raw_score = segment.get("score") or segment.get("virality_score") or 0
+            try:
+                score_val = int(round(float(raw_score)))
+            except (ValueError, TypeError):
+                score_val = 0
+
+            base_name = f"{order_num:03d}_{score_val}_{safe_title}"
             output_filename = f"{base_name}_original_scale.mp4"
             output_path = os.path.join(cuts_folder, output_filename)
 
