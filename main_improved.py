@@ -158,6 +158,24 @@ def main():
 
     parser.add_argument("--project-path", help="Path to existing project folder (overrides URL/Latest)")
     parser.add_argument("--workflow", choices=["1", "2", "3"], default="1", help="Workflow choice: 1=Full, 2=Cut Only, 3=Subtitles Only")
+    parser.add_argument(
+        "--orientation",
+        choices=["9:16", "16:9", "1:1", "9:16_gaming_split"],
+        default="9:16",
+        help="Target video orientation / framing format"
+    )
+    parser.add_argument(
+        "--gaming-facecam",
+        type=str,
+        default="0.68,0.05,0.28,0.1493",
+        help="Normalized x,y,w,h crop coordinates for facecam in 9:16 gaming split mode"
+    )
+    parser.add_argument(
+        "--gaming-gameplay",
+        type=str,
+        default="0.25,0.0,0.50,0.622",
+        help="Normalized x,y,w,h crop coordinates for gameplay in 9:16 gaming split mode"
+    )
     parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
     parser.add_argument("--face-mode", choices=["auto", "1", "2", "none"], default="auto", help="Face tracking mode: auto, 1, 2, none")
     parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
@@ -546,6 +564,8 @@ def main():
     workflow_choice = args.workflow
     face_model = args.face_model
     face_mode = args.face_mode
+    if args.orientation == "9:16_gaming_split":
+        face_mode = "none"
 
     # If args weren't provided and we are not skipping prompts, ask user
     # Note: argparse defaults are set, so they "are provided" effectively.
@@ -823,7 +843,34 @@ def main():
 
         # 5. Edit Video / Preserve Original Framing
         if workflow_choice != "3":
-            if face_mode == "none":
+            if args.orientation == "9:16_gaming_split":
+                print(i18n("Gaming Split framing mode selected (30% facecam top / 70% gameplay bottom)..."))
+                face_mode = "none"
+                from scripts import gaming_split
+                cuts_folder = os.path.join(project_folder, "cuts")
+                final_folder = os.path.join(project_folder, "final")
+                os.makedirs(final_folder, exist_ok=True)
+                face_modes = {}
+                cut_files = [
+                    f for f in sorted(os.listdir(cuts_folder))
+                    if f.endswith(".mp4") and "input" not in f.lower()
+                ] if os.path.exists(cuts_folder) else []
+                for idx, c_file in enumerate(cut_files):
+                    c_path = os.path.join(cuts_folder, c_file)
+                    base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
+                    target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
+                    print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
+                    gaming_split.render_gaming_split_clip(
+                        input_path=c_path,
+                        output_path=target_out,
+                        facecam_box=args.gaming_facecam,
+                        gameplay_box=args.gaming_gameplay
+                    )
+                    face_modes[f"output{idx:03d}"] = "none"
+                modes_file = os.path.join(project_folder, "face_modes.json")
+                with open(modes_file, "w", encoding="utf-8") as f:
+                    json.dump(face_modes, f, indent=4)
+            elif face_mode == "none":
                 print(i18n("Face mode none selected. Skipping face detection and preserving source framing..."), flush=True)
                 preserve_segments.preserve_original_scale(project_folder=project_folder)
             else:
