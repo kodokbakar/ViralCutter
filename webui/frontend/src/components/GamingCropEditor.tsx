@@ -552,6 +552,13 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setGameplay((prev) => ({ ...prev, x: (1.0 - prev.w) / 2 }))}
+            className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-300 transition-colors"
+          >
+            Center Action
+          </button>
+          <button
+            type="button"
             title="Reset"
             aria-label="Reset framing"
             onClick={resetDefaults}
@@ -588,7 +595,6 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
             onMouseDown={handleMouseDown}
             onMouseMove={updateCursor}
             onMouseUp={() => setActiveDrag(null)}
-            onMouseLeave={() => setActiveDrag(null)}
             className="w-full aspect-video rounded-lg border border-zinc-800 cursor-move bg-zinc-950 shadow-inner"
           />
         </div>
