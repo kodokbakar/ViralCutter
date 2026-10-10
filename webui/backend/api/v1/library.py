@@ -355,12 +355,20 @@ async def get_project_clips(project_name: str):
     safe_name = sanitize_project_name(project_name)
     proj_dir = VIRALS_DIR / safe_name
 
+    if not proj_dir.is_dir():
+        if Path(project_name).is_dir():
+            proj_dir = Path(project_name)
+        else:
+            for d in VIRALS_DIR.iterdir():
+                if d.is_dir() and (d.name.lower() == safe_name.lower() or safe_name.lower() in d.name.lower() or d.name.lower() in safe_name.lower()):
+                    proj_dir = d
+                    break
+
     if _is_protected_project_dir(proj_dir, safe_name) or not proj_dir.is_dir():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project '{safe_name}' not found",
         )
-
     return await asyncio.to_thread(_get_project_clips_sync, proj_dir)
 
 

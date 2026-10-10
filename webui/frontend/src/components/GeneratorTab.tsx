@@ -392,13 +392,20 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         const assets = await libraryApi.listAssets(proj);
         clips = (assets || [])
           .filter((a: AssetItem) => a.path.includes('burned_sub') && (a.asset_type === 'video' || a.name.toLowerCase().endsWith('.mp4')))
-          .map((a: AssetItem) => ({
-            name: a.name,
-            path: a.path,
-            size: a.size,
-            folder_type: 'burned_sub' as const,
-            modified_at: a.modified_at,
-          }));
+          .map((a: AssetItem) => {
+            const scoreMatch = a.name.match(/^(\d+)_(\d+)_(.+)\.mp4$/);
+            const parsedScore = scoreMatch ? parseFloat(scoreMatch[2]) : undefined;
+            const parsedTitle = scoreMatch ? scoreMatch[3].replace(/_/g, ' ') : undefined;
+            return {
+              name: a.name,
+              path: a.path,
+              size: a.size,
+              folder_type: 'burned_sub' as const,
+              score: parsedScore,
+              hook_title: parsedTitle,
+              modified_at: a.modified_at,
+            };
+          });
       }
       setOutputClips(clips || []);
       if (clips && clips.length > 0) {
@@ -416,8 +423,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   }, []);
 
   useEffect(() => {
-    if (activeJob?.job?.status === 'completed' && projectName) {
-      fetchCompletedClips(projectName);
+    if (activeJob?.job?.status === 'completed') {
+      const detectedProj = activeJob.job.output_dir ? activeJob.job.output_dir.replace(/\\/g, '/').split('/').filter(Boolean).pop() : '';
+      const projToFetch = projectName || detectedProj || '';
+      if (projToFetch) {
+        fetchCompletedClips(projToFetch);
+      }
     }
   }, [activeJob, projectName, fetchCompletedClips]);
 
@@ -730,10 +741,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       )}
 
       {/* Main Grid: Controls + Live Stream Console */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Generator Controls Form */}
-        <div className="lg:col-span-6 flex flex-col h-full space-y-6">
-          <form onSubmit={handleRunJob} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-5 flex-1 flex flex-col justify-between">
+        <div className="lg:col-span-6 space-y-6">
+          <form onSubmit={handleRunJob} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-5">
             <div className="flex items-center space-x-2 border-b border-zinc-800 pb-3">
               <Sliders className="h-5 w-5 text-red-400" />
               <h2 className="text-base font-semibold text-white">Generator Controls</h2>
@@ -1613,9 +1624,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         </div>
 
         {/* Live SSE Stream Console */}
-        <div className="lg:col-span-6 flex flex-col h-full space-y-6">
+        <div className="lg:col-span-6 space-y-6">
           {/* Execution Log Stream */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-full flex-1">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col overflow-hidden h-[620px] lg:h-[680px]">
             {/* Sticky Header with Title, Badges, and Main Controls */}
             <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 px-4 py-2.5 sticky top-0 z-10 space-y-2">
               <div className="flex items-center justify-between">
@@ -1946,28 +1957,34 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                           {formatBytes(clip.size)}
                         </span>
 
-                        {clip.score !== undefined && clip.score !== null ? (
-                          <span
-                            data-testid="clip-score-badge"
-                            className={`font-bold px-2 py-0.5 rounded border text-[11px] ${
-                              clip.score >= 80
-                                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/60'
-                                : clip.score >= 70
-                                ? 'bg-amber-950/90 text-amber-300 border-amber-700/60'
-                                : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                            }`}
-                          >
-                            AI Rating: {clip.score}/100
-                          </span>
-                        ) : (
-                          <span
-                            data-testid="clip-score-badge"
-                            className="text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 text-[11px]"
-                          >
-                            AI Rating: N/A
-                          </span>
-                        )}
+                        {(() => {
+                          const scoreVal = clip.score ?? (() => {
+                            const m = clip.name.match(/^(\d+)_(\d+)_(.+)\.mp4$/);
+                            return m ? parseFloat(m[2]) : null;
+                          })();
 
+                          return scoreVal !== null && scoreVal !== undefined ? (
+                            <span
+                              data-testid="clip-score-badge"
+                              className={`font-bold px-2 py-0.5 rounded border text-[11px] ${
+                                scoreVal >= 80
+                                  ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/60'
+                                  : scoreVal >= 70
+                                  ? 'bg-amber-950/90 text-amber-300 border-amber-700/60'
+                                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                              }`}
+                            >
+                              AI Rating: {scoreVal}/100
+                            </span>
+                          ) : (
+                            <span
+                              data-testid="clip-score-badge"
+                              className="text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 text-[11px]"
+                            >
+                              AI Rating: N/A
+                            </span>
+                          );
+                        })()}
                         {clip.duration !== undefined && clip.duration !== null && (
                           <span className="text-zinc-400 font-medium pl-1">
                             {clip.duration}s
