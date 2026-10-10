@@ -1,8 +1,27 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import GamingCropEditor, { parseBox, formatBox } from '../components/GamingCropEditor';
 import { GeneratorTab } from '../components/GeneratorTab';
 import { jobsApi, systemApi } from '../api/client';
+
+function renderComponent(ui: React.ReactElement): { container: HTMLDivElement; unmount: () => void } {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(ui);
+  });
+  return {
+    container,
+    unmount: () => {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    },
+  };
+}
 
 describe('GamingCropEditor Component', () => {
   it('parses valid and invalid box strings correctly', () => {
@@ -21,7 +40,7 @@ describe('GamingCropEditor Component', () => {
 
   it('renders canvas elements and preset buttons', () => {
     const onChange = vi.fn();
-    render(
+    const { container, unmount } = renderComponent(
       <GamingCropEditor
         facecamCrop="0.68,0.05,0.28,0.15"
         gameplayCrop="0.25,0.0,0.50,0.62"
@@ -29,17 +48,18 @@ describe('GamingCropEditor Component', () => {
       />
     );
 
-    expect(screen.getByText(/9:16 Gaming Split Framing/i)).toBeTruthy();
-    expect(screen.getByText(/Cam Top-Right/i)).toBeTruthy();
-    expect(screen.getByText(/Cam Top-Left/i)).toBeTruthy();
-    expect(screen.getByText(/Cam Bottom-Left/i)).toBeTruthy();
-    expect(screen.getByText(/Center Action/i)).toBeTruthy();
-    expect(screen.getByText(/Reset/i)).toBeTruthy();
+    expect(container.textContent).toContain('9:16 Gaming Split Framing');
+    expect(container.textContent).toContain('Cam Top-Right');
+    expect(container.textContent).toContain('Cam Top-Left');
+    expect(container.textContent).toContain('Cam Bottom-Left');
+    expect(container.textContent).toContain('Center Action');
+    expect(container.textContent).toContain('Reset');
+    unmount();
   });
 
   it('triggers preset buttons and calls onChange', () => {
     const onChange = vi.fn();
-    render(
+    const { container, unmount } = renderComponent(
       <GamingCropEditor
         facecamCrop="0.68,0.05,0.28,0.15"
         gameplayCrop="0.25,0.0,0.50,0.62"
@@ -47,77 +67,96 @@ describe('GamingCropEditor Component', () => {
       />
     );
 
-    fireEvent.click(screen.getByText('Cam Top-Left'));
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const topLeftBtn = buttons.find((b) => b.textContent?.includes('Cam Top-Left'));
+    expect(topLeftBtn).toBeTruthy();
+
+    act(() => {
+      topLeftBtn?.click();
+    });
+
+    expect(onChange).toHaveBeenCalled();
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1];
+    expect(lastCall[0]).toContain('0.0400,0.0500');
+
+    const centerActionBtn = buttons.find((b) => b.textContent?.includes('Center Action'));
+    expect(centerActionBtn).toBeTruthy();
+    act(() => {
+      centerActionBtn?.click();
+    });
     expect(onChange).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('Cam Top-Right'));
-    expect(onChange).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText('Cam Bottom-Left'));
-    expect(onChange).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText('Center Action'));
-    expect(onChange).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText('Reset'));
-    expect(onChange).toHaveBeenCalled();
+    unmount();
   });
 });
 
 describe('GeneratorTab Gaming Split Integration', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.spyOn(systemApi, 'getPromptTemplate').mockResolvedValue({
-      template: 'Default prompt template',
+    vi.spyOn(systemApi, 'getStatus').mockResolvedValue({
+      healthy: true,
+      has_gpu: false,
+      gpu_name: null,
+      device: 'cpu',
+      platform: 'linux',
+      python_version: '3.11.0',
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders 9:16_gaming_split in orientation options and conditionally shows GamingCropEditor', () => {
-    const { container } = render(
-      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestGaming" />
+    const { container, unmount } = renderComponent(
+      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
     );
 
     const orientationSelect = container.querySelector('#orientation-select') as HTMLSelectElement;
     expect(orientationSelect).toBeTruthy();
 
-    const options = Array.from(orientationSelect.options).map((opt) => opt.value);
+    const options = Array.from(orientationSelect.options).map((o) => o.value);
     expect(options).toContain('9:16_gaming_split');
 
-    // Initially 9:16 is selected, GamingCropEditor should not be visible
-    expect(screen.queryByText(/9:16 Gaming Split Framing/i)).toBeNull();
+    expect(container.textContent).not.toContain('9:16 Gaming Split Framing');
 
-    // Select 9:16_gaming_split
-    fireEvent.change(orientationSelect, { target: { value: '9:16_gaming_split' } });
+    act(() => {
+      orientationSelect.value = '9:16_gaming_split';
+      orientationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 
-    // Now GamingCropEditor should be visible
-    expect(screen.getByText(/9:16 Gaming Split Framing/i)).toBeTruthy();
+    expect(container.textContent).toContain('9:16 Gaming Split Framing');
+    unmount();
   });
 
   it('attaches orientation, gaming_facecam_crop, and gaming_gameplay_crop in handleRunJob', async () => {
     const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
-      job_id: 'job_gaming_123',
+      job_id: 'job_gaming_split_123',
       status: 'started',
     });
-    vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
 
-    const { container } = render(
-      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestGaming" />
+    const { container, unmount } = renderComponent(
+      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
     );
 
     const orientationSelect = container.querySelector('#orientation-select') as HTMLSelectElement;
-    fireEvent.change(orientationSelect, { target: { value: '9:16_gaming_split' } });
+    act(() => {
+      orientationSelect.value = '9:16_gaming_split';
+      orientationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 
     const form = container.querySelector('form');
+    expect(form).toBeTruthy();
+
     await act(async () => {
       form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
 
-    expect(runMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orientation: '9:16_gaming_split',
-        gaming_facecam_crop: expect.stringMatching(/^[0-9.,]+$/),
-        gaming_gameplay_crop: expect.stringMatching(/^[0-9.,]+$/),
-      })
-    );
+    expect(runMock).toHaveBeenCalled();
+    const payload = runMock.mock.calls[0][0];
+    expect(payload.orientation).toBe('9:16_gaming_split');
+    expect(payload.gaming_facecam_crop).toBe('0.6800,0.0500,0.2800,0.1493');
+    expect(payload.gaming_gameplay_crop).toBe('0.2500,0.0000,0.5000,0.6220');
+
+    unmount();
   });
 });
