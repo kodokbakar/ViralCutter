@@ -21,17 +21,22 @@ def parse_normalized_box(box_str: str) -> Tuple[float, float, float, float]:
     except (ValueError, TypeError):
         x, y, w, h = 0.0, 0.0, 0.5, 0.5
 
-    x = max(0.0, min(1.0, x))
-    y = max(0.0, min(1.0, y))
     w = max(0.05, min(1.0, w))
     h = max(0.05, min(1.0, h))
+    x = max(0.0, min(1.0 - w, x))
+    y = max(0.0, min(1.0 - h, y))
+
+    x = round(x, 4)
+    y = round(y, 4)
+    w = round(w, 4)
+    h = round(h, 4)
 
     if x + w > 1.0:
-        w = max(0.05, 1.0 - x)
+        x = round(1.0 - w, 4)
     if y + h > 1.0:
-        h = max(0.05, 1.0 - y)
+        y = round(1.0 - h, 4)
 
-    return round(x, 4), round(y, 4), round(w, 4), round(h, 4)
+    return x, y, w, h
 
 def to_pixel_box(normalized_box: str, src_w: int, src_h: int) -> Tuple[int, int, int, int]:
     """
@@ -43,10 +48,13 @@ def to_pixel_box(normalized_box: str, src_w: int, src_h: int) -> Tuple[int, int,
     px_w = int(round(w * src_w))
     px_h = int(round(h * src_h))
 
-    px_x = px_x - (px_x % 2)
-    px_y = px_y - (px_y % 2)
-    px_w = max(2, px_w - (px_w % 2))
-    px_h = max(2, px_h - (px_h % 2))
+    px_w = max(2, min(src_w, px_w - (px_w % 2)))
+    px_h = max(2, min(src_h, px_h - (px_h % 2)))
+
+    px_x = min(px_x, src_w - px_w)
+    px_y = min(px_y, src_h - px_h)
+    px_x = max(0, px_x - (px_x % 2))
+    px_y = max(0, px_y - (px_y % 2))
 
     if px_x + px_w > src_w:
         px_w = max(2, (src_w - px_x) - ((src_w - px_x) % 2))
@@ -122,6 +130,7 @@ def render_gaming_split_clip(
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
+        "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         output_path
     ]

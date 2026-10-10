@@ -18,10 +18,22 @@ def test_parse_normalized_box_valid():
 def test_parse_normalized_box_clamping():
     x, y, w, h = parse_normalized_box("-0.5, 1.5, 2.0, 0.02")
     assert x == 0.0
-    assert y == 1.0
+    assert y == pytest.approx(0.95)
     assert w == 1.0
     assert h == 0.05  # Minimum height guard
+    assert x + w <= 1.0
+    assert y + h <= 1.0
 
+def test_boundary_edge_case():
+    x, y, w, h = parse_normalized_box("1.0, 1.0, 0.5, 0.5")
+    assert x + w <= 1.0
+    assert y + h <= 1.0
+    assert x == pytest.approx(0.5)
+    assert y == pytest.approx(0.5)
+
+    px_x, px_y, px_w, px_h = to_pixel_box("1.0, 1.0, 0.5, 0.5", 1920, 1080)
+    assert px_x + px_w <= 1920
+    assert px_y + px_h <= 1080
 def test_parse_normalized_box_invalid():
     # Empty or malformed falls back to defaults or safe fallbacks
     x, y, w, h = parse_normalized_box("")
@@ -71,7 +83,8 @@ def test_render_gaming_split_clip_ffmpeg_invocation(mock_run, mock_probe, tmp_pa
     assert cmd[0] == "ffmpeg"
     assert "-filter_complex" in cmd
     assert "-c:a" in cmd
-
+    assert "-pix_fmt" in cmd
+    assert cmd[cmd.index("-pix_fmt") + 1] == "yuv420p"
 @patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080))
 @patch("subprocess.run")
 def test_render_gaming_split_clip_fallback_aac(mock_run, mock_probe, tmp_path):
