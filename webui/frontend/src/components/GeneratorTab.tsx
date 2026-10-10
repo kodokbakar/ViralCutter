@@ -22,7 +22,8 @@ import {
   WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation } from '../api/types';
+import GamingCropEditor from './GamingCropEditor';
 
 export interface GeneratorTabProps {
   activeJob?: ActiveJobResponse | null;
@@ -33,7 +34,7 @@ export interface GeneratorTabProps {
 }
 
 export type GeneratorPreset = 'viral_shorts' | 'fast' | 'balanced' | 'accurate' | 'custom';
-export type VideoOrientation = '9:16' | '16:9' | '1:1';
+export type { VideoOrientation };
 export type InputMode = 'upload' | 'youtube' | 'path';
 
 export const AI_BACKEND_DEFAULT_CHUNKS: Record<string, number> = {
@@ -90,6 +91,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [preset, setPreset] = useState<GeneratorPreset>('viral_shorts');
   const [targetDuration, setTargetDuration] = useState<number>(60);
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
+  const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
+  const [gamingGameplayCrop, setGamingGameplayCrop] = useState<string>('0.25,0.0,0.50,0.622');
+  const [previewFrameUri] = useState<string>('');
   const [model, setModel] = useState<string>('large-v3-turbo');
   const [workflow, setWorkflow] = useState<'1' | '2' | '3'>('1');
   const [language, setLanguage] = useState<string>('auto');
@@ -602,6 +606,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       video_path: inputMode === 'upload' || inputMode === 'path' ? videoPath.trim() : undefined,
       project_name: projectName.trim() || undefined,
       workflow: effectiveWorkflow,
+      orientation,
+      gaming_facecam_crop: orientation === '9:16_gaming_split' ? gamingFacecamCrop : undefined,
+      gaming_gameplay_crop: orientation === '9:16_gaming_split' ? gamingGameplayCrop : undefined,
       model,
       language,
       whisper_preset: preset === 'fast' ? 'fast' : preset === 'accurate' ? 'accurate' : 'balanced',
@@ -818,9 +825,22 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <option value="9:16">9:16 (Vertical Shorts / TikTok)</option>
                   <option value="16:9">16:9 (Landscape YouTube)</option>
                   <option value="1:1">1:1 (Square Feed)</option>
+                  <option value="9:16_gaming_split">9:16 Gaming Split (Facecam + Gameplay)</option>
                 </select>
               </div>
             </div>
+
+            {orientation === '9:16_gaming_split' && (
+              <GamingCropEditor
+                imageSrc={previewFrameUri || undefined}
+                facecamCrop={gamingFacecamCrop}
+                gameplayCrop={gamingGameplayCrop}
+                onChange={(cam, game) => {
+                  setGamingFacecamCrop(cam);
+                  setGamingGameplayCrop(game);
+                }}
+              />
+            )}
 
             {/* 3. Whisper Model & Language Selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
