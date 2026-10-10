@@ -6,6 +6,7 @@
 // Job schemas
 export type JobInputSource = 'youtube' | 'upload' | 'gdrive' | 'existing';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type VideoOrientation = '9:16' | '16:9' | '1:1' | '9:16_gaming_split';
 
 export interface JobRunRequest {
   input_source?: JobInputSource;
@@ -30,6 +31,9 @@ export interface JobRunRequest {
   pre_roll?: number;
   post_roll?: number;
   workflow?: string;
+  orientation?: VideoOrientation;
+  gaming_facecam_crop?: string;
+  gaming_gameplay_crop?: string;
 
   // Whisper & Audio
   model?: string;
