@@ -24,6 +24,7 @@ import {
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
 import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
+import VerticalCropEditor from './VerticalCropEditor';
 
 export interface GeneratorTabProps {
   activeJob?: ActiveJobResponse | null;
@@ -173,6 +174,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
   const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
   const [gamingGameplayCrop, setGamingGameplayCrop] = useState<string>('0.25,0.0,0.50,0.622');
+  const [framingMode, setFramingMode] = useState<'face_tracking' | 'manual_crop'>('face_tracking');
+  const [manualCropBox, setManualCropBox] = useState<string>('0.3418,0.0,0.3164,1.0');
   const [sampleFrames, setSampleFrames] = useState<SampleFrameItem[]>([]);
   const [isLoadingSampleFrames, setIsLoadingSampleFrames] = useState<boolean>(false);
   const [model, setModel] = useState<string>('large-v3-turbo');
@@ -558,10 +561,15 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   }, [videoPath, fetchSampleFrames]);
 
   useEffect(() => {
-    if (orientation === '9:16_gaming_split' && videoPath && videoPath.trim() && sampleFrames.length === 0) {
+    if (
+      (orientation === '9:16_gaming_split' || (orientation === '9:16' && framingMode === 'manual_crop')) &&
+      videoPath &&
+      videoPath.trim() &&
+      sampleFrames.length === 0
+    ) {
       fetchSampleFrames(videoPath.trim());
     }
-  }, [orientation, videoPath, sampleFrames.length, fetchSampleFrames]);
+  }, [orientation, framingMode, videoPath, sampleFrames.length, fetchSampleFrames]);
 
   // Live SSE Stream Connection
   useEffect(() => {
@@ -712,6 +720,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     if (orientation === '16:9') {
       effectiveFaceMode = 'none';
       effectiveNoFaceMode = 'zoom';
+    } else if (
+      orientation === '9:16_gaming_split' ||
+      (orientation === '9:16' && framingMode === 'manual_crop')
+    ) {
+      effectiveFaceMode = 'none';
     } else if (orientation === '1:1' && faceMode === 'auto') {
       effectiveFaceMode = 'auto';
       effectiveNoFaceMode = 'padding';
@@ -729,6 +742,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       orientation,
       gaming_facecam_crop: orientation === '9:16_gaming_split' ? gamingFacecamCrop : undefined,
       gaming_gameplay_crop: orientation === '9:16_gaming_split' ? gamingGameplayCrop : undefined,
+      manual_crop:
+        orientation === '9:16' && framingMode === 'manual_crop'
+          ? manualCropBox
+          : undefined,
       model,
       language,
       whisper_preset: preset === 'fast' ? 'fast' : preset === 'accurate' ? 'accurate' : 'balanced',
@@ -949,6 +966,47 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                 </select>
               </div>
             </div>
+            {orientation === '9:16' && (
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-300">Framing Method</span>
+                  <div className="inline-flex rounded-lg p-0.5 bg-zinc-800 border border-zinc-700">
+                    <button
+                      type="button"
+                      onClick={() => setFramingMode('face_tracking')}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        framingMode === 'face_tracking'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🤖 AI Face Tracking
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFramingMode('manual_crop')}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        framingMode === 'manual_crop'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      📐 Manual 9:16 Crop
+                    </button>
+                  </div>
+                </div>
+
+                {framingMode === 'manual_crop' && (
+                  <VerticalCropEditor
+                    sampleFrames={sampleFrames}
+                    isLoadingSamples={isLoadingSampleFrames}
+                    cropBox={manualCropBox}
+                    onChange={setManualCropBox}
+                  />
+                )}
+              </div>
+            )}
+
 
             {orientation === '9:16_gaming_split' && (
               <GamingCropEditor
@@ -1320,7 +1378,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             </div>
 
             {/* 7. Face Processing Controls Panel */}
-            <div className="space-y-3 border-t border-zinc-800 pt-4">
+            {!(orientation === '9:16_gaming_split' || (orientation === '9:16' && framingMode === 'manual_crop')) && (
+              <div className="space-y-3 border-t border-zinc-800 pt-4">
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
                 Face &amp; Framing Settings
               </span>
@@ -1487,7 +1546,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   )}
                 </div>
               )}
-            </div>
+              </div>
+            )}
 
             {/* 8. Smart Clipping Controls */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">

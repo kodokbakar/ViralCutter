@@ -37,6 +37,7 @@ class JobRunRequest(BaseModel):
     orientation: str = Field(default="9:16", description="Video orientation: 9:16, 16:9, 1:1, 9:16_gaming_split")
     gaming_facecam_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for facecam")
     gaming_gameplay_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for gameplay")
+    manual_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for manual 9:16 vertical crop")
 
 
     # Whisper & Audio
@@ -236,6 +237,8 @@ class JobRunRequest(BaseModel):
             cmd.extend(["--gaming-facecam", str(self.gaming_facecam_crop)])
         if self.gaming_gameplay_crop:
             cmd.extend(["--gaming-gameplay", str(self.gaming_gameplay_crop)])
+        if self.manual_crop:
+            cmd.extend(["--manual-crop", str(self.manual_crop)])
 
         # Whisper
         cmd.extend(["--model", str(self.model)])

@@ -34,6 +34,7 @@ export interface JobRunRequest {
   orientation?: VideoOrientation;
   gaming_facecam_crop?: string;
   gaming_gameplay_crop?: string;
+  manual_crop?: string;
 
   // Whisper & Audio
   model?: string;

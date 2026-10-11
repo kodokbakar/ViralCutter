@@ -5,6 +5,7 @@ from typing import Tuple, Optional
 
 DEFAULT_FACECAM_BOX = "0.68,0.05,0.28,0.1493"
 DEFAULT_GAMEPLAY_BOX = "0.25,0.0,0.50,0.622"
+DEFAULT_MANUAL_CROP_BOX = "0.3418,0.0,0.3164,1.0"
 
 def parse_normalized_box(box_str: str) -> Tuple[float, float, float, float]:
     """
@@ -139,6 +140,55 @@ def render_gaming_split_clip(
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     except subprocess.CalledProcessError:
         # Fallback with AAC re-encoding if audio stream copy fails
+        cmd_aac = list(cmd)
+        cmd_aac[cmd_aac.index("-c:a") + 1] = "aac"
+        subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    return output_path
+
+def build_manual_crop_filter(
+    crop_box: str,
+    src_w: int,
+    src_h: int,
+    target_w: int = 1080,
+    target_h: int = 1920
+) -> str:
+    """
+    Generates FFmpeg filter string to crop and scale source video to 9:16 (1080x1920).
+    """
+    px_x, px_y, px_w, px_h = to_pixel_box(crop_box or DEFAULT_MANUAL_CROP_BOX, src_w, src_h)
+    return f"crop={px_w}:{px_h}:{px_x}:{px_y},scale={target_w}:{target_h}:flags=lanczos"
+
+def render_manual_crop_clip(
+    input_path: str,
+    output_path: str,
+    crop_box: str = DEFAULT_MANUAL_CROP_BOX
+) -> str:
+    """
+    Renders input video directly into 1080x1920 9:16 using a manual bounding box.
+    """
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Input video not found: {input_path}")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    src_w, src_h = probe_video_dimensions(input_path)
+    vf = build_manual_crop_filter(crop_box, src_w, src_h)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        output_path
+    ]
+
+    try:
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    except subprocess.CalledProcessError:
         cmd_aac = list(cmd)
         cmd_aac[cmd_aac.index("-c:a") + 1] = "aac"
         subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)

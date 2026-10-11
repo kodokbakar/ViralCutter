@@ -2,6 +2,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import GamingCropEditor, { parseBox, formatBox } from '../components/GamingCropEditor';
+import VerticalCropEditor from '../components/VerticalCropEditor';
 import { GeneratorTab } from '../components/GeneratorTab';
 import { jobsApi, systemApi } from '../api/client';
 
@@ -191,6 +192,74 @@ describe('GeneratorTab Gaming Split Integration', () => {
     expect(payload.orientation).toBe('9:16_gaming_split');
     expect(payload.gaming_facecam_crop).toBe('0.6800,0.0500,0.2800,0.1493');
     expect(payload.gaming_gameplay_crop).toBe('0.2500,0.0000,0.5000,0.6220');
+
+    unmount();
+  });
+
+  it('renders framing mode selector and toggles between AI Face Tracking and Manual 9:16 Crop', async () => {
+    const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+      job_id: 'job_manual_crop_456',
+      status: 'started',
+    });
+
+    const { container, unmount } = renderComponent(
+      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+    );
+
+    expect(container.textContent).toContain('Framing Method');
+    expect(container.textContent).toContain('AI Face Tracking');
+    expect(container.textContent).toContain('Manual 9:16 Crop');
+
+    // Toggle to Manual 9:16 Crop
+    const manualCropBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Manual 9:16 Crop')
+    );
+    expect(manualCropBtn).toBeTruthy();
+    act(() => {
+      manualCropBtn?.click();
+    });
+
+    expect(container.textContent).toContain('Manual 9:16 Vertical Crop');
+
+    // Submit form and verify manual_crop is attached
+    const form = container.querySelector('form');
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(runMock).toHaveBeenCalled();
+    const payload = runMock.mock.calls[0][0];
+    expect(payload.orientation).toBe('9:16');
+    expect(payload.manual_crop).toBe('0.3418,0.0000,0.3164,1.0000');
+    expect(payload.face_mode).toBe('none');
+
+    unmount();
+  });
+});
+
+describe('VerticalCropEditor Standalone Component', () => {
+  it('renders canvas and preset buttons, calls onChange on preset click', () => {
+    const onChange = vi.fn();
+    const { container, unmount } = renderComponent(
+      <VerticalCropEditor
+        cropBox="0.3418,0.0,0.3164,1.0"
+        onChange={onChange}
+      />
+    );
+
+    expect(container.textContent).toContain('Manual 9:16 Vertical Crop');
+    expect(container.textContent).toContain('Left');
+    expect(container.textContent).toContain('Center');
+    expect(container.textContent).toContain('Right');
+    expect(container.textContent).toContain('Reset');
+
+    const leftBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Left')
+    );
+    act(() => {
+      leftBtn?.click();
+    });
+    expect(onChange).toHaveBeenCalled();
 
     unmount();
   });

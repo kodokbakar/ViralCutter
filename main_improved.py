@@ -176,6 +176,12 @@ def main():
         default="0.25,0.0,0.50,0.622",
         help="Normalized x,y,w,h crop coordinates for gameplay in 9:16 gaming split mode"
     )
+    parser.add_argument(
+        "--manual-crop",
+        type=str,
+        default=None,
+        help="Normalized x,y,w,h crop coordinates for manual 9:16 vertical crop"
+    )
     parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
     parser.add_argument("--face-mode", choices=["auto", "1", "2", "none"], default="auto", help="Face tracking mode: auto, 1, 2, none")
     parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
@@ -564,7 +570,7 @@ def main():
     workflow_choice = args.workflow
     face_model = args.face_model
     face_mode = args.face_mode
-    if args.orientation == "9:16_gaming_split":
+    if args.orientation == "9:16_gaming_split" or args.manual_crop:
         face_mode = "none"
 
     # If args weren't provided and we are not skipping prompts, ask user
@@ -865,6 +871,32 @@ def main():
                         output_path=target_out,
                         facecam_box=args.gaming_facecam,
                         gameplay_box=args.gaming_gameplay
+                    )
+                    face_modes[f"output{idx:03d}"] = "none"
+                modes_file = os.path.join(project_folder, "face_modes.json")
+                with open(modes_file, "w", encoding="utf-8") as f:
+                    json.dump(face_modes, f, indent=4)
+            elif args.manual_crop:
+                print(i18n("Manual 9:16 crop framing mode selected..."))
+                face_mode = "none"
+                from scripts import gaming_split
+                cuts_folder = os.path.join(project_folder, "cuts")
+                final_folder = os.path.join(project_folder, "final")
+                os.makedirs(final_folder, exist_ok=True)
+                face_modes = {}
+                cut_files = [
+                    f for f in sorted(os.listdir(cuts_folder))
+                    if f.endswith(".mp4") and "input" not in f.lower()
+                ] if os.path.exists(cuts_folder) else []
+                for idx, c_file in enumerate(cut_files):
+                    c_path = os.path.join(cuts_folder, c_file)
+                    base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
+                    target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
+                    print(f"Rendering manual 9:16 crop: {c_file} -> {os.path.basename(target_out)}")
+                    gaming_split.render_manual_crop_clip(
+                        input_path=c_path,
+                        output_path=target_out,
+                        crop_box=args.manual_crop
                     )
                     face_modes[f"output{idx:03d}"] = "none"
                 modes_file = os.path.join(project_folder, "face_modes.json")
