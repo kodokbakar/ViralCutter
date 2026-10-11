@@ -22,7 +22,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
 
 export interface GeneratorTabProps {
@@ -44,6 +44,86 @@ export const AI_BACKEND_DEFAULT_CHUNKS: Record<string, number> = {
   local: 30000,
 };
 
+
+function extractLocalFileSampleFrames(file: File, count = 3): Promise<SampleFrameItem[]> {
+  const { promise, resolve } = Promise.withResolvers<SampleFrameItem[]>();
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      resolve([]);
+      return promise;
+    }
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      try {
+        URL.revokeObjectURL(url);
+        video.remove();
+      } catch {
+        // ignore
+      }
+    };
+
+    video.onloadedmetadata = async () => {
+      const dur = Math.max(1, video.duration || 10);
+      const ratios = [0.15, 0.50, 0.85];
+      const timestamps = ratios.slice(0, count).map((r) => Math.round(dur * r * 100) / 100);
+
+      const captured: SampleFrameItem[] = [];
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+
+      for (let i = 0; i < timestamps.length; i++) {
+        const t = timestamps[i];
+        video.currentTime = t;
+        const { promise: seekPromise, resolve: seekResolve } = Promise.withResolvers<void>();
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          seekResolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+        setTimeout(seekResolve, 600);
+        await seekPromise;
+
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUri = canvas.toDataURL('image/jpeg', 0.85);
+          const mins = Math.floor(t / 60);
+          const secs = Math.floor(t % 60);
+          captured.push({
+            index: i,
+            timestamp: t,
+            time_label: `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
+            path: `local_frame_${i}`,
+            filename: `local_frame_${i}.jpg`,
+            data_uri: dataUri,
+          });
+        }
+      }
+      cleanup();
+      resolve(captured);
+    };
+
+    video.onerror = () => {
+      cleanup();
+      resolve([]);
+    };
+
+    setTimeout(() => {
+      cleanup();
+      resolve([]);
+    }, 3500);
+  } catch {
+    resolve([]);
+  }
+  return promise;
+}
 function usePersistedState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(() => {
     try {
@@ -93,7 +173,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
   const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
   const [gamingGameplayCrop, setGamingGameplayCrop] = useState<string>('0.25,0.0,0.50,0.622');
-  const [previewFrameUri] = useState<string>('');
+  const [sampleFrames, setSampleFrames] = useState<SampleFrameItem[]>([]);
+  const [isLoadingSampleFrames, setIsLoadingSampleFrames] = useState<boolean>(false);
   const [model, setModel] = useState<string>('large-v3-turbo');
   const [workflow, setWorkflow] = useState<'1' | '2' | '3'>('1');
   const [language, setLanguage] = useState<string>('auto');
@@ -452,6 +533,36 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     fetchCompletedClipsRef.current = fetchCompletedClips;
   }, [fetchCompletedClips]);
 
+  const fetchSampleFrames = useCallback(async (path: string) => {
+    if (!path || !path.trim()) {
+      setSampleFrames([]);
+      return;
+    }
+    setIsLoadingSampleFrames(true);
+    try {
+      const res = await previewApi.getSampleFrames({ path: path.trim(), count: 3 });
+      if (res && res.frames && res.frames.length > 0) {
+        setSampleFrames(res.frames);
+      }
+    } catch (err) {
+      console.warn('Failed to load sample frames:', err);
+    } finally {
+      setIsLoadingSampleFrames(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (videoPath && videoPath.trim()) {
+      fetchSampleFrames(videoPath.trim());
+    }
+  }, [videoPath, fetchSampleFrames]);
+
+  useEffect(() => {
+    if (orientation === '9:16_gaming_split' && videoPath && videoPath.trim() && sampleFrames.length === 0) {
+      fetchSampleFrames(videoPath.trim());
+    }
+  }, [orientation, videoPath, sampleFrames.length, fetchSampleFrames]);
+
   // Live SSE Stream Connection
   useEffect(() => {
     if (!trackedJobId) return;
@@ -536,6 +647,14 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.type.startsWith('video/')) {
+      extractLocalFileSampleFrames(file).then((localFrames) => {
+        if (localFrames && localFrames.length > 0) {
+          setSampleFrames(localFrames);
+        }
+      });
+    }
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadStatus('Uploading file...');
@@ -559,6 +678,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       if (!projectName && res.filename) {
         setProjectName(res.filename.replace(/\.[^/.]+$/, ''));
       }
+      fetchSampleFrames(res.filepath);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
       setErrorMessage(msg);
@@ -832,7 +952,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
             {orientation === '9:16_gaming_split' && (
               <GamingCropEditor
-                imageSrc={previewFrameUri || undefined}
+                sampleFrames={sampleFrames}
+                isLoadingSamples={isLoadingSampleFrames}
                 facecamCrop={gamingFacecamCrop}
                 gameplayCrop={gamingGameplayCrop}
                 onChange={(cam, game) => {

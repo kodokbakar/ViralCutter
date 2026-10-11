@@ -88,6 +88,41 @@ describe('GamingCropEditor Component', () => {
 
     unmount();
   });
+
+  it('renders 3 sample frame buttons and allows switching', () => {
+    const onSelect = vi.fn();
+    const sampleFrames = [
+      { index: 0, timestamp: 5.0, time_label: '00:05', path: '/tmp/f1.jpg', filename: 'f1.jpg', data_uri: 'data:image/jpeg;base64,1' },
+      { index: 1, timestamp: 30.0, time_label: '00:30', path: '/tmp/f2.jpg', filename: 'f2.jpg', data_uri: 'data:image/jpeg;base64,2' },
+      { index: 2, timestamp: 55.0, time_label: '00:55', path: '/tmp/f3.jpg', filename: 'f3.jpg', data_uri: 'data:image/jpeg;base64,3' },
+    ];
+
+    const { container, unmount } = renderComponent(
+      <GamingCropEditor
+        facecamCrop="0.68,0.05,0.28,0.15"
+        gameplayCrop="0.25,0.0,0.50,0.62"
+        sampleFrames={sampleFrames}
+        onSelectSampleFrame={onSelect}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(container.textContent).toContain('Source Frames:');
+    expect(container.textContent).toContain('Sample 1 (00:05)');
+    expect(container.textContent).toContain('Sample 2 (00:30)');
+    expect(container.textContent).toContain('Sample 3 (00:55)');
+
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const sample2Btn = buttons.find((b) => b.textContent?.includes('Sample 2 (00:30)'));
+    expect(sample2Btn).toBeTruthy();
+
+    act(() => {
+      sample2Btn?.click();
+    });
+    expect(onSelect).toHaveBeenCalledWith(1);
+
+    unmount();
+  });
 });
 
 describe('GeneratorTab Gaming Split Integration', () => {

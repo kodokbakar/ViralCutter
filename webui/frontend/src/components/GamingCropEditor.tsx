@@ -1,9 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Gamepad2, RotateCcw } from 'lucide-react';
+import { Gamepad2, RotateCcw, Film, Upload, Loader2 } from 'lucide-react';
+import type { SampleFrameItem } from '../api/types';
 
 export interface GamingCropEditorProps {
   imageSrc?: string;
   videoSrc?: string;
+  sampleFrames?: SampleFrameItem[];
+  activeSampleIndex?: number;
+  onSelectSampleFrame?: (index: number) => void;
+  isLoadingSamples?: boolean;
   facecamCrop: string;
   gameplayCrop: string;
   onChange: (facecamCrop: string, gameplayCrop: string) => void;
@@ -71,6 +76,10 @@ function getHandleAt(
 export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
   imageSrc,
   videoSrc,
+  sampleFrames,
+  activeSampleIndex,
+  onSelectSampleFrame,
+  isLoadingSamples,
   facecamCrop,
   gameplayCrop,
   onChange,
@@ -78,7 +87,16 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedFrameIdx, setSelectedFrameIdx] = useState<number>(() => activeSampleIndex ?? 0);
+  const [customImageUri, setCustomImageUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeSampleIndex !== undefined && activeSampleIndex >= 0) {
+      setSelectedFrameIdx(activeSampleIndex);
+    }
+  }, [activeSampleIndex]);
   const [facecam, setFacecam] = useState<BoxRect>(() =>
     parseBox(facecamCrop, { x: 0.68, y: 0.05, w: 0.28, h: 0.1493 })
   );
@@ -238,10 +256,19 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
     ctx.stroke();
   }, [facecam, gameplay]);
 
+  // Determine active frame source
+  const activeSampleFrame =
+    sampleFrames && sampleFrames.length > 0
+      ? sampleFrames[selectedFrameIdx] || sampleFrames[0]
+      : null;
+
+  const activeSrc =
+    customImageUri ||
+    (activeSampleFrame ? activeSampleFrame.data_uri || activeSampleFrame.path : imageSrc || videoSrc);
+
   // Load and cache image
   useEffect(() => {
-    const src = imageSrc || videoSrc;
-    if (!src) {
+    if (!activeSrc) {
       imageRef.current = null;
       drawSource();
       drawPreview();
@@ -249,7 +276,7 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
     }
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = src;
+    img.src = activeSrc;
     img.onload = () => {
       imageRef.current = img;
       drawSource();
@@ -260,7 +287,7 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       drawSource();
       drawPreview();
     };
-  }, [imageSrc, videoSrc, drawSource, drawPreview]);
+  }, [activeSrc, drawSource, drawPreview]);
 
   useEffect(() => {
     drawSource();
@@ -567,6 +594,99 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
             <RotateCcw className="h-3 w-3" />
             <span>Reset</span>
           </button>
+        </div>
+      </div>
+      {/* 3 Source Sample Frames Selector Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-zinc-950/80 rounded-lg border border-zinc-800/80">
+        <div className="flex items-center space-x-2">
+          <span className="text-[11px] font-medium text-zinc-300 flex items-center space-x-1.5 shrink-0">
+            <Film className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Source Frames:</span>
+          </span>
+
+          {isLoadingSamples ? (
+            <span className="text-[11px] text-zinc-400 flex items-center space-x-1.5 font-mono">
+              <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
+              <span>Extracting 3 sample frames...</span>
+            </span>
+          ) : sampleFrames && sampleFrames.length > 0 ? (
+            <div className="flex items-center space-x-1.5 overflow-x-auto py-0.5">
+              {sampleFrames.map((frame, idx) => (
+                <button
+                  key={frame.index ?? idx}
+                  type="button"
+                  onClick={() => {
+                    setCustomImageUri(null);
+                    setSelectedFrameIdx(idx);
+                    onSelectSampleFrame?.(idx);
+                  }}
+                  className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-mono transition-all border ${
+                    customImageUri === null && selectedFrameIdx === idx
+                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/80 ring-1 ring-emerald-500/30 font-semibold'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200 hover:border-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      customImageUri === null && selectedFrameIdx === idx
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-zinc-600'
+                    }`}
+                  />
+                  <span>Sample {idx + 1} ({frame.time_label})</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[11px] text-zinc-500 italic">
+              Upload video above to load 3 sample frames
+            </span>
+          )}
+        </div>
+
+        {/* Optional Custom Frame Image Uploader */}
+        <div className="flex items-center space-x-1.5">
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  if (event.target?.result) {
+                    setCustomImageUri(event.target.result as string);
+                  }
+                };
+                reader.readAsDataURL(file);
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={`px-2 py-1 rounded text-[11px] transition-colors border flex items-center space-x-1 ${
+              customImageUri
+                ? 'bg-blue-950/80 text-blue-300 border-blue-500/80'
+                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200 hover:border-zinc-700'
+            }`}
+            title="Upload custom frame screenshot"
+          >
+            <Upload className="h-3 w-3" />
+            <span>{customImageUri ? 'Custom Frame Active' : 'Custom Image'}</span>
+          </button>
+          {customImageUri && (
+            <button
+              type="button"
+              onClick={() => setCustomImageUri(null)}
+              className="px-1.5 py-0.5 rounded text-[11px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+              title="Revert to video sample frames"
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
 

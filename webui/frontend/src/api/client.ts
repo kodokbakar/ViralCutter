@@ -36,6 +36,8 @@ import type {
   PromptTemplateResponse,
   ThumbnailRequest,
   ThumbnailResponse,
+  SampleFramesRequest,
+  SampleFramesResponse,
   UploadResponse,
   VideoMetadata,
 } from './types';
@@ -295,6 +297,12 @@ export const previewApi = {
 
   previewSubtitleVideo: (req: SubtitleVideoPreviewRequest): Promise<SubtitleVideoPreviewResponse> =>
     request<SubtitleVideoPreviewResponse>('/preview/subtitle-video', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+
+  getSampleFrames: (req: SampleFramesRequest): Promise<SampleFramesResponse> =>
+    request<SampleFramesResponse>('/preview/sample-frames', {
       method: 'POST',
       body: JSON.stringify(req),
     }),

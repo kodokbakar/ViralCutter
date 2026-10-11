@@ -171,6 +171,27 @@ export interface SubtitleVideoPreviewResponse {
   file_path: string;
 }
 
+export interface SampleFrameItem {
+  index: number;
+  timestamp: number;
+  time_label: string;
+  path: string;
+  filename: string;
+  data_uri: string;
+}
+
+export interface SampleFramesRequest {
+  path: string;
+  count?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface SampleFramesResponse {
+  duration: number;
+  frames: SampleFrameItem[];
+}
+
 // Library schemas
 export interface ProjectSummary {
   name: string;

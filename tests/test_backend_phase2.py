@@ -604,6 +604,20 @@ def test_real_video_metadata_and_thumbnail(tmp_path):
         assert res_thumb_get.status_code == 200
         assert res_thumb_get.headers["content-type"] == "image/jpeg"
 
+
+        # Test sample frames generation
+        res_samples = client.post(
+            "/api/v1/preview/sample-frames",
+            json={"path": str(vid_path), "count": 3, "width": 320, "height": 180},
+        )
+        assert res_samples.status_code == 200
+        samples_data = res_samples.json()
+        assert "frames" in samples_data
+        assert len(samples_data["frames"]) == 3
+        for f in samples_data["frames"]:
+            assert f["data_uri"].startswith("data:image/jpeg;base64,")
+            assert Path(f["path"]).exists()
+            Path(f["path"]).unlink(missing_ok=True)
         # Clean up thumb
         thumb_file.unlink(missing_ok=True)
     finally:

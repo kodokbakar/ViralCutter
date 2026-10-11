@@ -16,13 +16,20 @@ from scripts.burn_subtitles import _escape_filter_path
 from webui.backend.config import PREVIEWS_DIR
 from webui.backend.core.security import validate_safe_path
 from webui.backend.schemas.preview import (
+    SampleFrameItem,
+    SampleFramesRequest,
+    SampleFramesResponse,
     SubtitleVideoPreviewRequest,
     SubtitleVideoPreviewResponse,
     ThumbnailRequest,
     ThumbnailResponse,
     VideoMetadataResponse,
 )
-from webui.video_preview import extract_preview_frame
+from webui.video_preview import (
+    extract_preview_frame,
+    extract_source_sample_frames,
+    get_video_duration,
+)
 
 router = APIRouter()
 
@@ -269,6 +276,28 @@ async def get_thumbnail_file(path: str = Query(..., description="Path to thumbna
     safe_thumb = validate_safe_path(path, allowed_roots=[PREVIEWS_DIR], must_exist=True)
     return FileResponse(safe_thumb, media_type="image/jpeg")
 
+
+@router.post("/sample-frames", response_model=SampleFramesResponse)
+async def get_sample_frames(request: SampleFramesRequest):
+    """
+    Extract N representative 16:9 unpadded sample frames across video duration.
+    Used by GamingCropEditor to frame facecam and gameplay accurately.
+    """
+    safe_path = validate_safe_path(request.path, must_exist=True)
+    await asyncio.to_thread(PREVIEWS_DIR.mkdir, parents=True, exist_ok=True)
+    duration = await asyncio.to_thread(get_video_duration, str(safe_path))
+    frames = await asyncio.to_thread(
+        extract_source_sample_frames,
+        video_path=str(safe_path),
+        output_dir=str(PREVIEWS_DIR),
+        count=request.count,
+        width=request.width,
+        height=request.height,
+    )
+    return SampleFramesResponse(
+        duration=duration,
+        frames=[SampleFrameItem(**f) for f in frames],
+    )
 
 def _to_ass_color(col: Any, default: str = "&H00FFFFFF&", alpha: str = "00") -> str:
     if not col:
