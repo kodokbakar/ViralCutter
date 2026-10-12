@@ -256,7 +256,7 @@ async def test_stream_job_logs_headers():
             assert response.headers["Cache-Control"] == "no-cache, no-transform"
             assert response.headers["Connection"] == "keep-alive"
             assert response.headers["X-Accel-Buffering"] == "no"
-            assert response.headers["Content-Type"] == "text/event-stream; charset=utf-8"
+            assert response.headers["Content-Type"] == "text/event-stream"
 
 
 def test_cli_mapping_project_name_and_video_path():

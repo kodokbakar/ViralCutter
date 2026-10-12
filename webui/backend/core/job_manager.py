@@ -204,6 +204,8 @@ class Job:
         import asyncio
         cursor = 0
         last_activity = time.time()
+        # Flush initial HTTP headers and bypass proxy/Cloudflare edge buffers immediately
+        yield f": stream-open {' ' * 2048}\n\n"
         while True:
             events_to_yield = []
             with self.lock:
