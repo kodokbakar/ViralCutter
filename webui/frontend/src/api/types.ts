@@ -95,10 +95,34 @@ export interface JobRunRequest {
   watermark_opacity?: number;
   watermark_h_margin?: number;
   watermark_v_margin?: number;
+  watermark_custom_x?: number;
+  watermark_custom_y?: number;
+  watermark_start?: number;
+  watermark_end?: number;
+  watermark_fade_in?: number;
+  watermark_fade_out?: number;
 
   // Overrides
   skip_prompts?: boolean;
   custom_cmd?: string[];
+}
+
+export interface StoredWatermarkConfig {
+  enabled: boolean;
+  mode: 'disabled' | 'image' | 'text';
+  serverImagePath?: string;
+  imageFilename?: string;
+  imagePreviewUrl?: string;
+  watermarkText?: string;
+  textColor?: string;
+  fontSize?: number;
+  position?: string;
+  opacity?: number;
+  scale?: number;
+  hMargin?: number;
+  vMargin?: number;
+  customX?: number;
+  customY?: number;
 }
 
 export interface JobResponse {

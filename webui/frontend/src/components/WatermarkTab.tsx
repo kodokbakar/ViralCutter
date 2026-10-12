@@ -5,12 +5,13 @@ import {
   Upload,
   Eye,
   Play,
+  Check,
   CheckCircle2,
   AlertCircle,
   Loader2,
 } from 'lucide-react';
-import { uploadApi, jobsApi } from '../api/client';
-import type { JobRunRequest } from '../api/types';
+import { uploadApi } from '../api/client';
+import type { StoredWatermarkConfig } from '../api/types';
 
 export interface WatermarkTabProps {
   defaultVideoPath?: string;
@@ -59,25 +60,76 @@ export const WatermarkTab: React.FC<WatermarkTabProps> = ({
   const [vMargin, setVMargin] = useState<number>(20);
 
   // Submission State
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load saved watermark configuration on mount
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('viralcutter_watermark_config');
+        if (saved) {
+          const parsed = JSON.parse(saved) as StoredWatermarkConfig;
+          if (parsed.mode === 'image' || parsed.mode === 'text') {
+            setMode(parsed.mode);
+          }
+          if (parsed.serverImagePath) {
+            setServerImagePath(parsed.serverImagePath);
+            setUploadSuccess(
+              parsed.imageFilename
+                ? `Uploaded: ${parsed.imageFilename}`
+                : 'Watermark image loaded'
+            );
+          }
+          if (parsed.imagePreviewUrl) {
+            setImagePreviewUrl(parsed.imagePreviewUrl);
+          }
+          if (parsed.watermarkText) setWatermarkText(parsed.watermarkText);
+          if (parsed.textColor) setTextColor(parsed.textColor);
+          if (parsed.fontSize) setFontSize(parsed.fontSize);
+          if (parsed.position) setPosition(parsed.position as WatermarkPosition);
+          if (typeof parsed.opacity === 'number') setOpacity(parsed.opacity);
+          if (typeof parsed.scale === 'number') setScale(parsed.scale);
+          if (typeof parsed.hMargin === 'number') setHMargin(Math.round(parsed.hMargin / 2));
+          if (typeof parsed.vMargin === 'number') setVMargin(Math.round(parsed.vMargin / 2));
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (defaultVideoPath) setVideoPath(defaultVideoPath);
     if (defaultProjectName) setProjectName(defaultProjectName);
   }, [defaultVideoPath, defaultProjectName]);
-
   // Handle Image Selection and Upload
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setImageFile(file);
-    const localUrl = URL.createObjectURL(file);
-    setImagePreviewUrl(localUrl);
-
+    try {
+      if (typeof globalThis.URL?.createObjectURL === 'function') {
+        setImagePreviewUrl(URL.createObjectURL(file));
+      }
+    } catch {
+      // Fallback
+    }
+    if (typeof FileReader !== 'undefined') {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            setImagePreviewUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        // Fallback
+      }
+    }
     setIsUploading(true);
     setActionMessage(null);
     setUploadSuccess(null);
@@ -94,8 +146,8 @@ export const WatermarkTab: React.FC<WatermarkTabProps> = ({
     }
   };
 
-  // Run Job with Watermark
-  const handleApplyWatermark = async (e: React.FormEvent) => {
+  // Apply Watermark: Persist settings for clip generation in GeneratorTab
+  const handleApplyWatermark = (e: React.FormEvent) => {
     e.preventDefault();
     setActionMessage(null);
 
@@ -108,34 +160,50 @@ export const WatermarkTab: React.FC<WatermarkTabProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
-
-    const payload: JobRunRequest = {
-      video_path: videoPath.trim() || undefined,
-      project_name: projectName.trim() || undefined,
-      watermark_mode: mode,
-      watermark_image: mode === 'image' ? (serverImagePath || imageFile?.name) : undefined,
-      watermark_text: mode === 'text' ? watermarkText.trim() : undefined,
-      watermark_text_color: textColor,
-      watermark_font_size: fontSize,
-      watermark_position: position,
-      watermark_scale: scale,
-      watermark_opacity: opacity,
-      watermark_h_margin: hMargin * 2,
-      watermark_v_margin: vMargin * 2,
+    const config: StoredWatermarkConfig = {
+      enabled: true,
+      mode,
+      serverImagePath: mode === 'image' ? (serverImagePath || imageFile?.name) : undefined,
+      imageFilename: imageFile?.name || (serverImagePath ? serverImagePath.split(/[/\\]/).pop() : undefined),
+      imagePreviewUrl: imagePreviewUrl || undefined,
+      watermarkText: mode === 'text' ? watermarkText.trim() : undefined,
+      textColor,
+      fontSize,
+      position,
+      opacity,
+      scale,
+      hMargin: hMargin * 2,
+      vMargin: vMargin * 2,
     };
 
     try {
-      const res = await jobsApi.run(payload);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('viralcutter_watermark_config', JSON.stringify(config));
+        window.dispatchEvent(new Event('viralcutter_watermark_updated'));
+      }
       setActionMessage({
         type: 'success',
-        text: `Job launched with watermark settings! Job ID: ${res.job_id}`,
+        text: 'Watermark applied! It will be burned into clips generated from the Generator tab.',
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to launch job';
+      const msg = err instanceof Error ? err.message : 'Failed to save watermark settings';
       setActionMessage({ type: 'error', text: msg });
-    } finally {
-      setIsSubmitting(false);
+    }
+  };
+
+  // Disable Watermark
+  const handleDisableWatermark = () => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem('viralcutter_watermark_config');
+        window.dispatchEvent(new Event('viralcutter_watermark_updated'));
+      }
+      setActionMessage({
+        type: 'success',
+        text: 'Watermark disabled. Clips will be generated without a watermark.',
+      });
+    } catch {
+      // Ignore
     }
   };
 
@@ -434,24 +502,34 @@ export const WatermarkTab: React.FC<WatermarkTabProps> = ({
           </div>
 
           {/* Apply Watermark Button */}
-          <button
-            type="submit"
-            data-testid="apply-watermark-button"
-            disabled={isSubmitting}
-            className="w-full flex items-center justify-center space-x-2 rounded-lg bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Applying Watermark...</span>
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 fill-white" />
-                <span>Apply Watermark & Run</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              type="submit"
+              data-testid="apply-watermark-button"
+              disabled={isUploading}
+              className="flex-1 flex items-center justify-center space-x-2 rounded-lg bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Uploading Watermark...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>Apply Watermark</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              data-testid="disable-watermark-button"
+              onClick={handleDisableWatermark}
+              className="px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition-colors"
+            >
+              Disable
+            </button>
+          </div>
         </form>
       </div>
 
