@@ -1156,6 +1156,58 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       previewMock.mockRestore();
       unmount();
     });
+
+    it('preserves newlines in point_highlight template textarea and trims empty lines on render', async () => {
+      const templatesMock = vi.spyOn(brollApi, 'getTemplates').mockResolvedValue([
+        {
+          id: 'point_highlight',
+          name: 'Point Highlight',
+          description: 'Staggered bullets',
+          default_duration: 4.5,
+          sample_data: { headline: '3 Keys', points: ['Point 1', 'Point 2'] },
+        },
+      ]);
+
+      const previewMock = vi.spyOn(brollApi, 'preview').mockResolvedValue({
+        preview_url: '/api/v1/preview/stream?path=test.webm',
+        file_path: '/tmp/test.webm',
+      });
+
+      const { container, unmount } = renderComponent(<BrollTab />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+      expect(textarea).toBeTruthy();
+      expect(textarea.value).toBe('Point 1\nPoint 2');
+
+      // User hits Enter to start a new line with trailing newline
+      act(() => {
+        setNativeValue(textarea, 'Point 1\nPoint 2\n');
+      });
+
+      expect(textarea.value).toBe('Point 1\nPoint 2\n');
+
+      const renderBtn = container.querySelector('[data-testid="test-render-broll-button"]') as HTMLButtonElement;
+      await act(async () => {
+        renderBtn.click();
+      });
+
+      expect(previewMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          template_id: 'point_highlight',
+          data: expect.objectContaining({
+            points: ['Point 1', 'Point 2'],
+          }),
+        })
+      );
+
+      templatesMock.mockRestore();
+      previewMock.mockRestore();
+      unmount();
+    });
   });
 
   // -------------------------------------------------------------
@@ -1409,10 +1461,10 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
   });
 
   // -------------------------------------------------------------
-  // 8. Navbar Tab Switching Across All 7 Tabs
+  // 8. Navbar Tab Switching Across All 8 Tabs
   // -------------------------------------------------------------
   describe('Navbar Tab Switching', () => {
-    it('renders all 7 tabs and invokes onTabChange when clicked', () => {
+    it('renders all 8 tabs and invokes onTabChange when clicked', () => {
       const onTabChange = vi.fn();
 
       const { container, unmount } = renderComponent(

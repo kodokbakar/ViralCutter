@@ -112,10 +112,22 @@ export const BrollTab: React.FC = () => {
     setStatusMessage(null);
 
     try {
+      const dataPayload = { ...templateData };
+      if (Array.isArray(dataPayload.points)) {
+        dataPayload.points = (dataPayload.points as unknown[])
+          .map((p) => String(p).trim())
+          .filter((p) => p.length > 0);
+      } else if (typeof dataPayload.points === 'string') {
+        dataPayload.points = dataPayload.points
+          .split('\n')
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+      }
+
       const res = await brollApi.preview({
         template_id: selectedTemplate.id,
         duration,
-        data: templateData,
+        data: dataPayload,
       });
       setPreviewUrl(res.preview_url);
       setStatusMessage({
@@ -339,10 +351,7 @@ export const BrollTab: React.FC = () => {
                           : String(templateData.points ?? '')
                       }
                       onChange={(e) =>
-                        handleDataChange(
-                          'points',
-                          e.target.value.split('\n').filter((p) => p.trim().length > 0)
-                        )
+                        handleDataChange('points', e.target.value.split('\n'))
                       }
                       className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none font-mono"
                       placeholder="Hook 3 detik pertama&#10;Pacing tanpa dead-air&#10;Punchline memuaskan"
