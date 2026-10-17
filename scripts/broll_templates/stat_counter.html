@@ -15,97 +15,105 @@
     position: relative;
     display: flex; align-items: center; justify-content: center;
     padding: 60px;
+    perspective: 1200px;
   }
-  /* Paper grain & dot pattern overlay */
+  /* Technical Grid Backdrop */
   .grid-backdrop {
     position: absolute;
     inset: 40px;
-    border-radius: 36px;
+    border-radius: 28px;
     background-image: 
-      radial-gradient(circle, rgba(255,255,255,0.08) 1.5px, transparent 1.5px),
-      linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
-    background-size: 32px 32px, 64px 64px, 64px 64px;
+      radial-gradient(circle, rgba(255,255,255,0.12) 1.5px, transparent 1.5px),
+      linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 32px 32px, 96px 96px, 96px 96px;
     pointer-events: none;
     opacity: 0;
   }
-  /* VOX Paper Card */
+  /* VOX Torn Paper Card */
   .vox-card {
     position: relative;
-    width: 940px;
-    background: #14161C;
-    border: 3px solid #F4EFEA;
-    border-radius: 20px;
-    padding: 70px 60px 60px 60px;
+    width: 950px;
+    background: #14171F;
+    border: 4px solid #FAF7F2;
+    clip-path: polygon(
+      0% 2%, 2% 0.5%, 7% 1.8%, 14% 0.2%, 22% 1.5%, 35% 0.4%, 48% 1.6%, 62% 0.3%, 75% 1.4%, 88% 0.5%, 98% 1.8%, 100% 4%,
+      99.2% 16%, 100% 29%, 98.8% 44%, 100% 58%, 99.1% 72%, 100% 86%, 98.5% 97%,
+      96% 99.2%, 85% 98.4%, 72% 99.8%, 58% 98.5%, 43% 99.5%, 28% 98.3%, 15% 99.6%, 3% 98.2%, 0.5% 96%,
+      1.2% 82%, 0.2% 67%, 1.5% 51%, 0.4% 36%, 1.3% 20%, 0.2% 8%
+    );
+    padding: 70px 65px 60px 65px;
     box-shadow: 
-      0 30px 60px rgba(0, 0, 0, 0.85),
-      0 8px 16px rgba(0, 0, 0, 0.5),
-      inset 0 0 0 1px rgba(255,255,255,0.1);
+      0 35px 70px rgba(0, 0, 0, 0.9),
+      8px 10px 0 #000;
     transform-origin: center center;
     opacity: 0;
-    transform: translateY(80px) rotate(-1.5deg) scale(0.9);
+    filter: url(#paper-grain);
   }
-  /* Kraft Paper Tape */
+  /* Jagged Kraft Paper Tape Strips */
   .tape-tl {
     position: absolute;
-    top: -24px; left: 40px;
-    width: 140px; height: 44px;
+    top: -26px; left: 60px;
+    width: 170px; height: 50px;
     background: #E2D3B8;
-    opacity: 0.92;
+    opacity: 0.95;
     transform: rotate(-6deg);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    clip-path: polygon(4% 0%, 96% 2%, 100% 95%, 95% 100%, 0% 98%);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    clip-path: polygon(3% 0%, 97% 3%, 100% 94%, 96% 100%, 0% 97%);
+    z-index: 10;
   }
   .tape-tr {
     position: absolute;
-    top: -20px; right: 40px;
-    width: 130px; height: 42px;
+    top: -24px; right: 60px;
+    width: 160px; height: 48px;
     background: #E2D3B8;
-    opacity: 0.92;
+    opacity: 0.95;
     transform: rotate(5deg);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    clip-path: polygon(2% 2%, 98% 0%, 96% 100%, 0% 96%);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    clip-path: polygon(2% 3%, 98% 0%, 96% 98%, 0% 95%);
+    z-index: 10;
   }
-  /* Technical Header */
+  /* Header Meta */
   .header-meta {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 2px dashed rgba(244, 239, 234, 0.25);
-    padding-bottom: 20px;
+    border-bottom: 2px dashed rgba(250, 247, 242, 0.3);
+    padding-bottom: 22px;
     margin-bottom: 36px;
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 20px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 21px;
     letter-spacing: 2px;
-    color: #F4EFEA;
+    color: #FAF7F2;
     text-transform: uppercase;
   }
   .meta-tag {
     background: #FF5A36;
     color: #FFFFFF;
-    font-weight: 800;
-    padding: 6px 14px;
-    border-radius: 6px;
-    letter-spacing: 1px;
-    font-size: 18px;
+    font-weight: 900;
+    padding: 6px 16px;
+    border-radius: 4px;
+    letter-spacing: 1.5px;
+    font-size: 19px;
+    box-shadow: 3px 3px 0 #000;
   }
-  /* Massive Numeric Punch */
+  /* Odometer Number Box */
   .number-container {
     text-align: center;
-    margin: 20px 0;
+    margin: 15px 0;
     position: relative;
   }
   .number-box {
     font-family: Impact, "Arial Black", -apple-system, sans-serif;
-    font-size: 160px;
+    font-size: 165px;
     font-weight: 900;
     line-height: 0.95;
     color: {{ACCENT_COLOR}};
-    text-shadow: 0 4px 0 #000, 0 10px 30px rgba(0,0,0,0.7);
+    text-shadow: 0 4px 0 #000, 0 12px 35px rgba(0,0,0,0.85);
     letter-spacing: -2px;
     display: inline-block;
   }
-  /* Yellow Marker Highlighter under label */
+  /* Chisel Marker Highlighter */
   .label-wrap {
     margin-top: 36px;
     text-align: center;
@@ -113,42 +121,52 @@
   }
   .label {
     display: inline;
-    font-size: 42px;
-    font-weight: 800;
-    line-height: 1.35;
+    font-size: 44px;
+    font-weight: 900;
+    line-height: 1.4;
     color: #121316;
     background: #FFE600;
-    padding: 4px 16px;
+    padding: 6px 20px;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5);
     letter-spacing: -0.5px;
+    clip-path: polygon(0% 2%, 99% 0%, 100% 98%, 1% 100%);
   }
-  /* Ruler ticks at bottom */
+  /* Technical Footnote / Ruler */
   .ruler-footer {
-    margin-top: 44px;
-    border-top: 2px solid rgba(244, 239, 234, 0.2);
-    padding-top: 18px;
+    margin-top: 48px;
+    border-top: 2px solid rgba(250, 247, 242, 0.2);
+    padding-top: 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-family: monospace;
+    font-family: ui-monospace, monospace;
     font-size: 18px;
-    color: rgba(244, 239, 234, 0.6);
+    color: rgba(250, 247, 242, 0.6);
   }
   .ticks {
-    letter-spacing: 8px;
-    font-weight: 700;
-    color: rgba(244, 239, 234, 0.4);
+    letter-spacing: 7px;
+    font-weight: 800;
+    color: rgba(250, 247, 242, 0.4);
   }
 </style>
 </head>
 <body>
+<!-- Procedural SVG Paper Noise Filter -->
+<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
+  <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="noise" />
+    <feColorMatrix type="matrix" values="0 0 0 0 0.08  0 0 0 0 0.08  0 0 0 0 0.08  0 0 0 0.07 0" result="coloredNoise" />
+    <feComposite in="SourceGraphic" in2="coloredNoise" operator="over" />
+  </filter>
+</svg>
+
 <div class="stage">
   <div class="grid-backdrop" id="grid"></div>
   <div class="vox-card" id="card">
-    <div class="tape-tl"></div>
-    <div class="tape-tr"></div>
+    <div class="tape-tl" id="tapeL"></div>
+    <div class="tape-tr" id="tapeR"></div>
     <div class="header-meta">
       <span class="meta-tag">METRIC // EVIDENCE</span>
       <span>VOX ED. 9:16</span>
@@ -174,43 +192,52 @@
   const card = document.getElementById('card');
   const numEl = document.getElementById('number');
   const gridEl = document.getElementById('grid');
+  const tapeL = document.getElementById('tapeL');
+  const tapeR = document.getElementById('tapeR');
 
-  function easeOutBack(x) {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  // Damped Spring Oscillation (Physics Overshoot)
+  function spring(t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return 1 - Math.exp(-6.5 * t) * Math.cos(8.5 * t);
   }
-  function easeInBack(x) {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return c3 * x * x * x - c1 * x * x;
-  }
+  function easeIn(t) { return t * t * t; }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
-    
-    // 12 FPS stop-motion stepping cadence for VOX feel
-    const stepCount = 36;
-    const stepped = Math.floor(progress * stepCount) / stepCount;
 
-    if (progress < 0.16) {
-      const p = easeOutBack(progress / 0.16);
-      card.style.opacity = Math.min(1, p * 1.2);
-      card.style.transform = `translateY(${80 * (1 - p)}px) rotate(${-1.5 * p}deg) scale(${0.9 + 0.1 * p})`;
-      gridEl.style.opacity = p * 0.8;
-      
+    // 12 FPS discrete stop-motion steps
+    const stepCount = 48;
+    const step = Math.floor(progress * stepCount);
+    // Micro stop-motion camera jitter on hold
+    const jX = ((step * 7) % 3 - 1) * 1.2;
+    const jY = ((step * 11) % 3 - 1) * 1.2;
+
+    if (progress < 0.18) {
+      const p = spring(progress / 0.18);
+      gridEl.style.opacity = p * 0.9;
+      card.style.opacity = Math.min(1, p * 1.4);
+      card.style.transform = `translateY(${90 * (1 - p)}px) rotate(${-2 * p}deg) scale(${0.88 + 0.12 * p})`;
+
+      // Parallax delay on tapes
+      tapeL.style.transform = `rotate(${-6 * p}deg) scale(${0.9 + 0.1 * p})`;
+      tapeR.style.transform = `rotate(${5 * p}deg) scale(${0.9 + 0.1 * p})`;
+
+      // Numerical Odometer roll
       const current = Math.round(targetNum * Math.min(1, p));
       numEl.textContent = `${prefix}${current}${suffix}`;
-    } else if (progress <= 0.84) {
+    } else if (progress <= 0.82) {
+      gridEl.style.opacity = 0.9;
       card.style.opacity = 1;
-      card.style.transform = 'translateY(0) rotate(-1.5deg) scale(1)';
-      gridEl.style.opacity = 0.8;
+      card.style.transform = `translate(${jX}px, ${jY}px) rotate(-1.8deg) scale(1)`;
+      tapeL.style.transform = 'rotate(-6deg) scale(1)';
+      tapeR.style.transform = 'rotate(5deg) scale(1)';
       numEl.textContent = `${prefix}${targetNum}${suffix}`;
     } else {
-      const p = easeInBack((progress - 0.84) / 0.16);
-      card.style.opacity = Math.max(0, 1 - p * 1.4);
-      card.style.transform = `translateY(${100 * p}px) rotate(${-1.5 - 3 * p}deg) scale(${1 - 0.08 * p})`;
-      gridEl.style.opacity = Math.max(0, 0.8 * (1 - p));
+      const p = easeIn((progress - 0.82) / 0.18);
+      gridEl.style.opacity = Math.max(0, 0.9 * (1 - p));
+      card.style.opacity = Math.max(0, 1 - p * 1.5);
+      card.style.transform = `translateY(${110 * p}px) rotate(${-1.8 - 4 * p}deg) scale(${1 - 0.08 * p})`;
       numEl.textContent = `${prefix}${targetNum}${suffix}`;
     }
   };
