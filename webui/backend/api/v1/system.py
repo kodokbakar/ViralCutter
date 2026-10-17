@@ -58,6 +58,20 @@ The transcript below is a continuous text stream with embedded **Time Tags** lik
     -   Must induce FOMO, extreme curiosity, or urgent interest to stop viewers from scrolling.
     -   In the SAME LANGUAGE as the transcript.
 
+6.  **CONTEXTUAL MOTION B-ROLL OVERLAYS (VOX-STYLE):**
+    -   Suggest 2 to 3 contextual motion graphic overlays ("broll_items") per ~60-90s segment (minimum 0 if no relevant moments, max 3 per segment).
+    -   Duration: 3.0 to 4.0 seconds per item.
+    -   Timing: start_offset is seconds relative to the start of the clip (0.0s = start of clip). Leave at least 15-20 seconds gap between items (NEVER overlap or stack back-to-back).
+    -   Template Selection (pick the template matching what is being spoken):
+        * "stat_counter" -> Numbers, percentages, financial amounts, metrics (data: {"target_number": "85", "prefix": "+", "suffix": "%", "label": "Lonjakan Bisnis"}).
+        * "quote_card" -> Memorable punchlines, quotes, or philosophical takeaways (data: {"quote": "Kutipan penting...", "author": "Nama Pembicara", "title": "Gelar/Profesi"}).
+        * "point_highlight" -> 2-3 key steps, takeaways, or tips (data: {"headline": "3 KUNCI SUKSES", "points": ["Langkah 1", "Langkah 2", "Langkah 3"]}).
+        * "vox_versus_split" -> Full-screen comparison of two concepts ("dulu vs sekarang", "metode A vs B") (data: {"tag_a": "DULU", "title_a": "...", "desc_a": "...", "tag_b": "SEKARANG", "title_b": "...", "desc_b": "..."}).
+        * "vox_headline_punch" -> Full-screen shocking claims, urgent warnings, key hooks (data: {"tag": "PERINGATAN", "line_1": "JANGAN PERNAH", "line_2": "LEWATKAN INI", "line_3": "UNTUK BISNIS", "subtext": "Penjelasan singkat..."}).
+        * "vox_explainer_def" -> Technical definitions or jargon breakdown (data: {"term": "ISTILAH", "phonetic": "/is.ti.lah/", "pos": "noun", "definition": "Arti istilah...", "context_note": "Catatan..."}).
+        * "vox_bar_chart" -> Comparing 2-3 quantities, metrics, or growth rates (data: {"chart_title": "PERBANDINGAN HASIL", "source": "SURVEI 2026", "bars": [{"label": "A", "value": "25%", "height": 30, "accent": false}, {"label": "B", "value": "85%", "height": 90, "accent": true}]}).
+    -   All text content in data MUST be in the SAME LANGUAGE as the transcript.
+
 ### YOUR TASK:
 Analyze the transcript below. Find {amount} potential viral segments.
 

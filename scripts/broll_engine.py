@@ -19,6 +19,62 @@ TEMPLATE_FILE_MAP: Dict[str, str] = {
 }
 
 VALID_TEMPLATE_IDS = set(TEMPLATE_FILE_MAP.keys())
+def normalize_broll_items(
+    raw_broll: Any,
+    max_items: int = 3,
+    min_gap: float = 3.0,
+    min_duration: float = 2.0,
+    max_duration: float = 5.0,
+) -> List[Dict[str, Any]]:
+    """
+    Validates, clamps, sorts, deduplicates, and spaces out B-Roll items for a clip.
+    Guarantees no visual overlap and caps to max_items (default: 3).
+    """
+    if not isinstance(raw_broll, list):
+        return []
+
+    valid_items = []
+    for item in raw_broll:
+        if not isinstance(item, dict):
+            continue
+        tpl_id = str(item.get("template_id", "")).strip()
+        if tpl_id not in VALID_TEMPLATE_IDS:
+            continue
+        try:
+            start_offset = float(item.get("start_offset", -1.0))
+            duration = float(item.get("duration", 3.5))
+        except (ValueError, TypeError):
+            continue
+        if start_offset < 0.0 or duration <= 0.0:
+            continue
+
+        clamped_duration = max(min_duration, min(max_duration, duration))
+        b_data = item.get("data")
+        if not isinstance(b_data, dict):
+            b_data = {}
+
+        valid_items.append({
+            "start_offset": round(start_offset, 3),
+            "duration": round(clamped_duration, 3),
+            "template_id": tpl_id,
+            "data": b_data,
+        })
+
+    # Sort chronologically by start_offset
+    valid_items.sort(key=lambda x: x["start_offset"])
+
+    # Enforce minimum gap between consecutive brolls and limit to max_items
+    spaced_items = []
+    last_end = -1.0
+    for item in valid_items:
+        if len(spaced_items) >= max_items:
+            break
+        if last_end < 0 or (item["start_offset"] >= last_end + min_gap):
+            spaced_items.append(item)
+            last_end = item["start_offset"] + item["duration"]
+
+    return spaced_items
+
 
 CATALOG: List[Dict[str, Any]] = [
     {

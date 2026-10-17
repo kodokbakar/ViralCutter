@@ -426,7 +426,14 @@ DEFAULT_PROMPT_TEXT = """You are a World-Class Viral Video Editor.
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
 IMPORTANT: Output "Title", "Hook", and "Reasoning" in the SAME LANGUAGE as the transcript.
-TRANSCRIPT:
+
+MOTION B-ROLL INSTRUCTIONS:
+Optionally suggest 1 to 3 contextual Vox-style motion graphic overlays ("broll_items") per segment:
+- Max 2 to 3 B-roll items per ~60-90s segment (minimum 0 if no relevant moments, max 3 per segment).
+- Duration: 3.0 to 4.0 seconds per item.
+- Space items with at least 15-20s gap (no overlap).
+- Templates: "stat_counter", "quote_card", "point_highlight", "vox_versus_split", "vox_headline_punch", "vox_explainer_def", "vox_bar_chart".
+Vary the template_id according to the content context!
 {transcript_chunk}
 OUTPUT JSON ONLY:
 {json_template}

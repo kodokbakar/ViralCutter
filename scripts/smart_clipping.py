@@ -208,15 +208,18 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
 }}
 
 MOTION B-ROLL RULES:
-You can suggest 1-2 contextual Vox-style motion graphic overlays ("broll_items") per topic matching what is spoken:
-1. "stat_counter" -> For numbers, percentages, financial amounts, metrics (data: {{"target_number": "85", "suffix": "%", "label": "Lonjakan Bisnis"}}).
-2. "quote_card" -> For memorable punchlines or quoted wisdom (data: {{"quote": "...", "author": "...", "title": "..."}}).
-3. "point_highlight" -> For 2-3 key takeaways or steps (data: {{"headline": "...", "points": ["...", "..."]}}).
-4. "vox_versus_split" -> For contrasting two concepts or "old way vs new way" (data: {{"tag_a": "DULU", "title_a": "...", "desc_a": "...", "tag_b": "SEKARANG", "title_b": "...", "desc_b": "..."}}).
-5. "vox_headline_punch" -> For shocking statements or urgent key hooks (data: {{"tag": "PENTING", "line_1": "...", "line_2": "...", "line_3": "...", "subtext": "..."}}).
-6. "vox_explainer_def" -> For defining a technical term or jargon (data: {{"term": "...", "phonetic": "...", "pos": "noun", "definition": "...", "context_note": "..."}}).
-7. "vox_bar_chart" -> For comparing 2-3 quantities or data points (data: {{"chart_title": "...", "source": "...", "bars": [{{"label": "A", "value": "20%", "height": 30, "accent": false}}, {{"label": "B", "value": "80%", "height": 85, "accent": true}}]}}).
-Pick the template that best matches the spoken moment.
+Suggest 2 to 3 contextual Vox-style motion graphic overlays ("broll_items") per topic matching what is spoken (minimum 0 if no relevant moments, max 3 per topic):
+- Duration: 3.0 to 4.0 seconds per item.
+- Timing: start_offset is seconds relative to the start of the topic. Leave at least 15-20 seconds gap between items (NEVER overlap or stack back-to-back).
+- Template Catalog:
+  1. "stat_counter" -> For numbers, percentages, financial amounts, metrics (data: {{"target_number": "85", "suffix": "%", "label": "Lonjakan Bisnis"}}).
+  2. "quote_card" -> For memorable punchlines or quoted wisdom (data: {{"quote": "...", "author": "...", "title": "..."}}).
+  3. "point_highlight" -> For 2-3 key takeaways or steps (data: {{"headline": "...", "points": ["...", "..."]}}).
+  4. "vox_versus_split" -> Full-screen comparison of two concepts ("dulu vs sekarang", "A vs B") (data: {{"tag_a": "DULU", "title_a": "...", "desc_a": "...", "tag_b": "SEKARANG", "title_b": "...", "desc_b": "..."}}).
+  5. "vox_headline_punch" -> Full-screen shocking claims, urgent warnings, key hooks (data: {{"tag": "PENTING", "line_1": "...", "line_2": "...", "line_3": "...", "subtext": "..."}}).
+  6. "vox_explainer_def" -> For defining a technical term or jargon (data: {{"term": "...", "phonetic": "...", "pos": "noun", "definition": "...", "context_note": "..."}}).
+  7. "vox_bar_chart" -> For comparing 2-3 quantities or data points (data: {{"chart_title": "...", "source": "...", "bars": [{{"label": "A", "value": "20%", "height": 30, "accent": false}}, {{"label": "B", "value": "80%", "height": 85, "accent": true}}]}}).
+All text in data MUST be in the SAME LANGUAGE as the transcript.
 """
 def chunk_transcript_text(
     transcript_text: str,
@@ -346,38 +349,10 @@ def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
 
         raw_broll = t.get("broll_items", [])
         try:
-            from scripts.broll_engine import VALID_TEMPLATE_IDS as valid_templates
+            from scripts.broll_engine import normalize_broll_items
+            normalized_broll = normalize_broll_items(raw_broll, max_items=3, min_gap=3.0)
         except Exception:
-            valid_templates = {
-                "stat_counter", "quote_card", "point_highlight",
-                "vox_stat_counter", "vox_quote_card", "vox_point_list",
-                "vox_versus_split", "vox_headline_punch", "vox_explainer_def", "vox_bar_chart"
-            }
-
-        normalized_broll = []
-        if isinstance(raw_broll, list):
-            for b in raw_broll:
-                if not isinstance(b, dict):
-                    continue
-                tpl_id = str(b.get("template_id", "")).strip()
-                if tpl_id not in valid_templates:
-                    continue
-                try:
-                    start_offset = float(b.get("start_offset", 0.0))
-                    duration = float(b.get("duration", 0.0))
-                except (TypeError, ValueError):
-                    continue
-                if start_offset < 0 or duration <= 0:
-                    continue
-                b_data = b.get("data", {})
-                if not isinstance(b_data, dict):
-                    b_data = {}
-                normalized_broll.append({
-                    "start_offset": round(start_offset, 3),
-                    "duration": round(duration, 3),
-                    "template_id": tpl_id,
-                    "data": b_data
-                })
+            normalized_broll = []
 
         if normalized_segs:
             valid_topics.append({

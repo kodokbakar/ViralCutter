@@ -118,3 +118,22 @@ def test_render_vox_bar_chart_html():
     assert "ViralCutter" in html
     assert "85%" in html
     assert "window.renderSeek" in html
+
+
+def test_normalize_broll_items():
+    raw = [
+        {"template_id": "vox_versus_split", "start_offset": 5.0, "duration": 3.5, "data": {"title_a": "A"}},
+        {"template_id": "invalid_tpl", "start_offset": 6.0, "duration": 2.0, "data": {}},
+        {"template_id": "quote_card", "start_offset": 6.0, "duration": 3.0, "data": {"quote": "Overlap"}},  # Overlaps 5.0+3.5=8.5
+        {"template_id": "stat_counter", "start_offset": 25.0, "duration": 4.0, "data": {"target_number": "90"}},
+        {"template_id": "vox_headline_punch", "start_offset": 50.0, "duration": 3.0, "data": {"line_1": "Boom"}},
+        {"template_id": "point_highlight", "start_offset": 70.0, "duration": 3.5, "data": {}},  # 4th item, should be dropped by max_items=3
+    ]
+    normalized = broll_engine.normalize_broll_items(raw, max_items=3, min_gap=3.0)
+    assert len(normalized) == 3
+    assert normalized[0]["template_id"] == "vox_versus_split"
+    assert normalized[0]["start_offset"] == 5.0
+    assert normalized[1]["template_id"] == "stat_counter"
+    assert normalized[1]["start_offset"] == 25.0
+    assert normalized[2]["template_id"] == "vox_headline_punch"
+    assert normalized[2]["start_offset"] == 50.0
