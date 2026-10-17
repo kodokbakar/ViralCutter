@@ -778,7 +778,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             hook_title = seg.get('hook_title') or title or 'VIRAL HOOK'
             hook_title = str(hook_title).strip().upper()
 
-            processed_segments.append({
+            segment_dict = {
                 "title": title,
                 "hook_title": hook_title,
                 "start_time": final_start_time,
@@ -787,7 +787,10 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 "reasoning": seg.get('reasoning', ''),
                 "score": seg.get('score', 0),
                 "duration": duration
-            })
+            }
+            if "broll_items" in seg and isinstance(seg["broll_items"], list):
+                segment_dict["broll_items"] = seg["broll_items"]
+            processed_segments.append(segment_dict)
 
         except Exception as e:
             print(f"[WARN] Error processing segment {seg}: {e}")
@@ -933,7 +936,19 @@ OUTPUT JSON ONLY:
                         "title": "Viral Segment Title (Same Language as Transcript)",
                         "hook_title": "High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g., 'RAHASIA CUAN DARI AI?!')",
                         "reasoning": "Why this is viral? Hook? Value? (Same Language as Transcript)",
-                        "score": 95
+                        "score": 95,
+                        "broll_items": [
+                            {
+                                "start_offset": 5.0,
+                                "duration": 3.5,
+                                "template_id": "stat_counter",
+                                "data": {
+                                    "target_number": "85",
+                                    "suffix": "%",
+                                    "label": "Lonjakan Bisnis"
+                                }
+                            }
+                        ]
                     }
                 ]
             }

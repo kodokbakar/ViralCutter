@@ -190,7 +190,19 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
           "end_time": 60.0,
           "text": "Exact text of the payoff"
         }}
-      }}
+      }},
+      "broll_items": [
+        {{
+          "start_offset": 5.0,
+          "duration": 3.5,
+          "template_id": "stat_counter",
+          "data": {{
+            "target_number": "85",
+            "suffix": "%",
+            "label": "Lonjakan Bisnis"
+          }}
+        }}
+      ]
     }}
   ]
 }}
@@ -322,15 +334,45 @@ def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             score = 85
 
+        raw_broll = t.get("broll_items", [])
+        normalized_broll = []
+        valid_templates = {"stat_counter", "quote_card", "point_highlight"}
+        if isinstance(raw_broll, list):
+            for b in raw_broll:
+                if not isinstance(b, dict):
+                    continue
+                tpl_id = str(b.get("template_id", "")).strip()
+                if tpl_id not in valid_templates:
+                    continue
+                try:
+                    start_offset = float(b.get("start_offset", 0.0))
+                    duration = float(b.get("duration", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                if start_offset < 0 or duration <= 0:
+                    continue
+                b_data = b.get("data", {})
+                if not isinstance(b_data, dict):
+                    b_data = {}
+                normalized_broll.append({
+                    "start_offset": round(start_offset, 3),
+                    "duration": round(duration, 3),
+                    "template_id": tpl_id,
+                    "data": b_data
+                })
+
         if normalized_segs:
             valid_topics.append({
                 "title": str(t.get("title", "Untitled Topic")),
                 "rationale": str(t.get("rationale", "")),
                 "target_duration": float(t.get("target_duration", 0.0)),
                 "score": score,
-                "segments": normalized_segs
+                "segments": normalized_segs,
+                "broll_items": normalized_broll
             })
     return valid_topics
+
+parse_llm_topics = parse_narrative_topics
 
 def snap_narrative_topic_segments(
     topic: Dict[str, Any],
@@ -691,7 +733,8 @@ def run_smart_clipping_pipeline(
             "hook": hook,
             "core": core,
             "payoff": payoff,
-            "smart_clip_path": output_clip_path
+            "smart_clip_path": output_clip_path,
+            "broll_items": snapped_topic.get("broll_items", [])
         })
 
     return {"segments": viral_segments_list}
