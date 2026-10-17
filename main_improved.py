@@ -334,6 +334,12 @@ def main():
         default=0.5,
         help="Watermark fade-out duration in seconds",
     )
+    parser.add_argument(
+        "--enable-html-broll",
+        action="store_true",
+        default=False,
+        help="Enable contextual HTML motion graphic B-roll overlays",
+    )
 
     args = parser.parse_args()
     
@@ -1016,9 +1022,32 @@ def main():
                     **sub_config,
                 )
 
+                if getattr(args, "enable_html_broll", False):
+                    broll_cache_dir = os.path.join(project_folder, "broll_cache")
+                    os.makedirs(broll_cache_dir, exist_ok=True)
+                    if viral_segments and "segments" in viral_segments:
+                        from scripts import broll_renderer
+                        for idx, segment in enumerate(viral_segments.get("segments", [])):
+                            title = segment.get("title", f"Segment_{idx}")
+                            safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip().replace(" ", "_")[:60]
+                            clean_clip_name = f"{idx:03d}_{safe_title}"
+                            for b_idx, b_item in enumerate(segment.get("broll_items", [])):
+                                if not b_item.get("video_path") or not os.path.exists(b_item["video_path"]):
+                                    tpl_id = b_item.get("template_id")
+                                    if tpl_id:
+                                        out_webm = os.path.join(broll_cache_dir, f"{clean_clip_name}_broll_{b_idx}.webm")
+                                        broll_renderer.render_broll_clip(
+                                            template_id=tpl_id,
+                                            data=b_item.get("data", {}),
+                                            duration=float(b_item.get("duration", 3.0)),
+                                            output_path=out_webm,
+                                        )
+                                        b_item["video_path"] = out_webm
+
                 burn_subtitles.burn(
                     project_folder=project_folder,
                     watermark_config=watermark_config,
+                    enable_html_broll=getattr(args, "enable_html_broll", False),
                 )
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))

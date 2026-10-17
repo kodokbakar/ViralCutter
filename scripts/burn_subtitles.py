@@ -1,5 +1,6 @@
 import functools
 import re
+import json
 import os
 import shlex
 import subprocess
@@ -148,12 +149,14 @@ def burn_video_file(
     *,
     watermark_config=None,
     watermark_asset=None,
+    broll_items=None,
+    **kwargs,
 ):
     """
     Render one final clip.
 
-    Visual order:
         source video
+        -> transparent WebM broll
         -> watermark
         -> ASS subtitles
         -> encoded MP4
@@ -174,6 +177,14 @@ def burn_video_file(
             "text",
         }
     )
+    valid_broll = []
+    if broll_items:
+        for item in broll_items:
+            if isinstance(item, dict):
+                v_path = item.get("video_path")
+                if v_path and os.path.exists(v_path):
+                    valid_broll.append(item)
+
 
     def run_ffmpeg(
         encoder,
@@ -188,7 +199,6 @@ def burn_video_file(
             "-i",
             video_path,
         ]
-
         if watermark_enabled:
             command.extend(
                 [
@@ -196,45 +206,83 @@ def burn_video_file(
                     watermark_asset,
                 ]
             )
+            broll_start_idx = 2
+        else:
+            broll_start_idx = 1
 
-            (
-                filter_complex,
-                filter_summary,
-            ) = watermark.build_filter(
-                watermark_config,
-                video_path,
-            )
+        for b_item in valid_broll:
+            command.extend(["-i", b_item["video_path"]])
 
-            filter_complex += (
-                ";[watermarked]"
-                f"{subtitle_filter}"
-                "[video_out]"
-            )
+        if valid_broll or watermark_enabled:
+            filter_parts = []
+            current_stream = "0:v"
 
-            print(
-                "Watermark render settings: "
-                f"asset={watermark_asset} "
-                f"video="
-                f"{filter_summary['video_width']}x"
-                f"{filter_summary['video_height']} "
-                f"target_max="
-                f"{filter_summary['target_width']}x"
-                f"{filter_summary['target_height']}px "
-                f"position="
-                f"{filter_summary['position']} "
-                f"opacity="
-                f"{filter_summary['opacity']:.2f} "
-                f"range="
-                f"{filter_summary['start']:.2f}-"
-                f"{filter_summary['end']:.2f}s",
-                flush=True,
-            )
+            for b_idx, b_item in enumerate(valid_broll):
+                broll_in_idx = broll_start_idx + b_idx
+                start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
+                dur = b_item.get("duration")
+                if dur is not None and float(dur) > 0:
+                    duration = float(dur)
+                else:
+                    try:
+                        duration = _probe_duration(b_item["video_path"])
+                    except Exception:
+                        duration = 3.0
+                end = start + duration
 
-            print(
-                "Watermark filter: "
-                f"{filter_complex}",
-                flush=True,
+                broll_in_label = f"broll_in_{b_idx}"
+                next_stream = f"broll_out_{b_idx}"
+
+                filter_parts.append(
+                    f"[{broll_in_idx}:v]setpts=PTS-STARTPTS+{start:.6f}/TB[{broll_in_label}]"
+                )
+                filter_parts.append(
+                    f"[{current_stream}][{broll_in_label}]overlay=x=0:y=0:enable='between(t,{start:.6f},{end:.6f})':eof_action=pass[{next_stream}]"
+                )
+                current_stream = next_stream
+
+            if watermark_enabled:
+                (
+                    wm_filter,
+                    filter_summary,
+                ) = watermark.build_filter(
+                    watermark_config,
+                    video_path,
+                )
+                if current_stream != "0:v":
+                    wm_filter = wm_filter.replace("[0:v][watermark]", f"[{current_stream}][watermark]")
+                filter_parts.append(wm_filter)
+                current_stream = "watermarked"
+
+                print(
+                    "Watermark render settings: "
+                    f"asset={watermark_asset} "
+                    f"video="
+                    f"{filter_summary['video_width']}x"
+                    f"{filter_summary['video_height']} "
+                    f"target_max="
+                    f"{filter_summary['target_width']}x"
+                    f"{filter_summary['target_height']}px "
+                    f"position="
+                    f"{filter_summary['position']} "
+                    f"opacity="
+                    f"{filter_summary['opacity']:.2f} "
+                    f"range="
+                    f"{filter_summary['start']:.2f}-"
+                    f"{filter_summary['end']:.2f}s",
+                    flush=True,
+                )
+
+                print(
+                    "Watermark filter: "
+                    f"{wm_filter}",
+                    flush=True,
+                )
+
+            filter_parts.append(
+                f"[{current_stream}]{subtitle_filter}[video_out]"
             )
+            filter_complex = ";".join(filter_parts)
 
             command.extend(
                 [
@@ -246,7 +294,6 @@ def burn_video_file(
                     "0:a?",
                 ]
             )
-
         else:
             command.extend(
                 [
@@ -396,12 +443,31 @@ def burn_video_file(
 def burn(
     project_folder="tmp",
     watermark_config=None,
+    broll_items=None,
+    enable_html_broll=False,
+    **kwargs,
 ):
     project_folder_abs = (
         os.path.abspath(
             project_folder
         )
     )
+    segments_data = []
+    if enable_html_broll and broll_items is None:
+        vs_file = os.path.join(project_folder_abs, "viral_segments.txt")
+        if not os.path.exists(vs_file):
+            vs_file = os.path.join(project_folder_abs, "viral_segments.json")
+        if os.path.exists(vs_file):
+            try:
+                with open(vs_file, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict) and "segments" in loaded:
+                        segments_data = loaded["segments"]
+                    elif isinstance(loaded, list):
+                        segments_data = loaded
+            except Exception as e:
+                print(f"Warning: could not load viral_segments for b-roll: {e}")
+
 
     subs_folder = os.path.join(
         project_folder_abs,
@@ -575,6 +641,63 @@ def burn(
             output_folder,
             f"{clean_clip_name}.mp4",
         )
+        clip_brolls = []
+        if broll_items is not None:
+            if isinstance(broll_items, dict):
+                clip_brolls = (
+                    broll_items.get(video_name)
+                    or broll_items.get(clean_clip_name)
+                    or broll_items.get(rendered_count)
+                    or broll_items.get(str(rendered_count))
+                    or []
+                )
+            elif isinstance(broll_items, list):
+                if broll_items and isinstance(broll_items[0], list):
+                    clip_brolls = broll_items[rendered_count] if rendered_count < len(broll_items) else []
+                else:
+                    clip_brolls = broll_items if (len(video_files) == 1 or rendered_count == 0) else []
+        elif enable_html_broll and segments_data:
+            seg = None
+            if rendered_count < len(segments_data):
+                seg = segments_data[rendered_count]
+            if not seg:
+                for s in segments_data:
+                    title = s.get("title", "")
+                    if title and (title in video_name or video_name in title):
+                        seg = s
+                        break
+            clip_brolls = (seg.get("broll_items") if seg else []) or []
+
+        rendered_clip_brolls = []
+        if enable_html_broll and clip_brolls:
+            cache_dir = os.path.join(project_folder_abs, "broll_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            from scripts import broll_renderer
+
+            for b_idx, b_item in enumerate(clip_brolls):
+                if not isinstance(b_item, dict):
+                    continue
+                item_copy = dict(b_item)
+                v_path = item_copy.get("video_path")
+                if not v_path or not os.path.exists(v_path):
+                    tpl_id = item_copy.get("template_id")
+                    if tpl_id:
+                        out_webm = os.path.join(cache_dir, f"{clean_clip_name}_broll_{b_idx}.webm")
+                        duration = float(item_copy.get("duration", 3.0))
+                        data = item_copy.get("data", {})
+                        print(f"Rendering B-roll clip {b_idx} ({tpl_id}) for {clean_clip_name}...")
+                        broll_renderer.render_broll_clip(
+                            template_id=tpl_id,
+                            data=data,
+                            duration=duration,
+                            output_path=out_webm,
+                        )
+                        item_copy["video_path"] = out_webm
+                if item_copy.get("video_path") and os.path.exists(item_copy["video_path"]):
+                    rendered_clip_brolls.append(item_copy)
+        elif clip_brolls:
+            rendered_clip_brolls = [b for b in clip_brolls if isinstance(b, dict) and b.get("video_path") and os.path.exists(b["video_path"])]
+
 
         if watermark_enabled:
             action = (
@@ -600,9 +723,8 @@ def burn(
             subtitle_file,
             output_file,
             watermark_config=config,
-            watermark_asset=(
-                watermark_asset
-            ),
+            watermark_asset=watermark_asset,
+            broll_items=rendered_clip_brolls if rendered_clip_brolls else None,
         )
 
         if not success:
