@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
 from webui.backend.api.v1 import (
+    broll,
     gdrive,
     jobs,
     library,
@@ -48,6 +49,7 @@ app.include_router(library.router, prefix="/api/v1/library", tags=["library"])
 app.include_router(subtitles.router, prefix="/api/v1/subtitles", tags=["subtitles"])
 app.include_router(gdrive.router, prefix="/api/v1/gdrive", tags=["gdrive"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
+app.include_router(broll.router, prefix="/api/v1/broll", tags=["broll"])
 
 
 @app.get("/api/v1/health", tags=["system"])

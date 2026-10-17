@@ -106,6 +106,9 @@ class JobRunRequest(BaseModel):
     watermark_fade_in: Optional[float] = Field(default=0.5, description="Fade in duration")
     watermark_fade_out: Optional[float] = Field(default=0.5, description="Fade out duration")
 
+    # HTML Motion B-roll options
+    enable_html_broll: bool = Field(default=False, description="Enable contextual HTML motion graphic B-roll overlays")
+
     # General / test overrides
     skip_prompts: bool = Field(default=True, description="Always run non-interactively")
     custom_cmd: Optional[List[str]] = Field(default=None, description="Custom command override for testing")
@@ -346,6 +349,9 @@ class JobRunRequest(BaseModel):
                 "--watermark-fade-in", str(float(self.watermark_fade_in or 0.5)),
                 "--watermark-fade-out", str(float(self.watermark_fade_out or 0.5)),
             ])
+
+        if self.enable_html_broll:
+            cmd.append("--enable-html-broll")
 
         if self.skip_prompts:
             cmd.append("--skip-prompts")
