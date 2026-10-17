@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1080px; height: 1920px;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Impact, "Arial Black", sans-serif;
+  }
+  .stage {
+    width: 100%; height: 100%;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    padding: 60px;
+  }
+  .chart-card {
+    position: relative;
+    width: 950px;
+    background: #14161E;
+    border: 3px solid #FAF7F2;
+    border-radius: 16px;
+    padding: 60px 60px 50px 60px;
+    box-shadow: 
+      0 32px 64px rgba(0, 0, 0, 0.9),
+      0 6px 16px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: translateY(80px) rotate(-1deg);
+  }
+  /* Header */
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px dashed rgba(250, 247, 242, 0.25);
+    padding-bottom: 18px;
+    margin-bottom: 30px;
+    font-family: ui-monospace, monospace;
+    font-size: 20px;
+    letter-spacing: 2px;
+    color: #FAF7F2;
+  }
+  .chart-tag {
+    background: #FF5A36;
+    color: #FFFFFF;
+    font-weight: 800;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 17px;
+  }
+  .chart-title {
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 54px;
+    color: #FAF7F2;
+    line-height: 1.15;
+    text-transform: uppercase;
+    letter-spacing: -0.5px;
+    margin-bottom: 40px;
+  }
+  /* Bars Canvas Container */
+  .bars-container {
+    height: 480px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    gap: 36px;
+    padding: 20px 20px 0 20px;
+    border-bottom: 4px solid #FAF7F2;
+    position: relative;
+  }
+  /* Background Guideline Lines */
+  .grid-line {
+    position: absolute;
+    left: 0; right: 0;
+    border-top: 1px dashed rgba(250, 247, 242, 0.15);
+    pointer-events: none;
+  }
+  .gl-25 { bottom: 25%; }
+  .gl-50 { bottom: 50%; }
+  .gl-75 { bottom: 75%; }
+
+  .bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: flex-end;
+    position: relative;
+    z-index: 2;
+  }
+  .bar-value {
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 40px;
+    color: #FFE600;
+    margin-bottom: 12px;
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  .bar-pillar {
+    width: 100%;
+    max-width: 160px;
+    background: #374151;
+    border: 3px solid #FAF7F2;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    height: 0%;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+  }
+  /* Accent / Winner Bar */
+  .bar-col.accent .bar-pillar {
+    background: #FF5A36;
+    border-color: #FFE600;
+  }
+  .bar-col.accent .bar-value {
+    color: #FFE600;
+  }
+  /* Label beneath bar */
+  .bar-label {
+    margin-top: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    color: #FAF7F2;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: -0.5px;
+  }
+  /* Footer footnote */
+  .chart-footer {
+    margin-top: 36px;
+    font-family: ui-monospace, monospace;
+    font-size: 18px;
+    color: rgba(250, 247, 242, 0.5);
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="chart-card" id="card">
+    <div class="chart-header">
+      <span class="chart-tag">DATA COMPARISON</span>
+      <span>VOX INDEX 9:16</span>
+    </div>
+    <div class="chart-title">{{CHART_TITLE}}</div>
+    
+    <div class="bars-container">
+      <div class="grid-line gl-25"></div>
+      <div class="grid-line gl-50"></div>
+      <div class="grid-line gl-75"></div>
+
+      {{BARS_HTML}}
+    </div>
+
+    <div class="chart-footer">
+      <span>SOURCE: {{SOURCE}}</span>
+      <span>+ [VERIFIED DATA]</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const card = document.getElementById('card');
+  const pillars = document.querySelectorAll('.bar-pillar');
+  const values = document.querySelectorAll('.bar-value');
+
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+  function easeInBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return c3 * x * x * x - c1 * x * x;
+  }
+
+  window.renderSeek = function(progress) {
+    progress = Math.max(0, Math.min(1, progress));
+
+    if (progress < 0.16) {
+      const p = easeOutBack(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.3);
+      card.style.transform = `translateY(${80 * (1 - p)}px) rotate(${-1 * p}deg)`;
+      pillars.forEach(bar => { bar.style.height = '0%'; });
+      values.forEach(v => { v.style.opacity = 0; });
+    } else if (progress <= 0.84) {
+      card.style.opacity = 1;
+      card.style.transform = 'translateY(0) rotate(-1deg)';
+
+      // Bar growth animation between 0.16 and 0.45
+      const growProgress = easeOutBack(Math.min(1, Math.max(0, (progress - 0.16) / 0.28)));
+      pillars.forEach(bar => {
+        const targetH = parseFloat(bar.getAttribute('data-target-height')) || 50;
+        bar.style.height = `${Math.round(targetH * growProgress)}%`;
+      });
+      values.forEach(v => {
+        v.style.opacity = growProgress;
+        v.style.transform = `translateY(${10 * (1 - growProgress)}px)`;
+      });
+    } else {
+      const p = easeInBack((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${100 * p}px) rotate(${-1 - 2 * p}deg)`;
+    }
+  };
+  window.renderSeek(0);
+</script>
+</body>
+</html>

@@ -8,96 +8,144 @@
     width: 1080px; height: 1920px;
     background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   }
-  .container {
+  .stage {
     width: 100%; height: 100%;
+    position: relative;
     display: flex; align-items: center; justify-content: center;
-    padding: 80px;
+    padding: 60px;
   }
-  .card {
-    background: rgba(18, 18, 22, 0.90);
-    border: 2px solid rgba(255, 255, 255, 0.14);
-    border-radius: 36px;
-    padding: 60px 70px;
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(20px);
-    width: 920px;
-    opacity: 0;
-    transform: translateY(60px);
+  .board-container {
+    width: 960px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
-  .headline {
-    font-size: 44px;
-    font-weight: 800;
-    color: #60A5FA;
-    margin-bottom: 36px;
-    border-bottom: 2px solid rgba(96, 165, 250, 0.3);
-    padding-bottom: 16px;
-    text-transform: uppercase;
+  /* Tape Header Headline */
+  .headline-tape {
+    background: #FFE600;
+    color: #121316;
+    border: 3px solid #121316;
+    padding: 16px 36px;
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 46px;
     letter-spacing: 1px;
+    text-transform: uppercase;
+    transform: rotate(-1.5deg);
+    box-shadow: 0 16px 32px rgba(0,0,0,0.6);
+    margin-bottom: 36px;
+    opacity: 0;
+    transform-origin: center center;
   }
-  .point-item {
-    font-size: 34px;
-    font-weight: 700;
-    color: #F3F4F6;
-    margin-bottom: 24px;
+  /* List of Sticky Paper Cards */
+  .points-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .point-card {
+    position: relative;
+    background: #FAF7F2;
+    border: 3px solid #121316;
+    border-radius: 6px;
+    padding: 24px 32px;
     display: flex;
     align-items: center;
+    box-shadow: 
+      0 20px 40px rgba(0, 0, 0, 0.75),
+      4px 4px 0 #121316;
     opacity: 0;
-    transform: translateX(-30px);
+    transform-origin: left center;
   }
-  .point-badge {
-    background: #3B82F6;
-    color: white;
-    width: 48px; height: 48px;
+  .point-card:nth-child(1) { transform: translateX(-40px) rotate(-1deg); }
+  .point-card:nth-child(2) { transform: translateX(-40px) rotate(1deg); }
+  .point-card:nth-child(3) { transform: translateX(-40px) rotate(-0.5deg); }
+
+  .badge-number {
+    width: 58px; height: 58px;
+    background: #FF5A36;
+    color: #FFFFFF;
+    border: 2px solid #121316;
     border-radius: 50%;
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 32px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px; font-weight: 900;
-    margin-right: 20px; flex-shrink: 0;
+    margin-right: 24px;
+    flex-shrink: 0;
+    box-shadow: 2px 3px 0 #121316;
+  }
+  .point-text {
+    font-size: 36px;
+    font-weight: 800;
+    color: #121316;
+    line-height: 1.3;
+    letter-spacing: -0.5px;
   }
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="card" id="card">
-    <div class="headline">{{HEADLINE}}</div>
-    <div id="points-container">
+<div class="stage">
+  <div class="board-container">
+    <div class="headline-tape" id="headline">{{HEADLINE}}</div>
+    <div class="points-list" id="points-container">
       {{POINTS_HTML}}
     </div>
   </div>
 </div>
-<script>
-  const card = document.getElementById('card');
-  const pointItems = document.querySelectorAll('.point-item');
 
-  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
-  function easeInCubic(x) { return x * x * x; }
+<script>
+  const headline = document.getElementById('headline');
+  const cards = document.querySelectorAll('.point-card');
+
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+  function easeInBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return c3 * x * x * x - c1 * x * x;
+  }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
-    if (progress < 0.15) {
-      const p = easeOutCubic(progress / 0.15);
-      card.style.opacity = p;
-      card.style.transform = `translateY(${60 * (1 - p)}px)`;
-    } else if (progress <= 0.85) {
-      card.style.opacity = 1;
-      card.style.transform = 'translateY(0)';
-      const activeWindow = 0.85 - 0.15;
-      pointItems.forEach((el, idx) => {
-        const itemStart = 0.15 + (idx * 0.12);
-        if (progress >= itemStart) {
-          const itemP = Math.min(1, (progress - itemStart) / 0.10);
-          el.style.opacity = itemP;
-          el.style.transform = `translateX(${-30 * (1 - itemP)}px)`;
+
+    // Entry 0.00 to 0.40
+    if (progress < 0.14) {
+      const p = easeOutBack(progress / 0.14);
+      headline.style.opacity = Math.min(1, p * 1.3);
+      headline.style.transform = `translateY(${50 * (1 - p)}px) rotate(${-1.5 * p}deg)`;
+      cards.forEach(c => { c.style.opacity = 0; });
+    } else if (progress <= 0.84) {
+      headline.style.opacity = 1;
+      headline.style.transform = 'translateY(0) rotate(-1.5deg)';
+
+      // Staggered cards entry: Card 1 (0.14-0.28), Card 2 (0.28-0.42), Card 3 (0.42-0.56)
+      const baseRotations = [-1, 1, -0.5];
+      cards.forEach((c, idx) => {
+        const start = 0.14 + (idx * 0.13);
+        const rot = baseRotations[idx % baseRotations.length];
+        if (progress >= start) {
+          const p = easeOutBack(Math.min(1, (progress - start) / 0.13));
+          c.style.opacity = Math.min(1, p * 1.2);
+          c.style.transform = `translateX(${40 * (1 - p)}px) rotate(${rot}deg)`;
         } else {
-          el.style.opacity = 0;
-          el.style.transform = 'translateX(-30px)';
+          c.style.opacity = 0;
+          c.style.transform = `translateX(-40px) rotate(${rot}deg)`;
         }
       });
     } else {
-      const p = easeInCubic((progress - 0.85) / 0.15);
-      card.style.opacity = 1 - p;
-      card.style.transform = `translateY(${-40 * p}px)`;
+      // Exit 0.84 to 1.00
+      const p = easeInBack((progress - 0.84) / 0.16);
+      headline.style.opacity = Math.max(0, 1 - p * 1.3);
+      headline.style.transform = `translateY(${-60 * p}px) rotate(-1.5deg)`;
+      cards.forEach((c, idx) => {
+        c.style.opacity = Math.max(0, 1 - p * 1.4);
+        c.style.transform = `translateY(${80 * p}px)`;
+      });
     }
   };
   window.renderSeek(0);

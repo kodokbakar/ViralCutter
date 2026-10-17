@@ -8,77 +8,209 @@
     width: 1080px; height: 1920px;
     background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Impact, "Arial Black", sans-serif;
   }
-  .container {
+  .stage {
     width: 100%; height: 100%;
+    position: relative;
     display: flex; align-items: center; justify-content: center;
-    padding: 80px;
+    padding: 60px;
   }
-  .card {
-    background: rgba(18, 18, 20, 0.88);
-    border: 2px solid rgba(255, 255, 255, 0.12);
-    border-radius: 40px;
-    padding: 60px 80px;
-    text-align: center;
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(20px);
-    max-width: 900px;
+  /* Paper grain & dot pattern overlay */
+  .grid-backdrop {
+    position: absolute;
+    inset: 40px;
+    border-radius: 36px;
+    background-image: 
+      radial-gradient(circle, rgba(255,255,255,0.08) 1.5px, transparent 1.5px),
+      linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 32px 32px, 64px 64px, 64px 64px;
+    pointer-events: none;
+    opacity: 0;
+  }
+  /* VOX Paper Card */
+  .vox-card {
+    position: relative;
+    width: 940px;
+    background: #14161C;
+    border: 3px solid #F4EFEA;
+    border-radius: 20px;
+    padding: 70px 60px 60px 60px;
+    box-shadow: 
+      0 30px 60px rgba(0, 0, 0, 0.85),
+      0 8px 16px rgba(0, 0, 0, 0.5),
+      inset 0 0 0 1px rgba(255,255,255,0.1);
     transform-origin: center center;
     opacity: 0;
-    transform: translateY(60px) scale(0.92);
+    transform: translateY(80px) rotate(-1.5deg) scale(0.9);
+  }
+  /* Kraft Paper Tape */
+  .tape-tl {
+    position: absolute;
+    top: -24px; left: 40px;
+    width: 140px; height: 44px;
+    background: #E2D3B8;
+    opacity: 0.92;
+    transform: rotate(-6deg);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    clip-path: polygon(4% 0%, 96% 2%, 100% 95%, 95% 100%, 0% 98%);
+  }
+  .tape-tr {
+    position: absolute;
+    top: -20px; right: 40px;
+    width: 130px; height: 42px;
+    background: #E2D3B8;
+    opacity: 0.92;
+    transform: rotate(5deg);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    clip-path: polygon(2% 2%, 98% 0%, 96% 100%, 0% 96%);
+  }
+  /* Technical Header */
+  .header-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px dashed rgba(244, 239, 234, 0.25);
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 20px;
+    letter-spacing: 2px;
+    color: #F4EFEA;
+    text-transform: uppercase;
+  }
+  .meta-tag {
+    background: #FF5A36;
+    color: #FFFFFF;
+    font-weight: 800;
+    padding: 6px 14px;
+    border-radius: 6px;
+    letter-spacing: 1px;
+    font-size: 18px;
+  }
+  /* Massive Numeric Punch */
+  .number-container {
+    text-align: center;
+    margin: 20px 0;
+    position: relative;
   }
   .number-box {
-    font-size: 130px;
+    font-family: Impact, "Arial Black", -apple-system, sans-serif;
+    font-size: 160px;
     font-weight: 900;
-    line-height: 1.1;
+    line-height: 0.95;
     color: {{ACCENT_COLOR}};
-    text-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    text-shadow: 0 4px 0 #000, 0 10px 30px rgba(0,0,0,0.7);
     letter-spacing: -2px;
+    display: inline-block;
+  }
+  /* Yellow Marker Highlighter under label */
+  .label-wrap {
+    margin-top: 36px;
+    text-align: center;
+    position: relative;
   }
   .label {
-    font-size: 38px;
+    display: inline;
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1.35;
+    color: #121316;
+    background: #FFE600;
+    padding: 4px 16px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    letter-spacing: -0.5px;
+  }
+  /* Ruler ticks at bottom */
+  .ruler-footer {
+    margin-top: 44px;
+    border-top: 2px solid rgba(244, 239, 234, 0.2);
+    padding-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: monospace;
+    font-size: 18px;
+    color: rgba(244, 239, 234, 0.6);
+  }
+  .ticks {
+    letter-spacing: 8px;
     font-weight: 700;
-    color: #F3F4F6;
-    margin-top: 24px;
-    line-height: 1.3;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+    color: rgba(244, 239, 234, 0.4);
   }
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="card" id="card">
-    <div class="number-box" id="number">{{PREFIX}}0{{SUFFIX}}</div>
-    <div class="label">{{LABEL}}</div>
+<div class="stage">
+  <div class="grid-backdrop" id="grid"></div>
+  <div class="vox-card" id="card">
+    <div class="tape-tl"></div>
+    <div class="tape-tr"></div>
+    <div class="header-meta">
+      <span class="meta-tag">METRIC // EVIDENCE</span>
+      <span>VOX ED. 9:16</span>
+    </div>
+    <div class="number-container">
+      <div class="number-box" id="number">{{PREFIX}}0{{SUFFIX}}</div>
+    </div>
+    <div class="label-wrap">
+      <div class="label" id="label">{{LABEL}}</div>
+    </div>
+    <div class="ruler-footer">
+      <span>+ [REF.01]</span>
+      <span class="ticks">||||||||||||||||</span>
+      <span>INDEX.DAT +</span>
+    </div>
   </div>
 </div>
+
 <script>
   const targetNum = parseFloat("{{TARGET_NUMBER}}") || 0;
   const prefix = "{{PREFIX}}";
   const suffix = "{{SUFFIX}}";
   const card = document.getElementById('card');
   const numEl = document.getElementById('number');
+  const gridEl = document.getElementById('grid');
 
-  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
-  function easeInCubic(x) { return x * x * x; }
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+  function easeInBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return c3 * x * x * x - c1 * x * x;
+  }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
-    if (progress < 0.18) {
-      const p = easeOutCubic(progress / 0.18);
-      card.style.opacity = p;
-      card.style.transform = `translateY(${60 * (1 - p)}px) scale(${0.92 + 0.08 * p})`;
-      const current = Math.round(targetNum * p);
+    
+    // 12 FPS stop-motion stepping cadence for VOX feel
+    const stepCount = 36;
+    const stepped = Math.floor(progress * stepCount) / stepCount;
+
+    if (progress < 0.16) {
+      const p = easeOutBack(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.2);
+      card.style.transform = `translateY(${80 * (1 - p)}px) rotate(${-1.5 * p}deg) scale(${0.9 + 0.1 * p})`;
+      gridEl.style.opacity = p * 0.8;
+      
+      const current = Math.round(targetNum * Math.min(1, p));
       numEl.textContent = `${prefix}${current}${suffix}`;
-    } else if (progress <= 0.82) {
+    } else if (progress <= 0.84) {
       card.style.opacity = 1;
-      card.style.transform = 'translateY(0) scale(1)';
+      card.style.transform = 'translateY(0) rotate(-1.5deg) scale(1)';
+      gridEl.style.opacity = 0.8;
       numEl.textContent = `${prefix}${targetNum}${suffix}`;
     } else {
-      const p = easeInCubic((progress - 0.82) / 0.18);
-      card.style.opacity = 1 - p;
-      card.style.transform = `translateY(${-40 * p}px) scale(${1 - 0.06 * p})`;
+      const p = easeInBack((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${100 * p}px) rotate(${-1.5 - 3 * p}deg) scale(${1 - 0.08 * p})`;
+      gridEl.style.opacity = Math.max(0, 0.8 * (1 - p));
       numEl.textContent = `${prefix}${targetNum}${suffix}`;
     }
   };

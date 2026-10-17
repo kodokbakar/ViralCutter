@@ -790,7 +790,14 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             }
             if "broll_items" in seg and isinstance(seg["broll_items"], list):
                 valid_brolls = []
-                allowed_templates = {"stat_counter", "quote_card", "point_highlight"}
+                try:
+                    from scripts.broll_engine import VALID_TEMPLATE_IDS as allowed_templates
+                except Exception:
+                    allowed_templates = {
+                        "stat_counter", "quote_card", "point_highlight",
+                        "vox_stat_counter", "vox_quote_card", "vox_point_list",
+                        "vox_versus_split", "vox_headline_punch", "vox_explainer_def", "vox_bar_chart"
+                    }
                 for item in seg["broll_items"]:
                     if not isinstance(item, dict):
                         continue
@@ -937,11 +944,22 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
 IMPORTANT: Output "Title", "Hook Title", and "Reasoning" in the SAME LANGUAGE as the transcript (e.g., if transcript is Indonesian, output Indonesian).
+
+MOTION B-ROLL INSTRUCTIONS:
+Optionally suggest 1-2 contextual Vox-style motion graphic overlays ("broll_items") per segment:
+- "stat_counter": For numbers, percentages, data metrics, money.
+- "quote_card": For memorable punchlines or quoted wisdom.
+- "point_highlight": For 2-3 key takeaways or bullet points.
+- "vox_versus_split": For comparisons/contrasting two concepts ("dulu vs sekarang", "A vs B").
+- "vox_headline_punch": For shocking statements or urgent key hooks.
+- "vox_explainer_def": For defining a technical term or jargon.
+- "vox_bar_chart": For comparing 2-3 data points/quantities.
+Vary the template_id according to the content context!
+
 TRANSCRIPT:
 {transcript_chunk}
 OUTPUT JSON ONLY:
 {json_template}"""
-
 
     json_template = '''
             { "segments" :

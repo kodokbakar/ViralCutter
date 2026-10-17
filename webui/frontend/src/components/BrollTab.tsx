@@ -16,21 +16,21 @@ import type { BrollTemplate } from '../api/types';
 const DEFAULT_TEMPLATES: BrollTemplate[] = [
   {
     id: 'stat_counter',
-    name: 'Stat Counter',
-    description: 'Animated numerical metric with label and customizable accent color',
+    name: 'Vox Metric Punch',
+    description: 'Bold kinetic number counter with kraft tape, ruler marks, and highlighter sweep',
     default_duration: 3.5,
     sample_data: {
       target_number: '87',
       prefix: '+',
       suffix: '%',
-      label: 'Tingkat Retensi 3 Detik Pertama',
-      accent_color: '#FF3B30',
+      label: 'Lonjakan Retensi 3 Detik Pertama',
+      accent_color: '#FF5A36',
     },
   },
   {
     id: 'quote_card',
-    name: 'Quote Card',
-    description: 'Highlight memorable punchline or statement with speaker attribution',
+    name: 'Vox Editorial Pull-Quote',
+    description: 'Angled newsprint paper cutout with animated highlighter marker and speaker stamp',
     default_duration: 4.0,
     sample_data: {
       quote: 'Bila pembukaan video tidak memikat dalam 2 detik, penonton pergi selamanya.',
@@ -40,12 +40,67 @@ const DEFAULT_TEMPLATES: BrollTemplate[] = [
   },
   {
     id: 'point_highlight',
-    name: 'Point Highlight',
-    description: 'Staggered bullet points highlighting core arguments or steps',
+    name: 'Vox Collage Sticky Steps',
+    description: 'Staggered numbered paper index cards with caution tape and stop-motion timing',
     default_duration: 4.5,
     sample_data: {
-      headline: '3 Kunci Viral',
+      headline: '3 KUNCI VIRAL',
       points: ['Hook 3 detik pertama', 'Pacing tanpa dead-air', 'Punchline memuaskan'],
+    },
+  },
+  {
+    id: 'vox_versus_split',
+    name: 'Vox Versus / Split Screen',
+    description: 'Full-screen dual-tone split comparison (Navy vs Coral) with rotating VS stamp',
+    default_duration: 4.0,
+    sample_data: {
+      tag_a: 'CARA LAMA',
+      title_a: 'MANUAL EDIT',
+      desc_a: 'Butuh 4 jam per video pendek, rawan lelah dan tidak konsisten.',
+      tag_b: 'CARA BARU',
+      title_b: 'VIRALCUTTER AI',
+      desc_b: 'Selesai dalam 2 menit otomatis dengan 3-part storytelling retention.',
+    },
+  },
+  {
+    id: 'vox_headline_punch',
+    name: 'Vox Kinetic Typographic Hook',
+    description: 'Full-screen 9:16 kinetic text slam with yellow highlighter block and breaking badge',
+    default_duration: 3.5,
+    sample_data: {
+      tag: 'BREAKING INSIGHT',
+      line_1: 'JANGAN PERNAH',
+      line_2: 'BUANG 3 DETIK',
+      line_3: 'PERTAMA ANDA',
+      subtext: 'Algoritma TikTok dan Reels mengukur 70% retensi dari detik pembuka.',
+    },
+  },
+  {
+    id: 'vox_explainer_def',
+    name: 'Vox Glossary / Blueprint Def',
+    description: 'Technical dictionary breakdown with phonetic guide and highlighter sweep',
+    default_duration: 4.0,
+    sample_data: {
+      term: 'HOOK RETENTION',
+      phonetic: '/hʊk rɪˈten.ʃən/',
+      pos: 'noun',
+      definition: 'Teknik psikologi visual untuk menghentikan jempol penonton dari scrolling.',
+      context_note: 'Faktor nomor 1 penentu viralitas di YouTube Shorts dan Reels.',
+    },
+  },
+  {
+    id: 'vox_bar_chart',
+    name: 'Vox Editorial Data Graph',
+    description: 'Animated comparison bar graph with diagonal textures and counter ticker',
+    default_duration: 4.0,
+    sample_data: {
+      chart_title: 'PERBANDINGAN RETENSI AUDIENS',
+      source: 'DATA ANALYTICS 2026',
+      bars: [
+        { label: 'Standard', value: '24%', height: 32, accent: false },
+        { label: 'Jump-Cut', value: '58%', height: 65, accent: false },
+        { label: 'ViralCutter', value: '89%', height: 95, accent: true },
+      ],
     },
   },
 ];
@@ -357,6 +412,246 @@ export const BrollTab: React.FC = () => {
                       placeholder="Hook 3 detik pertama&#10;Pacing tanpa dead-air&#10;Punchline memuaskan"
                     />
                   </div>
+                </div>
+              )}
+              {selectedTemplateId === 'vox_versus_split' && (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-lg bg-zinc-950/80 border border-zinc-800 space-y-3">
+                    <span className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-wider block">Side A (Top - Navy)</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1">Tag A</label>
+                        <input
+                          type="text"
+                          value={String(templateData.tag_a ?? '')}
+                          onChange={(e) => handleDataChange('tag_a', e.target.value)}
+                          className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1">Title A</label>
+                        <input
+                          type="text"
+                          value={String(templateData.title_a ?? '')}
+                          onChange={(e) => handleDataChange('title_a', e.target.value)}
+                          className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">Description A</label>
+                      <input
+                        type="text"
+                        value={String(templateData.desc_a ?? '')}
+                        onChange={(e) => handleDataChange('desc_a', e.target.value)}
+                        className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-zinc-950/80 border border-zinc-800 space-y-3">
+                    <span className="text-[11px] font-mono font-bold text-red-400 uppercase tracking-wider block">Side B (Bottom - Coral)</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1">Tag B</label>
+                        <input
+                          type="text"
+                          value={String(templateData.tag_b ?? '')}
+                          onChange={(e) => handleDataChange('tag_b', e.target.value)}
+                          className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1">Title B</label>
+                        <input
+                          type="text"
+                          value={String(templateData.title_b ?? '')}
+                          onChange={(e) => handleDataChange('title_b', e.target.value)}
+                          className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1">Description B</label>
+                      <input
+                        type="text"
+                        value={String(templateData.desc_b ?? '')}
+                        onChange={(e) => handleDataChange('desc_b', e.target.value)}
+                        className="w-full rounded bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedTemplateId === 'vox_headline_punch' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Tag</label>
+                    <input
+                      type="text"
+                      value={String(templateData.tag ?? '')}
+                      onChange={(e) => handleDataChange('tag', e.target.value)}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Line 1 (White)</label>
+                      <input
+                        type="text"
+                        value={String(templateData.line_1 ?? '')}
+                        onChange={(e) => handleDataChange('line_1', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Line 2 (Highlight Block)</label>
+                      <input
+                        type="text"
+                        value={String(templateData.line_2 ?? '')}
+                        onChange={(e) => handleDataChange('line_2', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none font-bold text-yellow-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Line 3 (Accent)</label>
+                      <input
+                        type="text"
+                        value={String(templateData.line_3 ?? '')}
+                        onChange={(e) => handleDataChange('line_3', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none text-red-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Subtext</label>
+                    <input
+                      type="text"
+                      value={String(templateData.subtext ?? '')}
+                      onChange={(e) => handleDataChange('subtext', e.target.value)}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedTemplateId === 'vox_explainer_def' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Term</label>
+                      <input
+                        type="text"
+                        value={String(templateData.term ?? '')}
+                        onChange={(e) => handleDataChange('term', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Phonetic</label>
+                      <input
+                        type="text"
+                        value={String(templateData.phonetic ?? '')}
+                        onChange={(e) => handleDataChange('phonetic', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none font-serif"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Part of Speech</label>
+                      <input
+                        type="text"
+                        value={String(templateData.pos ?? '')}
+                        onChange={(e) => handleDataChange('pos', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Definition (with Marker Highlight)</label>
+                    <textarea
+                      rows={2}
+                      value={String(templateData.definition ?? '')}
+                      onChange={(e) => handleDataChange('definition', e.target.value)}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Context Note</label>
+                    <input
+                      type="text"
+                      value={String(templateData.context_note ?? '')}
+                      onChange={(e) => handleDataChange('context_note', e.target.value)}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedTemplateId === 'vox_bar_chart' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Chart Title</label>
+                      <input
+                        type="text"
+                        value={String(templateData.chart_title ?? '')}
+                        onChange={(e) => handleDataChange('chart_title', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-300 mb-1">Source Footnote</label>
+                      <input
+                        type="text"
+                        value={String(templateData.source ?? '')}
+                        onChange={(e) => handleDataChange('source', e.target.value)}
+                        className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">Bars Data (JSON)</label>
+                    <textarea
+                      rows={5}
+                      value={
+                        typeof templateData.bars === 'string'
+                          ? templateData.bars
+                          : JSON.stringify(templateData.bars ?? [], null, 2)
+                      }
+                      onChange={(e) => {
+                        try {
+                          const parsed = JSON.parse(e.target.value);
+                          handleDataChange('bars', parsed);
+                        } catch {
+                          handleDataChange('bars', e.target.value);
+                        }
+                      }}
+                      className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback JSON Editor for unknown or custom templates */}
+              {![
+                'stat_counter', 'quote_card', 'point_highlight',
+                'vox_versus_split', 'vox_headline_punch', 'vox_explainer_def', 'vox_bar_chart'
+              ].includes(selectedTemplateId) && (
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Custom Template Data (JSON)</label>
+                  <textarea
+                    rows={6}
+                    value={JSON.stringify(templateData, null, 2)}
+                    onChange={(e) => {
+                      try {
+                        setTemplateData(JSON.parse(e.target.value));
+                      } catch {
+                        // allow raw typing
+                      }
+                    }}
+                    className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none font-mono"
+                  />
                 </div>
               )}
 

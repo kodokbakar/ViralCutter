@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1080px; height: 1920px;
+    background: #0B132B;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Impact, "Arial Black", sans-serif;
+  }
+  .stage {
+    width: 100%; height: 100%;
+    position: relative;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  /* Top Half - Side A (Navy / Ink) */
+  .side-a {
+    flex: 1;
+    background: #0B132B;
+    color: #F4EFEA;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 100px 80px;
+    position: relative;
+    z-index: 1;
+    border-bottom: 6px solid #121316;
+  }
+  /* Bottom Half - Side B (Vibrant Coral) */
+  .side-b {
+    flex: 1;
+    background: #FF5A36;
+    color: #FFFFFF;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 100px 80px;
+    position: relative;
+    z-index: 1;
+  }
+  /* Subtle Halftone Dot Pattern Overlay */
+  .pattern-overlay {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.08) 1.5px, transparent 1.5px);
+    background-size: 28px 28px;
+    pointer-events: none;
+  }
+  /* Tag Badges */
+  .side-tag {
+    align-self: flex-start;
+    font-family: ui-monospace, monospace;
+    font-size: 22px;
+    font-weight: 800;
+    padding: 8px 18px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+    box-shadow: 3px 3px 0 #000;
+  }
+  .tag-a { background: #FFE600; color: #121316; }
+  .tag-b { background: #121316; color: #FFFFFF; }
+
+  /* Title & Values */
+  .side-title {
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 80px;
+    line-height: 1.05;
+    text-transform: uppercase;
+    letter-spacing: -1px;
+    margin-bottom: 20px;
+  }
+  .side-desc {
+    font-size: 38px;
+    font-weight: 700;
+    line-height: 1.35;
+    max-width: 900px;
+    opacity: 0.95;
+  }
+  /* Central VS Stamped Badge */
+  .vs-badge-wrap {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+  }
+  .vs-badge {
+    width: 140px; height: 140px;
+    background: #FFE600;
+    border: 5px solid #121316;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: Impact, "Arial Black", sans-serif;
+    font-size: 64px;
+    color: #121316;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.7), 4px 6px 0 #121316;
+    transform: scale(0) rotate(-15deg);
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="side-a" id="sideA">
+    <div class="pattern-overlay"></div>
+    <div class="side-tag tag-a">{{TAG_A}}</div>
+    <div class="side-title">{{TITLE_A}}</div>
+    <div class="side-desc">{{DESC_A}}</div>
+  </div>
+
+  <div class="vs-badge-wrap">
+    <div class="vs-badge" id="vsBadge">VS</div>
+  </div>
+
+  <div class="side-b" id="sideB">
+    <div class="pattern-overlay"></div>
+    <div class="side-tag tag-b">{{TAG_B}}</div>
+    <div class="side-title">{{TITLE_B}}</div>
+    <div class="side-desc">{{DESC_B}}</div>
+  </div>
+</div>
+
+<script>
+  const sideA = document.getElementById('sideA');
+  const sideB = document.getElementById('sideB');
+  const vsBadge = document.getElementById('vsBadge');
+
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+  function easeInCubic(x) { return x * x * x; }
+
+  window.renderSeek = function(progress) {
+    progress = Math.max(0, Math.min(1, progress));
+
+    if (progress < 0.18) {
+      const p = easeOutBack(progress / 0.18);
+      sideA.style.transform = `translateY(${-120 * (1 - p)}px)`;
+      sideA.style.opacity = p;
+      sideB.style.transform = `translateY(${120 * (1 - p)}px)`;
+      sideB.style.opacity = p;
+      vsBadge.style.transform = `scale(${p}) rotate(${-15 + 15 * p}deg)`;
+    } else if (progress <= 0.82) {
+      sideA.style.transform = 'translateY(0)';
+      sideA.style.opacity = 1;
+      sideB.style.transform = 'translateY(0)';
+      sideB.style.opacity = 1;
+      vsBadge.style.transform = 'scale(1) rotate(0deg)';
+    } else {
+      const p = easeInCubic((progress - 0.82) / 0.18);
+      sideA.style.transform = `translateX(${-100 * p}px)`;
+      sideA.style.opacity = 1 - p;
+      sideB.style.transform = `translateX(${100 * p}px)`;
+      sideB.style.opacity = 1 - p;
+      vsBadge.style.transform = `scale(${1 - p}) rotate(${20 * p}deg)`;
+    }
+  };
+  window.renderSeek(0);
+</script>
+</body>
+</html>
