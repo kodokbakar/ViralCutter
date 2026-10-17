@@ -789,7 +789,24 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 "duration": duration
             }
             if "broll_items" in seg and isinstance(seg["broll_items"], list):
-                segment_dict["broll_items"] = seg["broll_items"]
+                valid_brolls = []
+                allowed_templates = {"stat_counter", "quote_card", "point_highlight"}
+                for item in seg["broll_items"]:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("template_id") not in allowed_templates:
+                        continue
+                    try:
+                        start_offset = float(item.get("start_offset", -1.0))
+                        duration_val = float(item.get("duration", 0.0))
+                    except (ValueError, TypeError):
+                        continue
+                    if start_offset < 0.0 or duration_val <= 0.0:
+                        continue
+                    if not isinstance(item.get("data"), dict):
+                        continue
+                    valid_brolls.append(item)
+                segment_dict["broll_items"] = valid_brolls
             processed_segments.append(segment_dict)
 
         except Exception as e:

@@ -22,7 +22,7 @@ class BrollTemplateResponse(BaseModel):
 
 class BrollPreviewRequest(BaseModel):
     template_id: str
-    duration: float = Field(default=3.0, gt=0.0)
+    duration: float = Field(default=3.0, gt=0.0, le=15.0, description="Duration in seconds (max 15.0)")
     data: Dict[str, Any] = Field(default_factory=dict)
 
 

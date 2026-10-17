@@ -685,13 +685,14 @@ def burn(
                         out_webm = os.path.join(cache_dir, f"{clean_clip_name}_broll_{b_idx}.webm")
                         duration = float(item_copy.get("duration", 3.0))
                         data = item_copy.get("data", {})
-                        print(f"Rendering B-roll clip {b_idx} ({tpl_id}) for {clean_clip_name}...")
-                        broll_renderer.render_broll_clip(
-                            template_id=tpl_id,
-                            data=data,
-                            duration=duration,
-                            output_path=out_webm,
-                        )
+                        if not (os.path.exists(out_webm) and os.path.getsize(out_webm) > 0):
+                            print(f"Rendering B-roll clip {b_idx} ({tpl_id}) for {clean_clip_name}...")
+                            broll_renderer.render_broll_clip(
+                                template_id=tpl_id,
+                                data=data,
+                                duration=duration,
+                                output_path=out_webm,
+                            )
                         item_copy["video_path"] = out_webm
                 if item_copy.get("video_path") and os.path.exists(item_copy["video_path"]):
                     rendered_clip_brolls.append(item_copy)

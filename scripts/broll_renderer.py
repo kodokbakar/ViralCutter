@@ -80,10 +80,16 @@ def render_broll_clip(
 
         if proc.stdin and not proc.stdin.closed:
             proc.stdin.close()
-        proc.wait()
+        proc.wait(timeout=60)
+        if proc.returncode != 0:
+            raise RuntimeError(f"FFmpeg exit code {proc.returncode}")
     finally:
         if proc and proc.poll() is None:
             proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
         if os.path.exists(temp_html_path):
             try:
                 os.remove(temp_html_path)

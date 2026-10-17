@@ -1,5 +1,6 @@
 import pytest
 from scripts import smart_clipping
+from scripts.create_viral_segments import process_segments
 
 
 def test_parse_llm_topics_with_broll():
@@ -92,3 +93,61 @@ def test_parse_llm_topics_without_broll():
     topics = smart_clipping.parse_llm_topics(sample_llm)
     assert len(topics) == 1
     assert topics[0].get("broll_items") == []
+
+
+def test_process_segments_broll_validation():
+    transcript_segments = [
+        {"start": 0.0, "end": 5.0, "text": "intro text here"},
+        {"start": 5.0, "end": 15.0, "text": "middle content discussing stats"},
+        {"start": 15.0, "end": 20.0, "text": "outro text here"},
+    ]
+    raw_segments = [
+        {
+            "title": "Segment with Valid and Invalid B-roll",
+            "start_time_ref": "(0s)",
+            "start_text": "intro text",
+            "end_text": "middle content",
+            "score": 90,
+            "broll_items": [
+                {
+                    "template_id": "stat_counter",
+                    "start_offset": 1.0,
+                    "duration": 3.0,
+                    "data": {"target_number": "100"},
+                },
+                {
+                    "template_id": "unknown_fx",
+                    "start_offset": 1.0,
+                    "duration": 3.0,
+                    "data": {},
+                },
+                {
+                    "template_id": "quote_card",
+                    "start_offset": -0.5,
+                    "duration": 2.0,
+                    "data": {"quote": "hello"},
+                },
+                {
+                    "template_id": "point_highlight",
+                    "start_offset": 2.0,
+                    "duration": 0.0,
+                    "data": {"points": ["a"]},
+                },
+                {
+                    "template_id": "point_highlight",
+                    "start_offset": 2.0,
+                    "duration": 2.0,
+                    "data": "not-a-dict",
+                },
+                "not-a-dict-item",
+            ],
+        }
+    ]
+
+    result = process_segments(raw_segments, transcript_segments, min_duration=5, max_duration=20)
+    segs = result.get("segments", [])
+    assert len(segs) == 1
+    brolls = segs[0].get("broll_items", [])
+    assert len(brolls) == 1
+    assert brolls[0]["template_id"] == "stat_counter"
+    assert brolls[0]["duration"] == 3.0

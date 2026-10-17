@@ -44,6 +44,16 @@ def test_preview_unknown_template():
     assert response.status_code == 404
 
 
+def test_preview_broll_duration_limit():
+    payload = {
+        "template_id": "stat_counter",
+        "duration": 20.0,
+        "data": {},
+    }
+    response = client.post("/api/v1/broll/preview", json=payload)
+    assert response.status_code == 422
+
+
 def test_job_schema_enable_html_broll():
     req_default = JobRunRequest(url="https://youtube.com/watch?v=123")
     assert req_default.enable_html_broll is False
