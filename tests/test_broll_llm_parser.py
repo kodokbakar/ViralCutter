@@ -151,3 +151,18 @@ def test_process_segments_broll_validation():
     assert len(brolls) == 1
     assert brolls[0]["template_id"] == "stat_counter"
     assert brolls[0]["duration"] == 3.0
+
+
+def test_map_words_to_spliced_timeline():
+    segments_to_splice = [(10.0, 20.0), (30.0, 40.0)]
+    words = [
+        {"word": "A", "start": 12.0, "end": 12.5},
+        {"word": "B", "start": 25.0, "end": 26.0},  # Outside slices (dead air / skipped)
+        {"word": "C", "start": 32.0, "end": 33.0},
+    ]
+    spliced = smart_clipping.map_words_to_spliced_timeline(segments_to_splice, words)
+    assert len(spliced) == 2
+    assert spliced[0]["word"] == "A"
+    assert spliced[0]["start"] == 2.0  # 12.0 - 10.0
+    assert spliced[1]["word"] == "C"
+    assert spliced[1]["start"] == 12.0  # 10s (slice 1) + (32.0 - 30.0)

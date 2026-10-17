@@ -11,7 +11,7 @@ def render_broll_clip(
     data: Dict[str, Any],
     duration: float,
     output_path: str,
-    fps: int = 30,
+    fps: int = 12,
 ) -> str:
     """
     Renders an HTML motion template to a transparent WebM video (VP9 / yuva420p)

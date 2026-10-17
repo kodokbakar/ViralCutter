@@ -137,3 +137,59 @@ def test_normalize_broll_items():
     assert normalized[1]["start_offset"] == 25.0
     assert normalized[2]["template_id"] == "vox_headline_punch"
     assert normalized[2]["start_offset"] == 50.0
+
+
+def test_extract_keywords_from_broll():
+    item = {
+        "template_id": "stat_counter",
+        "data": {
+            "target_number": "85%",
+            "label": "Lonjakan Bisnis Cepat",
+        },
+    }
+    primary, secondary = broll_engine.extract_keywords_from_broll(item)
+    assert "85" in primary
+    assert "lonjakan" in secondary
+    assert "bisnis" in secondary
+
+
+def test_snap_broll_items_to_transcript_aligns_timing():
+    """
+    Verify that an estimated B-roll at 46.0s snaps to 48.95s when the speaker
+    actually says '85 persen' at 49.2s.
+    """
+    transcript_mock = {
+        "segments": [
+            {
+                "start": 40.0,
+                "end": 55.0,
+                "words": [
+                    {"word": "Saya", "start": 45.0, "end": 45.4},
+                    {"word": "melihat", "start": 45.5, "end": 46.1},
+                    {"word": "pertumbuhan", "start": 47.0, "end": 47.8},
+                    {"word": "mencapai", "start": 48.2, "end": 48.9},
+                    {"word": "85", "start": 49.2, "end": 49.6},
+                    {"word": "persen", "start": 49.7, "end": 50.3},
+                ],
+            }
+        ]
+    }
+
+    broll_items = [
+        {
+            "template_id": "stat_counter",
+            "start_offset": 46.0,  # AI estimated too early
+            "duration": 3.5,
+            "data": {
+                "target_number": "85",
+                "label": "Pertumbuhan Bisnis",
+            },
+        }
+    ]
+
+    snapped = broll_engine.snap_broll_items_to_transcript(broll_items, transcript_mock, lead_in=0.25)
+    assert len(snapped) == 1
+    # 49.2s - 0.25s = 48.95s
+    assert snapped[0]["start_offset"] == 48.95
+    assert snapped[0]["audio_snapped"] is True
+    assert snapped[0]["matched_word"] == "85"

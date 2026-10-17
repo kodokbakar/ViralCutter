@@ -145,6 +145,30 @@ def remove_dead_air_from_segment(
 
     return slices
 
+def map_words_to_spliced_timeline(
+    segments_to_splice: List[Tuple[float, float]],
+    words: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Maps original word timestamps into the compressed/spliced clip timeline.
+    """
+    spliced_words = []
+    current_offset = 0.0
+    for s_start, s_end in segments_to_splice:
+        slice_dur = s_end - s_start
+        for w in words:
+            w_s = float(w.get("start", 0.0))
+            w_e = float(w.get("end", 0.0))
+            if w_e > s_start and w_s < s_end:
+                rel_s = max(0.0, w_s - s_start)
+                rel_e = min(slice_dur, w_e - s_start)
+                w_copy = dict(w)
+                w_copy["start"] = round(current_offset + rel_s, 3)
+                w_copy["end"] = round(current_offset + rel_e, 3)
+                spliced_words.append(w_copy)
+        current_offset += slice_dur
+    return spliced_words
+
 def build_narrative_prompt(
     transcript_text: str,
     target_min: float = 20.0,
@@ -713,6 +737,15 @@ def run_smart_clipping_pipeline(
         total_duration = sum(e - s for s, e in segments_to_splice) if segments_to_splice else (latest_end - earliest_start)
 
         full_text = " ".join([hook.get("text", ""), core.get("text", ""), payoff.get("text", "")]).strip()
+        raw_broll = snapped_topic.get("broll_items", [])
+        try:
+            from scripts.broll_engine import snap_broll_items_to_transcript
+            spliced_words = map_words_to_spliced_timeline(segments_to_splice, words) if words else []
+            final_broll = snap_broll_items_to_transcript(raw_broll, spliced_words) if spliced_words else raw_broll
+        except Exception as e:
+            print(f"[WARN] Failed to snap broll items in smart_clipping: {e}")
+            final_broll = raw_broll
+
         viral_segments_list.append({
             "title": title,
             "score": final_score,
@@ -727,7 +760,7 @@ def run_smart_clipping_pipeline(
             "core": core,
             "payoff": payoff,
             "smart_clip_path": output_clip_path,
-            "broll_items": snapped_topic.get("broll_items", [])
+            "broll_items": final_broll,
         })
 
     return {"segments": viral_segments_list}

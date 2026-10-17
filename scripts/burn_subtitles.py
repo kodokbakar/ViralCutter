@@ -668,6 +668,36 @@ def burn(
                         break
             clip_brolls = (seg.get("broll_items") if seg else []) or []
 
+        # Snap B-roll timing to exact spoken words from WhisperX transcript
+        subs_dir = os.path.join(project_folder_abs, "subs")
+        sub_json_path = None
+        if os.path.exists(subs_dir):
+            for candidate in (
+                f"{clean_clip_name}_processed.json",
+                f"{video_name}_processed.json",
+                f"{clean_clip_name}.json",
+                f"{video_name}.json",
+            ):
+                candidate_p = os.path.join(subs_dir, candidate)
+                if os.path.exists(candidate_p):
+                    sub_json_path = candidate_p
+                    break
+            if not sub_json_path:
+                match_idx = re.search(r"^(\d{3})_", clean_clip_name) or re.search(r"^(\d{3})_", video_name)
+                if match_idx:
+                    idx_prefix = match_idx.group(1)
+                    for f_name in os.listdir(subs_dir):
+                        if f_name.startswith(f"{idx_prefix}_") and f_name.endswith(".json"):
+                            sub_json_path = os.path.join(subs_dir, f_name)
+                            break
+
+        if clip_brolls and sub_json_path:
+            try:
+                from scripts.broll_engine import snap_broll_items_to_transcript
+                clip_brolls = snap_broll_items_to_transcript(clip_brolls, sub_json_path)
+            except Exception as snap_err:
+                print(f"[WARN] Failed to snap broll to transcript words: {snap_err}")
+
         rendered_clip_brolls = []
         if enable_html_broll and clip_brolls:
             cache_dir = os.path.join(project_folder_abs, "broll_cache")

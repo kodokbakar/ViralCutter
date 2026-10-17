@@ -1,6 +1,8 @@
 import html
+import json
 import os
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Tuple
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "broll_templates")
 
@@ -53,12 +55,16 @@ def normalize_broll_items(
         if not isinstance(b_data, dict):
             b_data = {}
 
-        valid_items.append({
+        entry = {
             "start_offset": round(start_offset, 3),
             "duration": round(clamped_duration, 3),
             "template_id": tpl_id,
             "data": b_data,
-        })
+        }
+        for k in ("audio_snapped", "matched_word", "matched_time", "video_path", "anchor_phrase"):
+            if k in item:
+                entry[k] = item[k]
+        valid_items.append(entry)
 
     # Sort chronologically by start_offset
     valid_items.sort(key=lambda x: x["start_offset"])
@@ -74,6 +80,238 @@ def normalize_broll_items(
             last_end = item["start_offset"] + item["duration"]
 
     return spaced_items
+
+def extract_keywords_from_broll(item: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """
+    Extracts (primary_keywords, secondary_keywords) from a B-roll item.
+    Primary keywords (numbers, anchor phrases, main terms) take precedence
+    over generic secondary label words.
+    """
+    if not isinstance(item, dict):
+        return [], []
+
+    primary: List[str] = []
+    secondary: List[str] = []
+
+    # 1. Explicit anchor_phrase if provided by LLM
+    anchor = item.get("anchor_phrase") or item.get("trigger_phrase")
+    if anchor and isinstance(anchor, str):
+        primary.append(anchor.strip().lower())
+
+    data = item.get("data")
+    if not isinstance(data, dict):
+        return primary, secondary
+
+    tpl_id = str(item.get("template_id", "")).strip()
+
+    # 2. Template-specific keyword extraction
+    if tpl_id in ("stat_counter", "vox_stat_counter"):
+        target_num = str(data.get("target_number", "")).strip()
+        if target_num:
+            # Strip percent / currency symbols for pure number matching
+            num_clean = re.sub(r"[^\w\s]", "", target_num).strip().lower()
+            if num_clean:
+                primary.append(num_clean)
+        label = str(data.get("label", "")).strip()
+        if label:
+            words = [w.strip().lower() for w in label.split() if len(w.strip()) >= 4]
+            secondary.extend(words)
+
+    elif tpl_id in ("quote_card", "vox_quote_card"):
+        quote = str(data.get("quote", "")).strip()
+        if quote:
+            words = [w.strip().lower() for w in quote.split() if len(w.strip()) >= 4]
+            if words:
+                primary.extend(words[:3])
+                secondary.extend(words[3:8])
+        author = str(data.get("author", "")).strip()
+        if author:
+            secondary.extend([w.strip().lower() for w in author.split() if len(w.strip()) >= 3])
+
+    elif tpl_id in ("point_highlight", "vox_point_list"):
+        headline = str(data.get("headline", "")).strip()
+        if headline:
+            words = [w.strip().lower() for w in headline.split() if len(w.strip()) >= 4]
+            primary.extend(words)
+        points = data.get("points")
+        if isinstance(points, list) and points:
+            first_pt = str(points[0]).strip()
+            secondary.extend([w.strip().lower() for w in first_pt.split() if len(w.strip()) >= 4])
+
+    elif tpl_id == "vox_versus_split":
+        for field in ("title_a", "title_b"):
+            val = str(data.get(field, "")).strip()
+            if val:
+                primary.extend([w.strip().lower() for w in val.split() if len(w.strip()) >= 3])
+        for field in ("tag_a", "tag_b"):
+            val = str(data.get(field, "")).strip()
+            if val:
+                secondary.extend([w.strip().lower() for w in val.split() if len(w.strip()) >= 3])
+
+    elif tpl_id == "vox_headline_punch":
+        for field in ("line_1", "line_2", "line_3"):
+            val = str(data.get(field, "")).strip()
+            if val:
+                primary.extend([w.strip().lower() for w in val.split() if len(w.strip()) >= 4])
+        tag = str(data.get("tag", "")).strip()
+        if tag:
+            secondary.extend([w.strip().lower() for w in tag.split() if len(w.strip()) >= 4])
+
+    elif tpl_id == "vox_explainer_def":
+        term = str(data.get("term", "")).strip()
+        if term:
+            term_clean = re.sub(r"[^\w\s]", "", term).strip().lower()
+            primary.append(term_clean)
+            primary.extend([w.strip().lower() for w in term.split() if len(w.strip()) >= 3])
+
+    elif tpl_id == "vox_bar_chart":
+        title = str(data.get("chart_title", "")).strip()
+        if title:
+            primary.extend([w.strip().lower() for w in title.split() if len(w.strip()) >= 4])
+
+    def _clean_list(raw_list: List[str]) -> List[str]:
+        seen = set()
+        res = []
+        for k in raw_list:
+            clean_k = "".join(c for c in k if c.isalnum() or c.isspace()).strip()
+            if clean_k and clean_k not in seen:
+                seen.add(clean_k)
+                res.append(clean_k)
+        return res
+
+    return _clean_list(primary), _clean_list(secondary)
+
+
+def _extract_words_helper(data: Any) -> List[Dict[str, Any]]:
+    words: List[Dict[str, Any]] = []
+    segments: List[Any] = []
+    if isinstance(data, dict):
+        segments = data.get("segments", [])
+    elif isinstance(data, list):
+        segments = data
+
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        seg_words = seg.get("words")
+        if seg_words and isinstance(seg_words, list):
+            for w in seg_words:
+                if not isinstance(w, dict):
+                    continue
+                w_text = str(w.get("word") or "").strip()
+                s = w.get("start")
+                e = w.get("end")
+                if w_text and s is not None and e is not None:
+                    clean = "".join(c for c in w_text.lower() if c.isalnum())
+                    words.append({
+                        "word": w_text,
+                        "clean_word": clean,
+                        "start": float(s),
+                        "end": float(e),
+                    })
+        else:
+            text = str(seg.get("text") or "").strip()
+            s = seg.get("start")
+            e = seg.get("end")
+            if text and s is not None and e is not None:
+                tokens = text.split()
+                if tokens:
+                    dur = max(0.1, float(e) - float(s))
+                    step = dur / len(tokens)
+                    for i, t in enumerate(tokens):
+                        clean = "".join(c for c in t.lower() if c.isalnum())
+                        words.append({
+                            "word": t,
+                            "clean_word": clean,
+                            "start": round(float(s) + i * step, 3),
+                            "end": round(float(s) + (i + 1) * step, 3),
+                        })
+    return words
+
+
+def snap_broll_items_to_transcript(
+    broll_items: List[Dict[str, Any]],
+    transcript_source: Any,
+    lead_in: float = 0.25,
+    search_window: float = 14.0,
+) -> List[Dict[str, Any]]:
+    """
+    Aligns B-roll start_offset with actual spoken words from WhisperX transcript.
+    Finds candidate words matching item keywords within search_window seconds
+    of the estimated start_offset, adjusting start_offset to word_start - lead_in.
+    """
+    if not broll_items:
+        return []
+
+    words: List[Dict[str, Any]] = []
+    if isinstance(transcript_source, str) and os.path.exists(transcript_source):
+        try:
+            with open(transcript_source, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                words = _extract_words_helper(data)
+        except Exception as e:
+            print(f"[WARN] Failed to load transcript for B-roll snapping: {e}")
+            words = []
+    elif isinstance(transcript_source, (dict, list)):
+        words = _extract_words_helper(transcript_source)
+
+    if not words:
+        return normalize_broll_items(broll_items)
+
+    snapped_items = []
+    for item in broll_items:
+        if not isinstance(item, dict):
+            continue
+        item_copy = dict(item)
+        est_offset = float(item_copy.get("start_offset", 0.0))
+        primary_kw, secondary_kw = extract_keywords_from_broll(item_copy)
+
+        def _find_best_match(kw_list: List[str]) -> Any:
+            match = None
+            lowest_dist = float("inf")
+            for kw in kw_list:
+                kw_tokens = kw.split()
+                if len(kw_tokens) > 1:
+                    kw_str = " ".join(kw_tokens)
+                    for i in range(len(words) - len(kw_tokens) + 1):
+                        window_tokens = [w["clean_word"] for w in words[i:i + len(kw_tokens)]]
+                        window_str = " ".join(window_tokens)
+                        if kw_str in window_str or window_str in kw_str:
+                            w_start = words[i]["start"]
+                            dist = abs(w_start - est_offset)
+                            if dist <= search_window and dist < lowest_dist:
+                                lowest_dist = dist
+                                match = words[i]
+                else:
+                    for w in words:
+                        cw = w["clean_word"]
+                        if kw == cw or (len(kw) >= 3 and (kw in cw or cw in kw)):
+                            dist = abs(w["start"] - est_offset)
+                            if dist <= search_window and dist < lowest_dist:
+                                lowest_dist = dist
+                                match = w
+            return match
+
+        # Match against primary keywords first (e.g. number, main phrase, term)
+        best_match = _find_best_match(primary_kw)
+        if best_match is None and secondary_kw:
+            best_match = _find_best_match(secondary_kw)
+        if best_match is not None:
+            snapped_start = max(0.0, round(best_match["start"] - lead_in, 3))
+            print(
+                f"[B-ROLL SNAP] Aligned '{item_copy.get('template_id')}' to spoken word '{best_match['word']}' at {best_match['start']:.2f}s "
+                f"(offset shifted from {est_offset:.2f}s -> {snapped_start:.2f}s)"
+            )
+            item_copy["start_offset"] = snapped_start
+            item_copy["audio_snapped"] = True
+            item_copy["matched_word"] = best_match["word"]
+            item_copy["matched_time"] = round(best_match["start"], 3)
+            dur = float(item_copy.get("duration", 3.5))
+            item_copy["duration"] = max(3.0, min(5.0, dur))
+
+        snapped_items.append(item_copy)
+
+    return normalize_broll_items(snapped_items)
 
 
 CATALOG: List[Dict[str, Any]] = [

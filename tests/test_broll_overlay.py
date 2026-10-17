@@ -153,3 +153,74 @@ def test_main_cli_arg_enable_html_broll():
     import subprocess
     res = subprocess.run(["python3", "main_improved.py", "--help"], capture_output=True, text=True, check=True)
     assert "--enable-html-broll" in res.stdout
+
+
+def test_burn_subtitles_snaps_broll_to_processed_subs():
+    import json
+    with tempfile.TemporaryDirectory() as tmpdir:
+        final_dir = os.path.join(tmpdir, "final")
+        subs_ass_dir = os.path.join(tmpdir, "subs_ass")
+        subs_dir = os.path.join(tmpdir, "subs")
+        os.makedirs(final_dir)
+        os.makedirs(subs_ass_dir)
+        os.makedirs(subs_dir)
+
+        clip_name = "001_Test_Video"
+        vid_in = os.path.join(final_dir, f"{clip_name}.mp4")
+        sub_ass = os.path.join(subs_ass_dir, f"{clip_name}.ass")
+        sub_json = os.path.join(subs_dir, f"{clip_name}_processed.json")
+
+        # 1. Create 5s input video
+        subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=duration=5:size=320x180:rate=30",
+            "-f", "lavfi", "-i", "sine=duration=5",
+            "-c:v", "libx264", "-c:a", "aac",
+            vid_in
+        ], check=True)
+
+        # 2. Create ASS sub
+        with open(sub_ass, "w") as f:
+            f.write("[Script Info]\nScriptType: v4.00+\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,Test\n")
+
+        # 3. Create processed transcript JSON where "85" is spoken at 2.5s
+        with open(sub_json, "w", encoding="utf-8") as f:
+            json.dump({
+                "segments": [
+                    {
+                        "start": 0.0,
+                        "end": 4.5,
+                        "words": [
+                            {"word": "halo", "start": 0.5, "end": 1.0},
+                            {"word": "naik", "start": 1.8, "end": 2.2},
+                            {"word": "85", "start": 2.5, "end": 3.0},
+                            {"word": "persen", "start": 3.1, "end": 3.8},
+                        ]
+                    }
+                ]
+            }, f)
+
+        # 4. viral_segments.txt with broll estimated at 1.0s (too early)
+        vs_file = os.path.join(tmpdir, "viral_segments.txt")
+        with open(vs_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "segments": [
+                    {
+                        "title": "Test Video",
+                        "broll_items": [
+                            {
+                                "template_id": "stat_counter",
+                                "start_offset": 1.0,  # Estimated too early
+                                "duration": 2.0,
+                                "data": {"target_number": "85"}
+                            }
+                        ]
+                    }
+                ]
+            }, f)
+
+        # 5. Run burn
+        out_folder = burn_subtitles.burn(project_folder=tmpdir, enable_html_broll=True)
+        out_file = os.path.join(out_folder, f"{clip_name}.mp4")
+        assert os.path.exists(out_file)
+        assert os.path.getsize(out_file) > 1000
