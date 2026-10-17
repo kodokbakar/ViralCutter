@@ -206,6 +206,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
   // Motion B-Roll Workflow (Persisted)
   const [enableHtmlBroll, setEnableHtmlBroll] = usePersistedState<boolean>('enable_html_broll', false);
+  const [enableBrollSfx, setEnableBrollSfx] = usePersistedState<boolean>('enable_broll_sfx', true);
+  const [brollSfxVolume, setBrollSfxVolume] = usePersistedState<number>('broll_sfx_volume', 0.35);
 
   // Watermark Workflow (Synchronized with Watermark Tab)
   const [watermarkConfig, setWatermarkConfig] = useState<StoredWatermarkConfig | null>(() => {
@@ -865,6 +867,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
       // Motion B-roll
       enable_html_broll: enableHtmlBroll,
+      enable_broll_sfx: enableHtmlBroll ? enableBrollSfx : undefined,
+      broll_sfx_volume: enableHtmlBroll && enableBrollSfx ? brollSfxVolume : undefined,
     };
 
     try {
@@ -1403,7 +1407,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     </div>
                   </div>
                 </div>
-
                 <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer pl-3 border-l border-zinc-800">
                   <input
                     id="enable-html-broll-toggle"
@@ -1416,6 +1419,35 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <span>Enable</span>
                 </label>
               </div>
+
+              {enableHtmlBroll && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800 cursor-pointer">
+                    <span className="text-xs text-zinc-300">Tactile Sound Effects (VOX Style)</span>
+                    <input
+                      id="enable-broll-sfx-toggle"
+                      type="checkbox"
+                      checked={enableBrollSfx}
+                      onChange={(e) => setEnableBrollSfx(e.target.checked)}
+                      className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
+                    />
+                  </label>
+                  {enableBrollSfx && (
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800">
+                      <span className="text-xs text-zinc-400">SFX Volume ({Math.round(brollSfxVolume * 100)}%)</span>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="1.0"
+                        step="0.05"
+                        value={brollSfxVolume}
+                        onChange={(e) => setBrollSfxVolume(parseFloat(e.target.value) || 0.35)}
+                        className="w-24 accent-red-600 bg-zinc-800 h-1.5 rounded cursor-pointer"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* 7. AI Backend Configuration + Test Connection */}

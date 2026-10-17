@@ -64,6 +64,25 @@ def _probe_duration(path):
             return float(val)
     except Exception:
         pass
+def _probe_has_audio(path):
+    try:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return bool(res.stdout.strip())
+    except Exception:
+        return False
+
 
     result = subprocess.run(
         [
@@ -150,6 +169,8 @@ def burn_video_file(
     watermark_config=None,
     watermark_asset=None,
     broll_items=None,
+    enable_broll_sfx=True,
+    broll_sfx_volume=0.35,
     **kwargs,
 ):
     """
@@ -185,7 +206,6 @@ def burn_video_file(
                 if v_path and os.path.exists(v_path):
                     valid_broll.append(item)
 
-
     def run_ffmpeg(
         encoder,
         preset,
@@ -199,26 +219,41 @@ def burn_video_file(
             "-i",
             video_path,
         ]
+        input_count = 1
+        watermark_in_idx = None
         if watermark_enabled:
-            command.extend(
-                [
-                    "-i",
-                    watermark_asset,
-                ]
-            )
-            broll_start_idx = 2
-        else:
-            broll_start_idx = 1
+            command.extend(["-i", watermark_asset])
+            watermark_in_idx = input_count
+            input_count += 1
 
+        broll_in_indices = []
         for b_item in valid_broll:
             command.extend(["-i", b_item["video_path"]])
+            broll_in_indices.append(input_count)
+            input_count += 1
 
-        if valid_broll or watermark_enabled:
+        sfx_in_list = []
+        if enable_broll_sfx and valid_broll:
+            try:
+                from scripts import broll_sfx
+                for b_idx, b_item in enumerate(valid_broll):
+                    tpl_id = b_item.get("template_id", "stat_counter")
+                    sfx_path = broll_sfx.get_sfx_path_for_template(tpl_id)
+                    if sfx_path and os.path.exists(sfx_path):
+                        start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
+                        command.extend(["-i", sfx_path])
+                        sfx_in_list.append((input_count, start, b_idx))
+                        input_count += 1
+            except Exception as sfx_err:
+                print(f"[WARN] Failed to load B-roll SFX: {sfx_err}")
+
+        has_main_audio = _probe_has_audio(video_path)
+        mix_audio = bool(sfx_in_list)
+
+        if valid_broll or watermark_enabled or mix_audio:
             filter_parts = []
             current_stream = "0:v"
-
-            for b_idx, b_item in enumerate(valid_broll):
-                broll_in_idx = broll_start_idx + b_idx
+            for b_idx, (broll_in_idx, b_item) in enumerate(zip(broll_in_indices, valid_broll)):
                 start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
                 dur = b_item.get("duration")
                 if dur is not None and float(dur) > 0:
@@ -282,6 +317,29 @@ def burn_video_file(
             filter_parts.append(
                 f"[{current_stream}]{subtitle_filter}[video_out]"
             )
+            # Audio mixing filter parts if SFX inputs are present
+            if mix_audio:
+                sfx_mix_labels = []
+                if has_main_audio:
+                    sfx_mix_labels.append("0:a")
+                for sfx_in_idx, start_sec, b_idx in sfx_in_list:
+                    delay_ms = int(round(start_sec * 1000))
+                    vol = max(0.0, min(1.0, float(broll_sfx_volume)))
+                    sfx_label = f"sfx_del_{b_idx}"
+                    filter_parts.append(
+                        f"[{sfx_in_idx}:a]adelay={delay_ms}|{delay_ms},volume={vol:.2f}[{sfx_label}]"
+                    )
+                    sfx_mix_labels.append(sfx_label)
+
+                if sfx_mix_labels:
+                    if len(sfx_mix_labels) == 1:
+                        filter_parts.append(f"[{sfx_mix_labels[0]}]anull[audio_out]")
+                    else:
+                        inputs_str = "".join(f"[{lbl}]" for lbl in sfx_mix_labels)
+                        filter_parts.append(
+                            f"{inputs_str}amix=inputs={len(sfx_mix_labels)}:duration=first:dropout_transition=0[audio_out]"
+                        )
+
             filter_complex = ";".join(filter_parts)
 
             command.extend(
@@ -290,10 +348,12 @@ def burn_video_file(
                     filter_complex,
                     "-map",
                     "[video_out]",
-                    "-map",
-                    "0:a?",
                 ]
             )
+            if mix_audio:
+                command.extend(["-map", "[audio_out]"])
+            else:
+                command.extend(["-map", "0:a?"])
         else:
             command.extend(
                 [
@@ -331,7 +391,13 @@ def burn_video_file(
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",
-                "copy",
+                "aac" if mix_audio else "copy",
+            ]
+        )
+        if mix_audio:
+            command.extend(["-b:a", "192k"])
+        command.extend(
+            [
                 "-movflags",
                 "+faststart",
                 output_path,
@@ -445,6 +511,8 @@ def burn(
     watermark_config=None,
     broll_items=None,
     enable_html_broll=False,
+    enable_broll_sfx=True,
+    broll_sfx_volume=0.35,
     **kwargs,
 ):
     project_folder_abs = (
@@ -756,8 +824,9 @@ def burn(
             watermark_config=config,
             watermark_asset=watermark_asset,
             broll_items=rendered_clip_brolls if rendered_clip_brolls else None,
+            enable_broll_sfx=enable_broll_sfx,
+            broll_sfx_volume=broll_sfx_volume,
         )
-
         if not success:
             raise RuntimeError(message)
 

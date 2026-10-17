@@ -60,7 +60,11 @@ def test_job_schema_enable_html_broll():
     args_default = req_default.to_cli_args("python3", "main_improved.py")
     assert "--enable-html-broll" not in args_default
 
-    req_enabled = JobRunRequest(url="https://youtube.com/watch?v=123", enable_html_broll=True)
+    req_enabled = JobRunRequest(url="https://youtube.com/watch?v=123", enable_html_broll=True, enable_broll_sfx=True, broll_sfx_volume=0.4)
     assert req_enabled.enable_html_broll is True
+    assert req_enabled.enable_broll_sfx is True
     args_enabled = req_enabled.to_cli_args("python3", "main_improved.py")
     assert "--enable-html-broll" in args_enabled
+    assert "--enable-broll-sfx" in args_enabled
+    assert "--broll-sfx-volume" in args_enabled
+    assert "0.4" in args_enabled

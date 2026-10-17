@@ -108,6 +108,8 @@ class JobRunRequest(BaseModel):
 
     # HTML Motion B-roll options
     enable_html_broll: bool = Field(default=False, description="Enable contextual HTML motion graphic B-roll overlays")
+    enable_broll_sfx: bool = Field(default=True, description="Enable tactile paper and marker sound effects for HTML B-roll")
+    broll_sfx_volume: float = Field(default=0.35, description="Volume multiplier for B-roll sound effects (0.0 to 1.0)")
 
     # General / test overrides
     skip_prompts: bool = Field(default=True, description="Always run non-interactively")
@@ -352,6 +354,11 @@ class JobRunRequest(BaseModel):
 
         if self.enable_html_broll:
             cmd.append("--enable-html-broll")
+            if self.enable_broll_sfx:
+                cmd.append("--enable-broll-sfx")
+            else:
+                cmd.append("--no-broll-sfx")
+            cmd.extend(["--broll-sfx-volume", str(float(self.broll_sfx_volume or 0.35))])
 
         if self.skip_prompts:
             cmd.append("--skip-prompts")

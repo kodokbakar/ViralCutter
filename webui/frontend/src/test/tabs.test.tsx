@@ -829,7 +829,8 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       expect(runMock).toHaveBeenCalled();
       const payload = runMock.mock.calls[0][0];
       expect(payload.enable_html_broll).toBe(true);
-
+      expect(payload.enable_broll_sfx).toBe(true);
+      expect(payload.broll_sfx_volume).toBe(0.35);
       runMock.mockRestore();
       unmount();
     });

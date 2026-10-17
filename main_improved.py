@@ -340,6 +340,24 @@ def main():
         default=False,
         help="Enable contextual HTML motion graphic B-roll overlays",
     )
+    parser.add_argument(
+        "--enable-broll-sfx",
+        action="store_true",
+        default=True,
+        help="Enable tactile paper and marker sound effects for HTML B-roll",
+    )
+    parser.add_argument(
+        "--no-broll-sfx",
+        dest="enable_broll_sfx",
+        action="store_false",
+        help="Disable sound effects for HTML B-roll",
+    )
+    parser.add_argument(
+        "--broll-sfx-volume",
+        type=float,
+        default=0.35,
+        help="Volume multiplier for B-roll sound effects (0.0 to 1.0, default: 0.35)",
+    )
 
     args = parser.parse_args()
     
@@ -1048,6 +1066,8 @@ def main():
                     project_folder=project_folder,
                     watermark_config=watermark_config,
                     enable_html_broll=getattr(args, "enable_html_broll", False),
+                    enable_broll_sfx=getattr(args, "enable_broll_sfx", True),
+                    broll_sfx_volume=getattr(args, "broll_sfx_volume", 0.35),
                 )
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))

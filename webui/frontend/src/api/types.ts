@@ -105,7 +105,8 @@ export interface JobRunRequest {
 
   // HTML Motion B-roll
   enable_html_broll?: boolean;
-  // Overrides
+  enable_broll_sfx?: boolean;
+  broll_sfx_volume?: number;
   skip_prompts?: boolean;
   custom_cmd?: string[];
 }
