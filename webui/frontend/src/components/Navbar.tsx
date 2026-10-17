@@ -11,6 +11,7 @@ import {
   Cloud,
   Sliders,
   FileCode,
+  Sparkles,
 } from 'lucide-react';
 import type { ActiveJobResponse } from '../api/types';
 
@@ -18,6 +19,7 @@ export type TabType =
   | 'generator'
   | 'subtitles'
   | 'watermark'
+  | 'broll'
   | 'subtitle-editor'
   | 'library'
   | 'gdrive'
@@ -43,6 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'generator' as TabType, label: 'Generator', icon: Sliders },
     { id: 'subtitles' as TabType, label: 'Subtitles', icon: Subtitles },
     { id: 'watermark' as TabType, label: 'Watermark', icon: ImageIcon },
+    { id: 'broll' as TabType, label: 'B-Roll', icon: Sparkles },
     { id: 'subtitle-editor' as TabType, label: 'Subtitle Editor', icon: FileCode },
     { id: 'library' as TabType, label: 'Library', icon: FolderArchive },
     { id: 'gdrive' as TabType, label: 'Google Drive', icon: Cloud },

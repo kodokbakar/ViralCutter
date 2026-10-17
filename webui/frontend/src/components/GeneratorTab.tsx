@@ -204,6 +204,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     'yellow_box'
   );
 
+  // Motion B-Roll Workflow (Persisted)
+  const [enableHtmlBroll, setEnableHtmlBroll] = usePersistedState<boolean>('enable_html_broll', false);
+
   // Watermark Workflow (Synchronized with Watermark Tab)
   const [watermarkConfig, setWatermarkConfig] = useState<StoredWatermarkConfig | null>(() => {
     try {
@@ -859,6 +862,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       watermark_opacity: isWatermarkActive ? watermarkConfig!.opacity : undefined,
       watermark_h_margin: isWatermarkActive ? watermarkConfig!.hMargin : undefined,
       watermark_v_margin: isWatermarkActive ? watermarkConfig!.vMargin : undefined,
+
+      // Motion B-roll
+      enable_html_broll: enableHtmlBroll,
     };
 
     try {
@@ -1361,6 +1367,54 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     <span>Burn</span>
                   </label>
                 )}
+              </div>
+            </div>
+
+            {/* 7. Automated Motion B-Roll */}
+            <div className="space-y-3 border-t border-zinc-800 pt-4" data-testid="broll-section">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
+                  Automated Motion B-Roll
+                </span>
+                {onNavigateTab && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab('broll', projectName)}
+                    className="text-[11px] text-red-400 hover:text-red-300 font-medium hover:underline"
+                  >
+                    Configure in B-Roll Tab →
+                  </button>
+                )}
+              </div>
+
+              <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      enableHtmlBroll ? 'bg-emerald-400 shadow-sm shadow-emerald-500/50' : 'bg-zinc-600'
+                    }`}
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">
+                      Motion B-Roll Overlays
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      Automatically generate and burn HTML motion graphics (stats, quotes, bullets) into clips.
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer pl-3 border-l border-zinc-800">
+                  <input
+                    id="enable-html-broll-toggle"
+                    data-testid="enable-html-broll-toggle"
+                    type="checkbox"
+                    checked={enableHtmlBroll}
+                    onChange={(e) => setEnableHtmlBroll(e.target.checked)}
+                    className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
+                  />
+                  <span>Enable</span>
+                </label>
               </div>
             </div>
 

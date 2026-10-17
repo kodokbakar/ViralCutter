@@ -5,6 +5,9 @@
 import type {
   ActiveJobResponse,
   AssetItem,
+  BrollPreviewRequest,
+  BrollPreviewResponse,
+  BrollTemplate,
   ExportResponse,
   GDriveExportRequest,
   GDriveExportResponse,
@@ -455,4 +458,18 @@ export const systemApi = {
 
   getPromptTemplate: (): Promise<PromptTemplateResponse> =>
     request<PromptTemplateResponse>('/system/prompt-template'),
+};
+
+// -------------------------------------------------------------
+// B-Roll API
+// -------------------------------------------------------------
+export const brollApi = {
+  getTemplates: (): Promise<BrollTemplate[]> =>
+    request<BrollTemplate[]>('/broll/templates'),
+
+  preview: (req: BrollPreviewRequest): Promise<BrollPreviewResponse> =>
+    request<BrollPreviewResponse>('/broll/preview', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
 };

@@ -8,8 +8,9 @@ import { SubtitleEditorTab } from '../components/SubtitleEditorTab';
 import { LibraryTab } from '../components/LibraryTab';
 import { GDriveTab } from '../components/GDriveTab';
 import { DiagnosticsTab } from '../components/DiagnosticsTab';
+import { BrollTab } from '../components/BrollTab';
 import { Navbar } from '../components/Navbar';
-import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi, uploadApi, previewApi } from '../api/client';
+import { jobsApi, gdriveApi, libraryApi, subtitlesApi, systemApi, uploadApi, previewApi, brollApi } from '../api/client';
 import type { ActiveJobResponse, SystemStatusResponse } from '../api/types';
 
 // Mock EventSource for jsdom environment
@@ -800,6 +801,38 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
       localStorage.clear();
     });
+
+    it('renders Motion B-Roll section and toggle', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_broll',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      expect(container.textContent).toContain('Motion B-Roll');
+      const brollToggle = container.querySelector('#enable-html-broll-toggle') as HTMLInputElement;
+      expect(brollToggle).toBeTruthy();
+
+      act(() => {
+        brollToggle.click();
+      });
+
+      const runBtn = container.querySelector('[data-testid="run-job-button"]') as HTMLButtonElement;
+      await act(async () => {
+        runBtn.click();
+      });
+
+      expect(runMock).toHaveBeenCalled();
+      const payload = runMock.mock.calls[0][0];
+      expect(payload.enable_html_broll).toBe(true);
+
+      runMock.mockRestore();
+      unmount();
+    });
   });
 
   // -------------------------------------------------------------
@@ -1062,6 +1095,65 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       expect(localStorage.getItem('viralcutter_watermark_config')).toBeNull();
       expect(container.textContent).toContain('Watermark disabled.');
 
+      unmount();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 3b. BrollTab
+  // -------------------------------------------------------------
+  describe('BrollTab', () => {
+    it('renders template options and preview controls', async () => {
+      const templatesMock = vi.spyOn(brollApi, 'getTemplates').mockResolvedValue([
+        {
+          id: 'stat_counter',
+          name: 'Stat Counter',
+          description: 'Animated numerical metric',
+          default_duration: 3.5,
+          sample_data: { target_number: '87', prefix: '+', suffix: '%', label: 'Metric', accent_color: '#FF3B30' },
+        },
+        {
+          id: 'quote_card',
+          name: 'Quote Card',
+          description: 'Highlight punchline',
+          default_duration: 4.0,
+          sample_data: { quote: 'Sample quote', author: 'Author', title: 'Title' },
+        },
+        {
+          id: 'point_highlight',
+          name: 'Point Highlight',
+          description: 'Staggered bullets',
+          default_duration: 4.5,
+          sample_data: { headline: '3 Keys', points: ['Point 1', 'Point 2'] },
+        },
+      ]);
+
+      const previewMock = vi.spyOn(brollApi, 'preview').mockResolvedValue({
+        preview_url: '/api/v1/preview/stream?path=test.webm',
+        file_path: '/tmp/test.webm',
+      });
+
+      const { container, unmount } = renderComponent(<BrollTab />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Stat Counter');
+      expect(container.textContent).toContain('Quote Card');
+      expect(container.textContent).toContain('Point Highlight');
+
+      const renderBtn = container.querySelector('[data-testid="test-render-broll-button"]') as HTMLButtonElement;
+      expect(renderBtn).toBeTruthy();
+
+      await act(async () => {
+        renderBtn.click();
+      });
+
+      expect(previewMock).toHaveBeenCalled();
+
+      templatesMock.mockRestore();
+      previewMock.mockRestore();
       unmount();
     });
   });
@@ -1336,12 +1428,12 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
         'Generator',
         'Subtitles',
         'Watermark',
+        'B-Roll',
         'Subtitle Editor',
         'Library',
         'Google Drive',
         'Diagnostics',
       ];
-
       for (const label of tabLabels) {
         expect(container.textContent).toContain(label);
         const button = Array.from(container.querySelectorAll('button')).find((b) =>
@@ -1358,6 +1450,7 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       expect(onTabChange).toHaveBeenCalledWith('subtitles');
       expect(onTabChange).toHaveBeenCalledWith('watermark');
       expect(onTabChange).toHaveBeenCalledWith('subtitle-editor');
+      expect(onTabChange).toHaveBeenCalledWith('broll');
       expect(onTabChange).toHaveBeenCalledWith('library');
       expect(onTabChange).toHaveBeenCalledWith('gdrive');
       expect(onTabChange).toHaveBeenCalledWith('diagnostics');

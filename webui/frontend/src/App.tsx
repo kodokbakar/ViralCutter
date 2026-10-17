@@ -3,6 +3,7 @@ import { Navbar, type TabType } from './components/Navbar';
 import { GeneratorTab } from './components/GeneratorTab';
 import { SubtitlesTab } from './components/SubtitlesTab';
 import { WatermarkTab } from './components/WatermarkTab';
+import { BrollTab } from './components/BrollTab';
 import { SubtitleEditorTab } from './components/SubtitleEditorTab';
 import { LibraryTab } from './components/LibraryTab';
 import { GDriveTab } from './components/GDriveTab';
@@ -90,6 +91,10 @@ export function App() {
             defaultVideoPath={selectedVideoPath}
             defaultProjectName={selectedProjectName}
           />
+        </div>
+
+        <div className={currentTab === 'broll' ? 'block' : 'hidden'}>
+          <BrollTab />
         </div>
 
         <div className={currentTab === 'subtitle-editor' ? 'block' : 'hidden'}>

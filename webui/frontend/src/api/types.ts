@@ -102,6 +102,9 @@ export interface JobRunRequest {
   watermark_fade_in?: number;
   watermark_fade_out?: number;
 
+
+  // HTML Motion B-roll
+  enable_html_broll?: boolean;
   // Overrides
   skip_prompts?: boolean;
   custom_cmd?: string[];
@@ -431,4 +434,24 @@ export interface TestAiResponse {
 
 export interface PromptTemplateResponse {
   template: string;
+}
+
+// B-Roll schemas
+export interface BrollTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  default_duration?: number;
+  sample_data?: Record<string, unknown>;
+}
+
+export interface BrollPreviewRequest {
+  template_id: string;
+  duration?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface BrollPreviewResponse {
+  preview_url: string;
+  file_path?: string;
 }
