@@ -57,11 +57,21 @@ def test_burn_video_file_with_broll_overlay():
             "-select_streams", "v:0",
             "-show_entries", "stream=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
-            output_mp4
+        output_mp4
         ], capture_output=True, text=True, check=True)
         dur = float(res.stdout.strip())
         assert abs(dur - 5.0) < 0.2
 
+        # Verify audio stream is preserved and not muted or truncated
+        res_a = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            output_mp4
+        ], capture_output=True, text=True, check=True)
+        dur_a = float(res_a.stdout.strip())
+        assert abs(dur_a - 5.0) < 0.2
 def test_burn_video_file_with_broll_and_watermark():
     with tempfile.TemporaryDirectory() as tmpdir:
         video_in = os.path.join(tmpdir, "test_input.mp4")
@@ -128,6 +138,16 @@ def test_burn_video_file_with_broll_and_watermark():
         dur = float(res.stdout.strip())
         assert abs(dur - 4.0) < 0.2
 
+        # Verify audio stream is preserved
+        res_a = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            output_mp4
+        ], capture_output=True, text=True, check=True)
+        dur_a = float(res_a.stdout.strip())
+        assert abs(dur_a - 4.0) < 0.2
 
 def test_main_cli_arg_enable_html_broll():
     import subprocess
