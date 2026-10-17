@@ -117,8 +117,8 @@ def _check_module_imports():
         ("whisperx", "whisperx import"),
         ("ctranslate2", "ctranslate2 import"),
         ("faster_whisper", "faster_whisper import"),
+        ("playwright", "playwright import"),
     ]
-
     lines = []
     passed = True
 

@@ -20,6 +20,7 @@ jax==0.4.35
 jaxlib==0.4.35
 opencv-contrib-python==4.11.0.86
 insightface==0.7.3
+playwright>=1.40.0
 
 # Video sources
 yt-dlp
