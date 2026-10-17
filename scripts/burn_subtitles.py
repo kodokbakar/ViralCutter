@@ -39,6 +39,31 @@ def _build_subtitle_filter(
     )
 
 def _probe_duration(path):
+    # Prefer video stream duration to catch truncated/frozen video streams
+    try:
+        result_stream = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        val = result_stream.stdout.strip()
+        if val and val != "N/A":
+            return float(val)
+    except Exception:
+        pass
+
     result = subprocess.run(
         [
             "ffprobe",

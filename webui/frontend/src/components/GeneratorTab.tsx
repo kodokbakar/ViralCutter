@@ -22,7 +22,9 @@ import {
   WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig } from '../api/types';
+import GamingCropEditor from './GamingCropEditor';
+import VerticalCropEditor from './VerticalCropEditor';
 
 export interface GeneratorTabProps {
   activeJob?: ActiveJobResponse | null;
@@ -33,7 +35,7 @@ export interface GeneratorTabProps {
 }
 
 export type GeneratorPreset = 'viral_shorts' | 'fast' | 'balanced' | 'accurate' | 'custom';
-export type VideoOrientation = '9:16' | '16:9' | '1:1';
+export type { VideoOrientation };
 export type InputMode = 'upload' | 'youtube' | 'path';
 
 export const AI_BACKEND_DEFAULT_CHUNKS: Record<string, number> = {
@@ -43,6 +45,86 @@ export const AI_BACKEND_DEFAULT_CHUNKS: Record<string, number> = {
   local: 30000,
 };
 
+
+function extractLocalFileSampleFrames(file: File, count = 3): Promise<SampleFrameItem[]> {
+  const { promise, resolve } = Promise.withResolvers<SampleFrameItem[]>();
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      resolve([]);
+      return promise;
+    }
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      try {
+        URL.revokeObjectURL(url);
+        video.remove();
+      } catch {
+        // ignore
+      }
+    };
+
+    video.onloadedmetadata = async () => {
+      const dur = Math.max(1, video.duration || 10);
+      const ratios = [0.15, 0.50, 0.85];
+      const timestamps = ratios.slice(0, count).map((r) => Math.round(dur * r * 100) / 100);
+
+      const captured: SampleFrameItem[] = [];
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+
+      for (let i = 0; i < timestamps.length; i++) {
+        const t = timestamps[i];
+        video.currentTime = t;
+        const { promise: seekPromise, resolve: seekResolve } = Promise.withResolvers<void>();
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          seekResolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+        setTimeout(seekResolve, 600);
+        await seekPromise;
+
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUri = canvas.toDataURL('image/jpeg', 0.85);
+          const mins = Math.floor(t / 60);
+          const secs = Math.floor(t % 60);
+          captured.push({
+            index: i,
+            timestamp: t,
+            time_label: `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
+            path: `local_frame_${i}`,
+            filename: `local_frame_${i}.jpg`,
+            data_uri: dataUri,
+          });
+        }
+      }
+      cleanup();
+      resolve(captured);
+    };
+
+    video.onerror = () => {
+      cleanup();
+      resolve([]);
+    };
+
+    setTimeout(() => {
+      cleanup();
+      resolve([]);
+    }, 3500);
+  } catch {
+    resolve([]);
+  }
+  return promise;
+}
 function usePersistedState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(() => {
     try {
@@ -90,6 +172,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [preset, setPreset] = useState<GeneratorPreset>('viral_shorts');
   const [targetDuration, setTargetDuration] = useState<number>(60);
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
+  const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
+  const [gamingGameplayCrop, setGamingGameplayCrop] = useState<string>('0.25,0.0,0.50,0.622');
+  const [framingMode, setFramingMode] = useState<'face_tracking' | 'manual_crop'>('face_tracking');
+  const [manualCropBox, setManualCropBox] = useState<string>('0.3418,0.0,0.3164,1.0');
+  const [sampleFrames, setSampleFrames] = useState<SampleFrameItem[]>([]);
+  const [isLoadingSampleFrames, setIsLoadingSampleFrames] = useState<boolean>(false);
   const [model, setModel] = useState<string>('large-v3-turbo');
   const [workflow, setWorkflow] = useState<'1' | '2' | '3'>('1');
   const [language, setLanguage] = useState<string>('auto');
@@ -114,6 +202,49 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [hookHeaderStyle, setHookHeaderStyle] = usePersistedState<'yellow_box' | 'white_box' | 'neon'>(
     'hook_header_style',
     'yellow_box'
+  );
+
+  // Watermark Workflow (Synchronized with Watermark Tab)
+  const [watermarkConfig, setWatermarkConfig] = useState<StoredWatermarkConfig | null>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('viralcutter_watermark_config');
+        return saved ? (JSON.parse(saved) as StoredWatermarkConfig) : null;
+      }
+    } catch {
+      // Fallback
+    }
+    return null;
+  });
+  const [burnWatermark, setBurnWatermark] = usePersistedState<boolean>('burn_watermark', true);
+
+  useEffect(() => {
+    const handleWatermarkSync = () => {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const saved = window.localStorage.getItem('viralcutter_watermark_config');
+          setWatermarkConfig(saved ? (JSON.parse(saved) as StoredWatermarkConfig) : null);
+        }
+      } catch {
+        setWatermarkConfig(null);
+      }
+    };
+
+    window.addEventListener('viralcutter_watermark_updated', handleWatermarkSync);
+    window.addEventListener('storage', handleWatermarkSync);
+    return () => {
+      window.removeEventListener('viralcutter_watermark_updated', handleWatermarkSync);
+      window.removeEventListener('storage', handleWatermarkSync);
+    };
+  }, []);
+
+  const isWatermarkActive = Boolean(
+    burnWatermark &&
+    watermarkConfig &&
+    watermarkConfig.enabled &&
+    watermarkConfig.mode !== 'disabled' &&
+    ((watermarkConfig.mode === 'image' && watermarkConfig.serverImagePath) ||
+     (watermarkConfig.mode === 'text' && watermarkConfig.watermarkText?.trim()))
   );
 
   // AI Backend Parameters (Persisted)
@@ -448,6 +579,41 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     fetchCompletedClipsRef.current = fetchCompletedClips;
   }, [fetchCompletedClips]);
 
+  const fetchSampleFrames = useCallback(async (path: string) => {
+    if (!path || !path.trim()) {
+      setSampleFrames([]);
+      return;
+    }
+    setIsLoadingSampleFrames(true);
+    try {
+      const res = await previewApi.getSampleFrames({ path: path.trim(), count: 3 });
+      if (res && res.frames && res.frames.length > 0) {
+        setSampleFrames(res.frames);
+      }
+    } catch (err) {
+      console.warn('Failed to load sample frames:', err);
+    } finally {
+      setIsLoadingSampleFrames(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (videoPath && videoPath.trim()) {
+      fetchSampleFrames(videoPath.trim());
+    }
+  }, [videoPath, fetchSampleFrames]);
+
+  useEffect(() => {
+    if (
+      (orientation === '9:16_gaming_split' || (orientation === '9:16' && framingMode === 'manual_crop')) &&
+      videoPath &&
+      videoPath.trim() &&
+      sampleFrames.length === 0
+    ) {
+      fetchSampleFrames(videoPath.trim());
+    }
+  }, [orientation, framingMode, videoPath, sampleFrames.length, fetchSampleFrames]);
+
   // Live SSE Stream Connection
   useEffect(() => {
     if (!trackedJobId) return;
@@ -532,6 +698,14 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.type.startsWith('video/')) {
+      extractLocalFileSampleFrames(file).then((localFrames) => {
+        if (localFrames && localFrames.length > 0) {
+          setSampleFrames(localFrames);
+        }
+      });
+    }
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadStatus('Uploading file...');
@@ -555,6 +729,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       if (!projectName && res.filename) {
         setProjectName(res.filename.replace(/\.[^/.]+$/, ''));
       }
+      fetchSampleFrames(res.filepath);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
       setErrorMessage(msg);
@@ -588,6 +763,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     if (orientation === '16:9') {
       effectiveFaceMode = 'none';
       effectiveNoFaceMode = 'zoom';
+    } else if (
+      orientation === '9:16_gaming_split' ||
+      (orientation === '9:16' && framingMode === 'manual_crop')
+    ) {
+      effectiveFaceMode = 'none';
     } else if (orientation === '1:1' && faceMode === 'auto') {
       effectiveFaceMode = 'auto';
       effectiveNoFaceMode = 'padding';
@@ -602,6 +782,13 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       video_path: inputMode === 'upload' || inputMode === 'path' ? videoPath.trim() : undefined,
       project_name: projectName.trim() || undefined,
       workflow: effectiveWorkflow,
+      orientation,
+      gaming_facecam_crop: orientation === '9:16_gaming_split' ? gamingFacecamCrop : undefined,
+      gaming_gameplay_crop: orientation === '9:16_gaming_split' ? gamingGameplayCrop : undefined,
+      manual_crop:
+        orientation === '9:16' && framingMode === 'manual_crop'
+          ? manualCropBox
+          : undefined,
       model,
       language,
       whisper_preset: preset === 'fast' ? 'fast' : preset === 'accurate' ? 'accurate' : 'balanced',
@@ -654,6 +841,24 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       use_custom_subs: useCustomSubs,
       enable_hook_header: enableHookHeader,
       hook_header_style: hookHeaderStyle,
+
+      // Watermark
+      watermark_mode: isWatermarkActive ? watermarkConfig!.mode : 'disabled',
+      watermark_image:
+        isWatermarkActive && watermarkConfig!.mode === 'image'
+          ? watermarkConfig!.serverImagePath
+          : undefined,
+      watermark_text:
+        isWatermarkActive && watermarkConfig!.mode === 'text'
+          ? watermarkConfig!.watermarkText?.trim()
+          : undefined,
+      watermark_text_color: isWatermarkActive ? watermarkConfig!.textColor : undefined,
+      watermark_font_size: isWatermarkActive ? watermarkConfig!.fontSize : undefined,
+      watermark_position: isWatermarkActive ? watermarkConfig!.position : undefined,
+      watermark_scale: isWatermarkActive ? watermarkConfig!.scale : undefined,
+      watermark_opacity: isWatermarkActive ? watermarkConfig!.opacity : undefined,
+      watermark_h_margin: isWatermarkActive ? watermarkConfig!.hMargin : undefined,
+      watermark_v_margin: isWatermarkActive ? watermarkConfig!.vMargin : undefined,
     };
 
     try {
@@ -818,9 +1023,64 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   <option value="9:16">9:16 (Vertical Shorts / TikTok)</option>
                   <option value="16:9">16:9 (Landscape YouTube)</option>
                   <option value="1:1">1:1 (Square Feed)</option>
+                  <option value="9:16_gaming_split">9:16 Gaming Split (Facecam + Gameplay)</option>
                 </select>
               </div>
             </div>
+            {orientation === '9:16' && (
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-300">Framing Method</span>
+                  <div className="inline-flex rounded-lg p-0.5 bg-zinc-800 border border-zinc-700">
+                    <button
+                      type="button"
+                      onClick={() => setFramingMode('face_tracking')}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        framingMode === 'face_tracking'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🤖 AI Face Tracking
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFramingMode('manual_crop')}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        framingMode === 'manual_crop'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      📐 Manual 9:16 Crop
+                    </button>
+                  </div>
+                </div>
+
+                {framingMode === 'manual_crop' && (
+                  <VerticalCropEditor
+                    sampleFrames={sampleFrames}
+                    isLoadingSamples={isLoadingSampleFrames}
+                    cropBox={manualCropBox}
+                    onChange={setManualCropBox}
+                  />
+                )}
+              </div>
+            )}
+
+
+            {orientation === '9:16_gaming_split' && (
+              <GamingCropEditor
+                sampleFrames={sampleFrames}
+                isLoadingSamples={isLoadingSampleFrames}
+                facecamCrop={gamingFacecamCrop}
+                gameplayCrop={gamingGameplayCrop}
+                onChange={(cam, game) => {
+                  setGamingFacecamCrop(cam);
+                  setGamingGameplayCrop(game);
+                }}
+              />
+            )}
 
             {/* 3. Whisper Model & Language Selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1048,7 +1308,63 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               </div>
             </div>
 
-            {/* 6. AI Backend Configuration + Test Connection */}
+            {/* 6. Watermark Branding Overlay */}
+            <div className="space-y-3 border-t border-zinc-800 pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
+                  Watermark Branding
+                </span>
+                {onNavigateTab && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab('watermark', projectName)}
+                    className="text-[11px] text-red-400 hover:text-red-300 font-medium hover:underline"
+                  >
+                    Configure in Watermark Tab →
+                  </button>
+                )}
+              </div>
+
+              <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      isWatermarkActive ? 'bg-emerald-400 shadow-sm shadow-emerald-500/50' : 'bg-zinc-600'
+                    }`}
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">
+                      {watermarkConfig && watermarkConfig.enabled && watermarkConfig.mode !== 'disabled'
+                        ? watermarkConfig.mode === 'image'
+                          ? `Image Watermark (${watermarkConfig.imageFilename || 'Uploaded Logo'})`
+                          : `Text Watermark ("${watermarkConfig.watermarkText}")`
+                        : 'No Active Watermark'}
+                    </div>
+                    <div className="text-[10px] text-zinc-400">
+                      {watermarkConfig && watermarkConfig.enabled && watermarkConfig.mode !== 'disabled'
+                        ? `Position: ${watermarkConfig.position || 'top_right'} • Opacity: ${Math.round((watermarkConfig.opacity ?? 0.85) * 100)}% • Scale: ${watermarkConfig.scale ?? 15}%`
+                        : 'Configure and apply watermark in the Watermark tab to brand clips.'}
+                    </div>
+                  </div>
+                </div>
+
+                {watermarkConfig && watermarkConfig.enabled && watermarkConfig.mode !== 'disabled' && (
+                  <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer pl-3 border-l border-zinc-800">
+                    <input
+                      id="burn-watermark-toggle"
+                      data-testid="burn-watermark-toggle"
+                      type="checkbox"
+                      checked={burnWatermark}
+                      onChange={(e) => setBurnWatermark(e.target.checked)}
+                      className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
+                    />
+                    <span>Burn</span>
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* 7. AI Backend Configuration + Test Connection */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
                 <label htmlFor="ai-backend-select" className="block text-xs font-medium text-zinc-300">
@@ -1178,8 +1494,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               )}
             </div>
 
-            {/* 7. Face Processing Controls Panel */}
-            <div className="space-y-3 border-t border-zinc-800 pt-4">
+            {/* 8. Face Processing Controls Panel */}
+            {!(orientation === '9:16_gaming_split' || (orientation === '9:16' && framingMode === 'manual_crop')) && (
+              <div className="space-y-3 border-t border-zinc-800 pt-4">
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 block">
                 Face &amp; Framing Settings
               </span>
@@ -1346,9 +1663,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   )}
                 </div>
               )}
-            </div>
+              </div>
+            )}
 
-            {/* 8. Smart Clipping Controls */}
+            {/* 9. Smart Clipping Controls */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
                 <button
@@ -1430,7 +1748,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               )}
             </div>
 
-            {/* 9. AI Prompt Template Editor */}
+            {/* 10. AI Prompt Template Editor */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
                 <button
@@ -1491,7 +1809,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               )}
             </div>
 
-            {/* 10. File Selection */}
+            {/* 11. File Selection */}
             <div className="space-y-3 border-t border-zinc-800 pt-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-zinc-300">Video Source</span>

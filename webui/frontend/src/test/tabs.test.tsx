@@ -731,6 +731,75 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
 
       unmount();
     });
+
+    it('automatically attaches active watermark configuration to job run request in GeneratorTab', async () => {
+      localStorage.setItem(
+        'viralcutter_watermark_config',
+        JSON.stringify({
+          enabled: true,
+          mode: 'image',
+          serverImagePath: '/abs/path/VIRALS/SampleProj/logo.png',
+          imageFilename: 'logo.png',
+          position: 'top_right',
+          opacity: 0.9,
+          scale: 20,
+          hMargin: 40,
+          vMargin: 40,
+        })
+      );
+
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gen_watermark_test',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
+      );
+
+      // Verify Watermark Branding UI panel is visible with active logo info
+      expect(container.textContent).toContain('Watermark Branding');
+      expect(container.textContent).toContain('Image Watermark (logo.png)');
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          watermark_mode: 'image',
+          watermark_image: '/abs/path/VIRALS/SampleProj/logo.png',
+          watermark_position: 'top_right',
+          watermark_opacity: 0.9,
+          watermark_scale: 20,
+          watermark_h_margin: 40,
+          watermark_v_margin: 40,
+        })
+      );
+
+      // Test disabling watermark via Burn toggle
+      const burnToggle = container.querySelector('#burn-watermark-toggle') as HTMLInputElement;
+      expect(burnToggle).toBeTruthy();
+      act(() => {
+        burnToggle.click();
+      });
+      expect(burnToggle.checked).toBe(false);
+
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          watermark_mode: 'disabled',
+        })
+      );
+
+      unmount();
+      localStorage.clear();
+    });
   });
 
   // -------------------------------------------------------------
@@ -847,15 +916,18 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
-    it('submits watermark job with selected position and slider values', async () => {
-      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
-        job_id: 'job_wm_444',
-        status: 'started',
-      });
+    it('applies watermark settings to localStorage with selected position and slider values without running job immediately', async () => {
+      localStorage.clear();
+      const runMock = vi.spyOn(jobsApi, 'run');
 
       const { container, unmount } = renderComponent(
         <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
       );
+
+      // Verify button label is "Apply Watermark"
+      const applyBtn = container.querySelector('[data-testid="apply-watermark-button"]');
+      expect(applyBtn?.textContent).toContain('Apply Watermark');
+      expect(applyBtn?.textContent).not.toContain('& Run');
 
       // Switch to text mode
       const textBtn = Array.from(container.querySelectorAll('button')).find((b) =>
@@ -885,21 +957,29 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
         form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       });
 
-      expect(runMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          video_path: '/videos/clip.mp4',
-          project_name: 'ClipProj',
-          watermark_mode: 'text',
-          watermark_text: '@ViralCutter',
-          watermark_position: 'bottom_left',
-          watermark_opacity: 0.5,
-        })
-      );
+      // Should not call jobsApi.run
+      expect(runMock).not.toHaveBeenCalled();
+
+      // Should save to localStorage
+      const savedRaw = localStorage.getItem('viralcutter_watermark_config');
+      expect(savedRaw).toBeTruthy();
+      const saved = JSON.parse(savedRaw!);
+      expect(saved).toMatchObject({
+        enabled: true,
+        mode: 'text',
+        watermarkText: '@ViralCutter',
+        position: 'bottom_left',
+        opacity: 0.5,
+      });
+
+      // Action feedback message
+      expect(container.textContent).toContain('Watermark applied!');
 
       unmount();
     });
 
-    it('uploads watermark image file and includes path in job payload', async () => {
+    it('uploads watermark image file and saves image path to localStorage on apply', async () => {
+      localStorage.clear();
       if (!globalThis.URL.createObjectURL) {
         globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
       } else {
@@ -914,10 +994,7 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
         completed: true,
       });
 
-      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
-        job_id: 'job_wm_555',
-        status: 'started',
-      });
+      const runMock = vi.spyOn(jobsApi, 'run');
 
       const { container, unmount } = renderComponent(
         <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
@@ -943,14 +1020,47 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
         form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       });
 
-      expect(runMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          video_path: '/videos/clip.mp4',
-          project_name: 'ClipProj',
-          watermark_mode: 'image',
-          watermark_image: '/abs/path/VIRALS/ClipProj/watermark_logo.png',
+      // Does not call jobsApi.run
+      expect(runMock).not.toHaveBeenCalled();
+
+      // Saves to localStorage
+      const savedRaw = localStorage.getItem('viralcutter_watermark_config');
+      expect(savedRaw).toBeTruthy();
+      const saved = JSON.parse(savedRaw!);
+      expect(saved).toMatchObject({
+        enabled: true,
+        mode: 'image',
+        serverImagePath: '/abs/path/VIRALS/ClipProj/watermark_logo.png',
+        imageFilename: 'watermark_logo.png',
+      });
+      expect(container.textContent).toContain('Watermark applied!');
+
+      unmount();
+    });
+
+    it('clears watermark configuration from localStorage when clicking disable', async () => {
+      localStorage.setItem(
+        'viralcutter_watermark_config',
+        JSON.stringify({
+          enabled: true,
+          mode: 'text',
+          watermarkText: '@ViralCutter',
         })
       );
+
+      const { container, unmount } = renderComponent(
+        <WatermarkTab defaultVideoPath="/videos/clip.mp4" defaultProjectName="ClipProj" />
+      );
+
+      const disableBtn = container.querySelector('[data-testid="disable-watermark-button"]') as HTMLButtonElement;
+      expect(disableBtn).toBeTruthy();
+
+      act(() => {
+        disableBtn.click();
+      });
+
+      expect(localStorage.getItem('viralcutter_watermark_config')).toBeNull();
+      expect(container.textContent).toContain('Watermark disabled.');
 
       unmount();
     });

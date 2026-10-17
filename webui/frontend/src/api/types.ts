@@ -6,6 +6,7 @@
 // Job schemas
 export type JobInputSource = 'youtube' | 'upload' | 'gdrive' | 'existing';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type VideoOrientation = '9:16' | '16:9' | '1:1' | '9:16_gaming_split';
 
 export interface JobRunRequest {
   input_source?: JobInputSource;
@@ -30,6 +31,10 @@ export interface JobRunRequest {
   pre_roll?: number;
   post_roll?: number;
   workflow?: string;
+  orientation?: VideoOrientation;
+  gaming_facecam_crop?: string;
+  gaming_gameplay_crop?: string;
+  manual_crop?: string;
 
   // Whisper & Audio
   model?: string;
@@ -90,10 +95,34 @@ export interface JobRunRequest {
   watermark_opacity?: number;
   watermark_h_margin?: number;
   watermark_v_margin?: number;
+  watermark_custom_x?: number;
+  watermark_custom_y?: number;
+  watermark_start?: number;
+  watermark_end?: number;
+  watermark_fade_in?: number;
+  watermark_fade_out?: number;
 
   // Overrides
   skip_prompts?: boolean;
   custom_cmd?: string[];
+}
+
+export interface StoredWatermarkConfig {
+  enabled: boolean;
+  mode: 'disabled' | 'image' | 'text';
+  serverImagePath?: string;
+  imageFilename?: string;
+  imagePreviewUrl?: string;
+  watermarkText?: string;
+  textColor?: string;
+  fontSize?: number;
+  position?: string;
+  opacity?: number;
+  scale?: number;
+  hMargin?: number;
+  vMargin?: number;
+  customX?: number;
+  customY?: number;
 }
 
 export interface JobResponse {
@@ -165,6 +194,27 @@ export interface SubtitleVideoPreviewRequest {
 export interface SubtitleVideoPreviewResponse {
   preview_url: string;
   file_path: string;
+}
+
+export interface SampleFrameItem {
+  index: number;
+  timestamp: number;
+  time_label: string;
+  path: string;
+  filename: string;
+  data_uri: string;
+}
+
+export interface SampleFramesRequest {
+  path: string;
+  count?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface SampleFramesResponse {
+  duration: number;
+  frames: SampleFrameItem[];
 }
 
 // Library schemas

@@ -38,3 +38,24 @@ class SubtitleVideoPreviewRequest(BaseModel):
 class SubtitleVideoPreviewResponse(BaseModel):
     preview_url: str = Field(..., description="Streamable preview video URL")
     file_path: str = Field(..., description="Absolute local path to generated preview video")
+
+
+class SampleFrameItem(BaseModel):
+    index: int = Field(..., description="Frame index (0, 1, 2...)")
+    timestamp: float = Field(..., description="Frame timestamp in seconds")
+    time_label: str = Field(..., description="Formatted timestamp label (e.g. 00:05)")
+    path: str = Field(..., description="Local path to extracted frame image")
+    filename: str = Field(..., description="Image filename")
+    data_uri: str = Field(..., description="Base64 data URI for inline display")
+
+
+class SampleFramesRequest(BaseModel):
+    path: str = Field(..., description="Source video path")
+    count: int = Field(default=3, ge=1, le=10, description="Number of sample frames to extract")
+    width: int = Field(default=1280, gt=0, description="Target frame width")
+    height: int = Field(default=720, gt=0, description="Target frame height")
+
+
+class SampleFramesResponse(BaseModel):
+    duration: float = Field(..., description="Video duration in seconds")
+    frames: list[SampleFrameItem] = Field(default_factory=list, description="Extracted sample frames")

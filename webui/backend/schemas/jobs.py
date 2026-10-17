@@ -34,6 +34,11 @@ class JobRunRequest(BaseModel):
     pre_roll: float = Field(default=1.25, description="Pre-roll seconds")
     post_roll: float = Field(default=0.75, description="Post-roll seconds")
     workflow: str = Field(default="1", description="1=Full, 2=Cut Only, 3=Subtitles Only")
+    orientation: str = Field(default="9:16", description="Video orientation: 9:16, 16:9, 1:1, 9:16_gaming_split")
+    gaming_facecam_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for facecam")
+    gaming_gameplay_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for gameplay")
+    manual_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for manual 9:16 vertical crop")
+
 
     # Whisper & Audio
     model: str = Field(default="large-v3-turbo", description="Whisper model")
@@ -226,6 +231,14 @@ class JobRunRequest(BaseModel):
 
         # Workflow
         cmd.extend(["--workflow", str(self.workflow)])
+        if self.orientation:
+            cmd.extend(["--orientation", str(self.orientation)])
+        if self.gaming_facecam_crop:
+            cmd.extend(["--gaming-facecam", str(self.gaming_facecam_crop)])
+        if self.gaming_gameplay_crop:
+            cmd.extend(["--gaming-gameplay", str(self.gaming_gameplay_crop)])
+        if self.manual_crop:
+            cmd.extend(["--manual-crop", str(self.manual_crop)])
 
         # Whisper
         cmd.extend(["--model", str(self.model)])

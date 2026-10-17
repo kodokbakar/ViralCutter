@@ -52,7 +52,7 @@ async def stream_job_logs(job_id: str):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
             "Content-Encoding": "identity",
-            "Content-Type": "text/event-stream; charset=utf-8",
+            "Content-Type": "text/event-stream",
         },
     )
 

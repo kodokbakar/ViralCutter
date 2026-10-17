@@ -798,16 +798,11 @@ def build_filter(
         "force_original_aspect_ratio=decrease"
     )
 
-    # Turn the normalized PNG into a finite
-    # 30 FPS stream matching the source video.
-    # This makes fade timing deterministic.
+    # Loop the normalized watermark image continuously across the video.
+    # The overlay filter's eof_action=pass and enable expression naturally bound
+    # the appearance without truncating the primary video stream.
     watermark_filters = [
         "loop=loop=-1:size=1:start=0",
-        (
-            "trim=duration="
-            f"{duration:.6f}"
-        ),
-        "setpts=N/(30*TB)",
         scale_filter,
         "format=rgba",
         (
@@ -857,8 +852,7 @@ def build_filter(
         f"x='{x_expression}':"
         f"y='{y_expression}':"
         f"enable='{enable_expression}':"
-        "eof_action=pass:"
-        "shortest=1"
+        "eof_action=pass"
         "[watermarked]"
     )
 
