@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1080px; height: 1920px;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .container {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 80px;
+  }
+  .card {
+    background: rgba(18, 18, 22, 0.90);
+    border: 2px solid rgba(255, 255, 255, 0.14);
+    border-radius: 36px;
+    padding: 60px 70px;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(20px);
+    max-width: 920px;
+    opacity: 0;
+    transform: translateY(70px);
+  }
+  .quote-icon {
+    font-size: 80px;
+    color: #F59E0B;
+    line-height: 0.8;
+    margin-bottom: 20px;
+  }
+  .quote-text {
+    font-size: 42px;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.4;
+    font-style: italic;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+  }
+  .author-box {
+    margin-top: 36px;
+    display: flex;
+    flex-direction: column;
+    border-top: 2px solid rgba(255, 255, 255, 0.1);
+    padding-top: 24px;
+  }
+  .author-name {
+    font-size: 32px;
+    font-weight: 800;
+    color: #FBBF24;
+  }
+  .author-title {
+    font-size: 24px;
+    color: #9CA3AF;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card" id="card">
+    <div class="quote-icon">“</div>
+    <div class="quote-text">{{QUOTE}}</div>
+    <div class="author-box">
+      <div class="author-name">{{AUTHOR}}</div>
+      <div class="author-title">{{TITLE}}</div>
+    </div>
+  </div>
+</div>
+<script>
+  const card = document.getElementById('card');
+  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+  function easeInCubic(x) { return x * x * x; }
+
+  window.renderSeek = function(progress) {
+    progress = Math.max(0, Math.min(1, progress));
+    if (progress < 0.18) {
+      const p = easeOutCubic(progress / 0.18);
+      card.style.opacity = p;
+      card.style.transform = `translateY(${70 * (1 - p)}px)`;
+    } else if (progress <= 0.82) {
+      card.style.opacity = 1;
+      card.style.transform = 'translateY(0)';
+    } else {
+      const p = easeInCubic((progress - 0.82) / 0.18);
+      card.style.opacity = 1 - p;
+      card.style.transform = `translateY(${-40 * p}px)`;
+    }
+  };
+  window.renderSeek(0);
+</script>
+</body>
+</html>

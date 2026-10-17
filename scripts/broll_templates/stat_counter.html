@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1080px; height: 1920px;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .container {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 80px;
+  }
+  .card {
+    background: rgba(18, 18, 20, 0.88);
+    border: 2px solid rgba(255, 255, 255, 0.12);
+    border-radius: 40px;
+    padding: 60px 80px;
+    text-align: center;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(20px);
+    max-width: 900px;
+    transform-origin: center center;
+    opacity: 0;
+    transform: translateY(60px) scale(0.92);
+  }
+  .number-box {
+    font-size: 130px;
+    font-weight: 900;
+    line-height: 1.1;
+    color: {{ACCENT_COLOR}};
+    text-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    letter-spacing: -2px;
+  }
+  .label {
+    font-size: 38px;
+    font-weight: 700;
+    color: #F3F4F6;
+    margin-top: 24px;
+    line-height: 1.3;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card" id="card">
+    <div class="number-box" id="number">{{PREFIX}}0{{SUFFIX}}</div>
+    <div class="label">{{LABEL}}</div>
+  </div>
+</div>
+<script>
+  const targetNum = parseFloat("{{TARGET_NUMBER}}") || 0;
+  const prefix = "{{PREFIX}}";
+  const suffix = "{{SUFFIX}}";
+  const card = document.getElementById('card');
+  const numEl = document.getElementById('number');
+
+  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+  function easeInCubic(x) { return x * x * x; }
+
+  window.renderSeek = function(progress) {
+    progress = Math.max(0, Math.min(1, progress));
+    if (progress < 0.18) {
+      const p = easeOutCubic(progress / 0.18);
+      card.style.opacity = p;
+      card.style.transform = `translateY(${60 * (1 - p)}px) scale(${0.92 + 0.08 * p})`;
+      const current = Math.round(targetNum * p);
+      numEl.textContent = `${prefix}${current}${suffix}`;
+    } else if (progress <= 0.82) {
+      card.style.opacity = 1;
+      card.style.transform = 'translateY(0) scale(1)';
+      numEl.textContent = `${prefix}${targetNum}${suffix}`;
+    } else {
+      const p = easeInCubic((progress - 0.82) / 0.18);
+      card.style.opacity = 1 - p;
+      card.style.transform = `translateY(${-40 * p}px) scale(${1 - 0.06 * p})`;
+      numEl.textContent = `${prefix}${targetNum}${suffix}`;
+    }
+  };
+  window.renderSeek(0);
+</script>
+</body>
+</html>
