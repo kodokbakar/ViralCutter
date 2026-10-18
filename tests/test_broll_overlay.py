@@ -226,3 +226,59 @@ def test_burn_subtitles_snaps_broll_to_processed_subs():
         out_file = os.path.join(out_folder, f"{clip_name}.mp4")
         assert os.path.exists(out_file)
         assert os.path.getsize(out_file) > 1000
+
+
+def test_burn_broll_transparency_preserves_background_video():
+    """
+    Verify that WebM B-roll does not render with an opaque black background,
+    ensuring the underlying video remains visible (not solid black).
+    """
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base_vid = os.path.join(tmpdir, "green_base.mp4")
+        # Create a solid green 1080x1920 video
+        subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=green:s=1080x1920:d=3:r=30",
+            "-c:v", "libx264", "-preset", "ultrafast",
+            base_vid
+        ], check=True)
+
+        broll_webm = os.path.join(tmpdir, "sleek.webm")
+        broll_renderer.render_broll_clip(
+            "sleek_stat_badge",
+            {"target_number": "99", "label": "Growth"},
+            2.0,
+            broll_webm,
+            fps=12
+        )
+
+        sub_ass = os.path.join(tmpdir, "sub.ass")
+        with open(sub_ass, "w") as f:
+            f.write("[Script Info]\nScriptType: v4.00+\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.50,0:00:02.00,Default,Test\n")
+
+        out_mp4 = os.path.join(tmpdir, "out.mp4")
+        burn_subtitles.burn_video_file(
+            video_path=base_vid,
+            subtitle_path=sub_ass,
+            output_path=out_mp4,
+            broll_items=[{"start_offset": 0.5, "duration": 2.0, "video_path": broll_webm}]
+        )
+
+        frame_png = os.path.join(tmpdir, "check_frame.png")
+        # Grab frame at t=1.0s (during B-roll)
+        subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-ss", "1.0",
+            "-i", out_mp4,
+            "-vframes", "1",
+            frame_png
+        ], check=True)
+
+        im = Image.open(frame_png)
+        # Sample pixel at center of frame (540, 1000) - outside the sleek capsule at top
+        px = im.getpixel((540, 1000))
+        r, g, b = px[0], px[1], px[2]
+        # The background video is green (g > 100, r < 50, b < 50).
+        # Prior bug caused px to be solid black (0, 0, 0).
+        assert g > 100 and r < 50 and b < 50, f"Background was black! Pixel at (540, 1000) is {px}"

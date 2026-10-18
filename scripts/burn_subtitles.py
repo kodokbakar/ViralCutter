@@ -228,7 +228,10 @@ def burn_video_file(
 
         broll_in_indices = []
         for b_item in valid_broll:
-            command.extend(["-i", b_item["video_path"]])
+            v_path = b_item["video_path"]
+            if str(v_path).lower().endswith(".webm"):
+                command.extend(["-c:v", "libvpx-vp9"])
+            command.extend(["-i", v_path])
             broll_in_indices.append(input_count)
             input_count += 1
 
