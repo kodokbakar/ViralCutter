@@ -6,183 +6,138 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 1080px; height: 1920px;
-    background: #0B132B;
+    background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Impact, "Arial Black", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   }
   .stage {
     width: 100%; height: 100%;
     position: relative;
-    display: flex; flex-direction: column;
-    overflow: hidden;
-    perspective: 1200px;
-  }
-  /* Top Half - Side A (Navy / Ink) with Torn Bottom Edge */
-  .side-a {
-    flex: 1;
-    background: #0B132B;
-    color: #F4EFEA;
+    padding-top: 200px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    padding: 100px 80px 120px 80px;
-    position: relative;
-    z-index: 2;
-    clip-path: polygon(
-      0% 0%, 100% 0%, 100% 96%,
-      96% 98%, 88% 95.5%, 80% 98.2%, 72% 95%, 64% 97.8%, 56% 94.8%,
-      48% 98%, 40% 95.2%, 32% 97.6%, 24% 95%, 16% 98.2%, 8% 95.6%, 0% 97.5%
-    );
-    box-shadow: 0 16px 32px rgba(0,0,0,0.8);
-    filter: url(#paper-grain);
+    align-items: center;
   }
-  /* Bottom Half - Side B (Vibrant Coral) with Underlay Overlap */
-  .side-b {
+  /* Sleek Comparison Dual Capsule */
+  .versus-container {
+    position: relative;
+    width: 800px;
+    display: flex;
+    gap: 16px;
+    opacity: 0;
+    transform: translateY(-35px) scale(0.95);
+    transform-origin: center top;
+  }
+  .side-card {
     flex: 1;
-    background: #FF5A36;
-    color: #FFFFFF;
+    background: rgba(13, 17, 23, 0.88);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 24px;
+    padding: 24px 26px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    padding: 120px 80px 100px 80px;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
     position: relative;
-    z-index: 1;
-    filter: url(#paper-grain);
   }
-  /* Halftone Dot Pattern Overlays */
-  .pattern-overlay {
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(circle, rgba(255,255,255,0.1) 1.5px, transparent 1.5px);
-    background-size: 30px 30px;
-    pointer-events: none;
+  .side-card.side-a {
+    border-top: 3px solid #EF4444;
   }
-  /* Tag Badges */
+  .side-card.side-b {
+    border-top: 3px solid #10B981;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 25px rgba(16, 185, 129, 0.15);
+  }
   .side-tag {
-    align-self: flex-start;
     font-family: ui-monospace, monospace;
-    font-size: 22px;
-    font-weight: 900;
-    padding: 8px 20px;
-    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
     text-transform: uppercase;
-    letter-spacing: 2px;
-    margin-bottom: 24px;
-    box-shadow: 3px 3px 0 #000;
+    margin-bottom: 8px;
   }
-  .tag-a { background: #FFE600; color: #121316; }
-  .tag-b { background: #121316; color: #FFFFFF; }
+  .side-a .side-tag { color: #EF4444; }
+  .side-b .side-tag { color: #10B981; }
 
-  /* Title & Values */
   .side-title {
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: 84px;
-    line-height: 1.05;
-    text-transform: uppercase;
-    letter-spacing: -1px;
-    margin-bottom: 20px;
-    text-shadow: 0 4px 16px rgba(0,0,0,0.4);
-  }
-  .side-desc {
-    font-size: 40px;
-    font-weight: 750;
-    line-height: 1.35;
-    max-width: 900px;
-    opacity: 0.95;
+    font-size: 28px;
+    font-weight: 850;
+    color: #FFFFFF;
+    line-height: 1.2;
+    margin-bottom: 8px;
     letter-spacing: -0.5px;
   }
-  /* Central Stamped VS Badge */
+  .side-desc {
+    font-size: 16px;
+    font-weight: 500;
+    color: #94A3B8;
+    line-height: 1.35;
+  }
+  /* Central Glowing VS Badge */
   .vs-badge-wrap {
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    z-index: 20;
+    z-index: 10;
   }
   .vs-badge {
-    width: 150px; height: 150px;
-    background: #FFE600;
-    border: 6px solid #121316;
+    width: 52px; height: 52px;
+    background: #0F172A;
+    border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: 70px;
-    color: #121316;
-    box-shadow: 0 20px 45px rgba(0,0,0,0.8), 5px 7px 0 #121316;
-    transform: scale(0) rotate(-18deg);
-    filter: url(#paper-grain);
+    font-size: 18px;
+    font-weight: 900;
+    color: #F8FAFC;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.8), 0 0 15px rgba(59, 130, 246, 0.4);
   }
 </style>
 </head>
 <body>
-<!-- Procedural SVG Paper Noise Filter -->
-<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
-  <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="noise" />
-    <feColorMatrix type="matrix" values="0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.08 0" result="coloredNoise" />
-    <feComposite in="SourceGraphic" in2="coloredNoise" operator="over" />
-  </filter>
-</svg>
-
 <div class="stage">
-  <div class="side-a" id="sideA">
-    <div class="pattern-overlay"></div>
-    <div class="side-tag tag-a">{{TAG_A}}</div>
-    <div class="side-title">{{TITLE_A}}</div>
-    <div class="side-desc">{{DESC_A}}</div>
-  </div>
+  <div class="versus-container" id="card">
+    <div class="side-card side-a">
+      <div class="side-tag">{{TAG_A}}</div>
+      <div class="side-title">{{TITLE_A}}</div>
+      <div class="side-desc">{{DESC_A}}</div>
+    </div>
 
-  <div class="vs-badge-wrap">
-    <div class="vs-badge" id="vsBadge">VS</div>
-  </div>
+    <div class="vs-badge-wrap">
+      <div class="vs-badge">VS</div>
+    </div>
 
-  <div class="side-b" id="sideB">
-    <div class="pattern-overlay"></div>
-    <div class="side-tag tag-b">{{TAG_B}}</div>
-    <div class="side-title">{{TITLE_B}}</div>
-    <div class="side-desc">{{DESC_B}}</div>
+    <div class="side-card side-b">
+      <div class="side-tag">{{TAG_B}}</div>
+      <div class="side-title">{{TITLE_B}}</div>
+      <div class="side-desc">{{DESC_B}}</div>
+    </div>
   </div>
 </div>
 
 <script>
-  const sideA = document.getElementById('sideA');
-  const sideB = document.getElementById('sideB');
-  const vsBadge = document.getElementById('vsBadge');
+  const card = document.getElementById('card');
 
   function spring(t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
-    return 1 - Math.exp(-6.5 * t) * Math.cos(8.5 * t);
+    return 1 - Math.exp(-7.0 * t) * Math.cos(9.0 * t);
   }
   function easeIn(t) { return t * t * t; }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
 
-    const stepCount = 48;
-    const step = Math.floor(progress * stepCount);
-    const jX = ((step * 9) % 3 - 1) * 1.0;
-    const jY = ((step * 13) % 3 - 1) * 1.0;
-
-    if (progress < 0.18) {
-      const p = spring(progress / 0.18);
-      sideA.style.transform = `translateY(${-140 * (1 - p)}px)`;
-      sideA.style.opacity = Math.min(1, p * 1.4);
-      sideB.style.transform = `translateY(${140 * (1 - p)}px)`;
-      sideB.style.opacity = Math.min(1, p * 1.4);
-      vsBadge.style.transform = `scale(${p}) rotate(${-18 + 18 * p}deg)`;
-    } else if (progress <= 0.82) {
-      sideA.style.transform = `translate(${jX}px, ${jY}px)`;
-      sideA.style.opacity = 1;
-      sideB.style.transform = `translate(${jX}px, ${jY}px)`;
-      sideB.style.opacity = 1;
-      vsBadge.style.transform = `scale(1) rotate(${jX * 1.5}deg)`;
+    if (progress < 0.16) {
+      const p = spring(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.3);
+      card.style.transform = `translateY(${-35 * (1 - p)}px) scale(${0.95 + 0.05 * p})`;
+    } else if (progress <= 0.84) {
+      card.style.opacity = 1;
+      card.style.transform = 'translateY(0) scale(1)';
     } else {
-      const p = easeIn((progress - 0.82) / 0.18);
-      sideA.style.transform = `translateX(${-120 * p}px)`;
-      sideA.style.opacity = Math.max(0, 1 - p * 1.5);
-      sideB.style.transform = `translateX(${120 * p}px)`;
-      sideB.style.opacity = Math.max(0, 1 - p * 1.5);
-      vsBadge.style.transform = `scale(${1 - p}) rotate(${25 * p}deg)`;
+      const p = easeIn((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${-25 * p}px) scale(${1 - 0.04 * p})`;
     }
   };
   window.renderSeek(0);

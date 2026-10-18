@@ -8,210 +8,127 @@
     width: 1080px; height: 1920px;
     background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Georgia, serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   }
   .stage {
     width: 100%; height: 100%;
     position: relative;
-    display: flex; align-items: center; justify-content: center;
-    padding: 60px;
-    perspective: 1200px;
-  }
-  /* Jagged Newsprint Cutout Card */
-  .vox-paper-card {
-    position: relative;
-    width: 950px;
-    background: #FAF7F2; /* Warm Editorial Newsprint */
-    color: #121316;
-    border: 4px solid #121316;
-    clip-path: polygon(
-      0.5% 1.8%, 6% 0.4%, 18% 1.6%, 32% 0.2%, 46% 1.4%, 60% 0.5%, 74% 1.8%, 88% 0.3%, 98.5% 1.7%, 100% 3%,
-      98.9% 15%, 100% 28%, 98.6% 42%, 100% 56%, 98.8% 70%, 100% 84%, 98.2% 96%,
-      97% 98.8%, 84% 98.1%, 70% 99.6%, 56% 98.3%, 42% 99.4%, 28% 98.2%, 14% 99.5%, 2% 98.4%, 0.4% 96%,
-      1.5% 82%, 0.4% 68%, 1.6% 54%, 0.3% 38%, 1.4% 22%, 0.2% 9%
-    );
-    padding: 70px 70px 60px 70px;
-    box-shadow: 
-      0 35px 70px rgba(0, 0, 0, 0.88),
-      8px 10px 0 #121316;
-    transform-origin: center center;
-    opacity: 0;
-    filter: url(#paper-grain);
-  }
-  /* Kraft Paper Tape on top center */
-  .kraft-tape {
-    position: absolute;
-    top: -26px; left: 50%;
-    transform: translateX(-50%) rotate(-1deg);
-    width: 240px; height: 50px;
-    background: #DEC9A5;
-    opacity: 0.95;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    clip-path: polygon(3% 2%, 97% 0%, 100% 94%, 96% 100%, 0% 97%);
-    z-index: 10;
-  }
-  /* Category Pill Bar */
-  .card-top-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 3px solid #121316;
-    padding-bottom: 18px;
-    margin-bottom: 28px;
-    font-family: ui-monospace, monospace;
-    font-size: 20px;
-    font-weight: 900;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
-  .quote-pill {
-    background: #0B132B;
-    color: #FFE600;
-    padding: 6px 16px;
-    border-radius: 4px;
-    font-size: 17px;
-    box-shadow: 2px 2px 0 #FF5A36;
-  }
-  /* Giant Editorial Quote Mark */
-  .quote-mark {
-    font-family: Georgia, serif;
-    font-size: 115px;
-    line-height: 0.7;
-    color: #FF5A36;
-    margin-bottom: 10px;
-    user-select: none;
-  }
-  /* Quote Body with Realistic Chisel Highlighter Sweep */
-  .quote-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    font-size: 45px;
-    font-weight: 850;
-    line-height: 1.35;
-    color: #121316;
-    letter-spacing: -0.8px;
-    margin-bottom: 36px;
-  }
-  .highlight-sweep {
-    background: linear-gradient(to right, #FFE600 0%, #FFE600 100%);
-    background-repeat: no-repeat;
-    background-size: 0% 100%;
-    padding: 4px 10px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    mix-blend-mode: multiply;
-  }
-  /* Speaker Stamp Footer */
-  .speaker-footer {
-    display: flex;
-    align-items: center;
-    border-top: 2px dashed rgba(18, 19, 22, 0.35);
-    padding-top: 24px;
-  }
-  .stamp-avatar {
-    width: 64px; height: 64px;
-    border: 3px solid #121316;
-    background: #FF5A36;
-    color: #FFFFFF;
-    font-family: ui-monospace, monospace;
-    font-weight: 900;
-    font-size: 26px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 50%;
-    margin-right: 22px;
-    box-shadow: 3px 3px 0 #121316;
-    transform: rotate(-6deg);
-  }
-  .speaker-details {
+    padding-top: 200px;
     display: flex;
     flex-direction: column;
+    align-items: center;
   }
-  .speaker-name {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 33px;
-    font-weight: 900;
-    color: #121316;
-    text-transform: uppercase;
-    letter-spacing: -0.5px;
+  .sleek-card {
+    position: relative;
+    width: 780px;
+    background: rgba(13, 17, 23, 0.88);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 26px;
+    padding: 30px 36px 30px 42px;
+    box-shadow: 
+      0 20px 50px rgba(0, 0, 0, 0.7),
+      0 0 35px rgba(59, 130, 246, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transform: translateY(-40px) scale(0.95);
+    transform-origin: center top;
   }
-  .speaker-title {
-    font-family: ui-monospace, monospace;
-    font-size: 21px;
-    color: #4B5563;
-    margin-top: 2px;
+  .accent-line {
+    position: absolute;
+    left: 18px;
+    top: 28px;
+    bottom: 28px;
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #3B82F6 0%, #10B981 100%);
+    box-shadow: 0 0 12px #3B82F6;
+  }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 13px;
     font-weight: 700;
+    letter-spacing: 1.5px;
+    color: rgba(255, 255, 255, 0.55);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .quote-body {
+    font-size: 32px;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.35;
+    letter-spacing: -0.3px;
+    margin-bottom: 18px;
+  }
+  .author-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .author-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #F8FAFC;
+    letter-spacing: 0.2px;
+  }
+  .author-sep {
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 14px;
+  }
+  .author-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #94A3B8;
   }
 </style>
 </head>
 <body>
-<!-- Procedural SVG Paper Noise Filter -->
-<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
-  <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="noise" />
-    <feColorMatrix type="matrix" values="0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0.08 0" result="coloredNoise" />
-    <feComposite in="SourceGraphic" in2="coloredNoise" operator="over" />
-  </filter>
-</svg>
-
 <div class="stage">
-  <div class="vox-paper-card" id="card">
-    <div class="kraft-tape" id="tape"></div>
-    <div class="card-top-bar">
-      <span class="quote-pill">PULL-QUOTE // STATEMENT</span>
-      <span>VOX ARCHIVE</span>
+  <div class="sleek-card" id="card">
+    <div class="accent-line"></div>
+    <div class="header-meta">
+      <span>PULL-QUOTE // STATEMENT</span>
     </div>
-    <div class="quote-mark">“</div>
-    <div class="quote-body">
-      <span class="highlight-sweep" id="highlight">{{QUOTE}}</span>
-    </div>
-    <div class="speaker-footer">
-      <div class="stamp-avatar">VOX</div>
-      <div class="speaker-details">
-        <div class="speaker-name">{{AUTHOR}}</div>
-        <div class="speaker-title">{{TITLE}}</div>
-      </div>
+    <div class="quote-body">"{{QUOTE}}"</div>
+    <div class="author-row">
+      <div class="author-name">{{AUTHOR}}</div>
+      <span class="author-sep">•</span>
+      <div class="author-title">{{TITLE}}</div>
     </div>
   </div>
 </div>
 
 <script>
   const card = document.getElementById('card');
-  const highlight = document.getElementById('highlight');
-  const tape = document.getElementById('tape');
 
   function spring(t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
-    return 1 - Math.exp(-6.5 * t) * Math.cos(8.5 * t);
+    return 1 - Math.exp(-7.0 * t) * Math.cos(9.0 * t);
   }
   function easeIn(t) { return t * t * t; }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
 
-    const stepCount = 48;
-    const step = Math.floor(progress * stepCount);
-    const jX = ((step * 5) % 3 - 1) * 1.1;
-    const jY = ((step * 13) % 3 - 1) * 1.1;
-
-    if (progress < 0.18) {
-      const p = spring(progress / 0.18);
-      card.style.opacity = Math.min(1, p * 1.4);
-      card.style.transform = `translateY(${95 * (1 - p)}px) rotate(${1.5 * p}deg) scale(${0.88 + 0.12 * p})`;
-      tape.style.transform = `translateX(-50%) rotate(${-1 * p}deg) scale(${0.9 + 0.1 * p})`;
-      highlight.style.backgroundSize = '0% 100%';
-    } else if (progress <= 0.82) {
+    if (progress < 0.16) {
+      const p = spring(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.3);
+      card.style.transform = `translateY(${-40 * (1 - p)}px) scale(${0.95 + 0.05 * p})`;
+    } else if (progress <= 0.84) {
       card.style.opacity = 1;
-      card.style.transform = `translate(${jX}px, ${jY}px) rotate(1.4deg) scale(1)`;
-      tape.style.transform = 'translateX(-50%) rotate(-1deg) scale(1)';
-
-      // Marker highlighter wipes across between 0.18 and 0.42
-      const sweepProgress = Math.min(1, Math.max(0, (progress - 0.18) / 0.24));
-      highlight.style.backgroundSize = `${Math.round(sweepProgress * 100)}% 100%`;
+      card.style.transform = 'translateY(0) scale(1)';
     } else {
-      const p = easeIn((progress - 0.82) / 0.18);
-      card.style.opacity = Math.max(0, 1 - p * 1.5);
-      card.style.transform = `translateY(${110 * p}px) rotate(${1.4 + 3 * p}deg) scale(${1 - 0.08 * p})`;
-      highlight.style.backgroundSize = '100% 100%';
+      const p = easeIn((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${-30 * p}px) scale(${1 - 0.04 * p})`;
     }
   };
   window.renderSeek(0);

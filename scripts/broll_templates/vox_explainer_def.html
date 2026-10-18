@@ -8,206 +8,134 @@
     width: 1080px; height: 1920px;
     background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   }
   .stage {
     width: 100%; height: 100%;
     position: relative;
-    display: flex; align-items: center; justify-content: center;
-    padding: 60px;
-    perspective: 1200px;
+    padding-top: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
-  /* Torn Index / Blueprint Card */
-  .def-card {
+  /* Sleek Glass Definition Card */
+  .sleek-def {
     position: relative;
-    width: 950px;
-    background: #FAF7F2;
-    border: 4px solid #121316;
-    clip-path: polygon(
-      0.5% 2%, 12% 0.5%, 28% 1.8%, 44% 0.3%, 60% 1.5%, 76% 0.6%, 92% 1.8%, 98.8% 0.4%, 100% 3%,
-      98.9% 18%, 100% 36%, 99.1% 54%, 100% 72%, 98.7% 90%, 100% 97%,
-      96% 99.2%, 82% 98.4%, 66% 99.8%, 50% 98.5%, 34% 99.6%, 18% 98.2%, 2% 99.5%, 0.4% 97%,
-      1.2% 80%, 0.3% 62%, 1.5% 44%, 0.2% 26%, 1.4% 10%
-    );
-    padding: 70px 65px;
+    width: 780px;
+    background: rgba(13, 17, 23, 0.88);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 26px;
+    padding: 28px 36px;
     box-shadow: 
-      0 35px 70px rgba(0, 0, 0, 0.88),
-      8px 10px 0 #121316;
+      0 20px 50px rgba(0, 0, 0, 0.65),
+      0 0 30px rgba(56, 189, 248, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    display: flex;
+    flex-direction: column;
     opacity: 0;
-    transform-origin: center center;
-    filter: url(#paper-grain);
+    transform: translateY(-35px) scale(0.95);
+    transform-origin: center top;
   }
-  /* Blueprint Crosshairs */
-  .crosshair-tl { position: absolute; top: 20px; left: 24px; font-family: monospace; font-size: 20px; font-weight: 900; color: #FF5A36; }
-  .crosshair-tr { position: absolute; top: 20px; right: 24px; font-family: monospace; font-size: 20px; font-weight: 900; color: #FF5A36; }
-
-  /* Top Blueprint Header */
-  .def-header {
+  .top-meta {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 2px dashed #121316;
-    padding-bottom: 20px;
-    margin-bottom: 32px;
-    font-family: ui-monospace, monospace;
-    font-size: 20px;
-    font-weight: 900;
-    letter-spacing: 1.5px;
-    color: #121316;
-  }
-  .term-tag {
-    background: #0B132B;
-    color: #FFE600;
-    padding: 6px 16px;
-    border-radius: 4px;
-    font-size: 16px;
-    box-shadow: 2px 2px 0 #FF5A36;
-  }
-  /* Term and Pronunciation */
-  .term-title {
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: 84px;
-    line-height: 1.05;
-    color: #121316;
-    text-transform: uppercase;
-    letter-spacing: -1px;
     margin-bottom: 12px;
   }
-  .phonetic-row {
+  .def-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #38BDF8;
+    text-transform: uppercase;
+  }
+  .term-row {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 32px;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .term-title {
+    font-size: 38px;
+    font-weight: 850;
+    color: #FFFFFF;
+    letter-spacing: -0.5px;
   }
   .phonetic {
     font-family: Georgia, serif;
-    font-size: 30px;
+    font-size: 18px;
     font-style: italic;
-    color: #4B5563;
+    color: #94A3B8;
   }
-  .part-of-speech {
-    background: #E5E7EB;
-    color: #1F2937;
-    font-family: ui-monospace, monospace;
-    font-size: 19px;
-    font-weight: 800;
-    padding: 4px 12px;
-    border-radius: 4px;
-    border: 2px solid #121316;
-  }
-  /* Definition Body with Chisel Highlighter Marker Sweep */
-  .def-body {
-    font-size: 40px;
-    font-weight: 800;
-    line-height: 1.4;
-    color: #1F2937;
-    margin-bottom: 40px;
-    letter-spacing: -0.5px;
-  }
-  .highlight-sweep {
-    background: linear-gradient(to right, #FFE600 0%, #FFE600 100%);
-    background-repeat: no-repeat;
-    background-size: 0% 100%;
-    padding: 3px 8px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    mix-blend-mode: multiply;
-  }
-  /* Bottom Example Callout Box */
-  .callout-box {
-    background: #121316;
-    color: #FAF7F2;
-    border-radius: 8px;
-    padding: 24px 30px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    box-shadow: 4px 4px 0 #FF5A36;
-  }
-  .callout-label {
-    font-family: ui-monospace, monospace;
-    font-size: 17px;
-    font-weight: 900;
-    color: #FF5A36;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
-  .callout-text {
-    font-size: 29px;
+  .pos-tag {
+    font-size: 13px;
     font-weight: 700;
+    color: #38BDF8;
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .def-body {
+    font-size: 24px;
+    font-weight: 600;
+    color: #E2E8F0;
     line-height: 1.35;
-    color: #F3F4F6;
+    margin-bottom: 12px;
+  }
+  .context-callout {
+    font-size: 15px;
+    font-weight: 500;
+    color: #94A3B8;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 10px;
   }
 </style>
 </head>
 <body>
-<!-- Procedural SVG Paper Noise Filter -->
-<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
-  <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="noise" />
-    <feColorMatrix type="matrix" values="0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.08 0" result="coloredNoise" />
-    <feComposite in="SourceGraphic" in2="coloredNoise" operator="over" />
-  </filter>
-</svg>
-
 <div class="stage">
-  <div class="def-card" id="card">
-    <div class="crosshair-tl">+</div>
-    <div class="crosshair-tr">+</div>
-    <div class="def-header">
-      <span class="term-tag">EXPLAINER // DEFINITION</span>
-      <span>INDEX REF +</span>
+  <div class="sleek-def" id="card">
+    <div class="top-meta">
+      <span class="def-tag">EXPLAINER // DEFINITION</span>
+      <span style="font-size: 12px; color: rgba(255,255,255,0.4); font-family: monospace;">GLOSSARY</span>
     </div>
-    <div class="term-title">{{TERM}}</div>
-    <div class="phonetic-row">
+    <div class="term-row">
+      <span class="term-title">{{TERM}}</span>
       <span class="phonetic">{{PHONETIC}}</span>
-      <span class="part-of-speech">{{POS}}</span>
+      <span class="pos-tag">{{POS}}</span>
     </div>
-    <div class="def-body">
-      <span class="highlight-sweep" id="highlight">{{DEFINITION}}</span>
-    </div>
-    <div class="callout-box">
-      <span class="callout-label">CONTEXT NOTE</span>
-      <span class="callout-text">{{CONTEXT_NOTE}}</span>
-    </div>
+    <div class="def-body">{{DEFINITION}}</div>
+    <div class="context-callout">{{CONTEXT_NOTE}}</div>
   </div>
 </div>
 
 <script>
   const card = document.getElementById('card');
-  const highlight = document.getElementById('highlight');
 
   function spring(t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
-    return 1 - Math.exp(-6.5 * t) * Math.cos(8.5 * t);
+    return 1 - Math.exp(-7.0 * t) * Math.cos(9.0 * t);
   }
   function easeIn(t) { return t * t * t; }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
 
-    const stepCount = 48;
-    const step = Math.floor(progress * stepCount);
-    const jX = ((step * 5) % 3 - 1) * 1.0;
-    const jY = ((step * 11) % 3 - 1) * 1.0;
-
-    if (progress < 0.18) {
-      const p = spring(progress / 0.18);
-      card.style.opacity = Math.min(1, p * 1.4);
-      card.style.transform = `translateY(${90 * (1 - p)}px) rotate(${-0.8 * p}deg) scale(${0.9 + 0.1 * p})`;
-      highlight.style.backgroundSize = '0% 100%';
-    } else if (progress <= 0.82) {
+    if (progress < 0.16) {
+      const p = spring(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.3);
+      card.style.transform = `translateY(${-35 * (1 - p)}px) scale(${0.95 + 0.05 * p})`;
+    } else if (progress <= 0.84) {
       card.style.opacity = 1;
-      card.style.transform = `translate(${jX}px, ${jY}px) rotate(-0.8deg) scale(1)`;
-
-      const sweep = Math.min(1, Math.max(0, (progress - 0.18) / 0.26));
-      highlight.style.backgroundSize = `${Math.round(sweep * 100)}% 100%`;
+      card.style.transform = 'translateY(0) scale(1)';
     } else {
-      const p = easeIn((progress - 0.82) / 0.18);
-      card.style.opacity = Math.max(0, 1 - p * 1.5);
-      card.style.transform = `translateY(${110 * p}px) rotate(${-0.8 - 3 * p}deg) scale(${1 - 0.08 * p})`;
-      highlight.style.backgroundSize = '100% 100%';
+      const p = easeIn((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${-25 * p}px) scale(${1 - 0.04 * p})`;
     }
   };
   window.renderSeek(0);

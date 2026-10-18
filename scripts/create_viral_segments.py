@@ -925,15 +925,10 @@ Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
 IMPORTANT: Output "Title", "Hook Title", and "Reasoning" in the SAME LANGUAGE as the transcript (e.g., if transcript is Indonesian, output Indonesian).
 
-MOTION B-ROLL INSTRUCTIONS:
-Optionally suggest 1-2 contextual Vox-style motion graphic overlays ("broll_items") per segment:
-- "stat_counter": For numbers, percentages, data metrics, money.
-- "quote_card": For memorable punchlines or quoted wisdom.
-- "point_highlight": For 2-3 key takeaways or bullet points.
-- "vox_versus_split": For comparisons/contrasting two concepts ("dulu vs sekarang", "A vs B").
-- "vox_headline_punch": For shocking statements or urgent key hooks.
-- "vox_explainer_def": For defining a technical term or jargon.
-- "vox_bar_chart": For comparing 2-3 data points/quantities.
+MOTION B-ROLL INSTRUCTIONS (SLEEK MINIMALIST GLASS OVERLAYS):
+Optionally suggest 1-2 contextual sleek motion graphic overlays ("broll_items") per segment:
+- TRANSCRIPT-FIRST TIMING (CRITICAL): Always provide "trigger_phrase" with the EXACT 2 to 4 consecutive spoken words from the transcript where this B-roll should appear (e.g. "naik 85 persen", "kunci sukses"). This guarantees millisecond-accurate audio sync!
+- Templates: "sleek_stat_badge" (or "stat_counter"), "sleek_quote_card" (or "quote_card"), "sleek_step_list" (or "point_highlight"), "sleek_keyword_pill" (or "vox_headline_punch"), "vox_versus_split", "vox_explainer_def", "vox_bar_chart".
 Vary the template_id according to the content context!
 
 TRANSCRIPT:
@@ -954,9 +949,10 @@ OUTPUT JSON ONLY:
                         "score": 95,
                         "broll_items": [
                             {
+                                "trigger_phrase": "naik 85 persen",
                                 "start_offset": 5.0,
                                 "duration": 3.5,
-                                "template_id": "stat_counter",
+                                "template_id": "sleek_stat_badge",
                                 "data": {
                                     "target_number": "85",
                                     "suffix": "%",

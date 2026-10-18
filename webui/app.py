@@ -427,12 +427,12 @@ Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
 IMPORTANT: Output "Title", "Hook", and "Reasoning" in the SAME LANGUAGE as the transcript.
 
-MOTION B-ROLL INSTRUCTIONS:
-Optionally suggest 1 to 3 contextual Vox-style motion graphic overlays ("broll_items") per segment:
-- Max 2 to 3 B-roll items per ~60-90s segment (minimum 0 if no relevant moments, max 3 per segment).
+MOTION B-ROLL INSTRUCTIONS (SLEEK MINIMALIST GLASS OVERLAYS):
+Optionally suggest 1 to 3 contextual sleek motion graphic overlays ("broll_items") per segment:
+- TRANSCRIPT-FIRST TIMING (CRITICAL): Always provide "trigger_phrase" with the EXACT 2 to 4 consecutive spoken words from the transcript where this B-roll should appear (e.g. "naik 85 persen", "kunci sukses"). This guarantees millisecond-accurate audio sync!
 - Duration: 3.0 to 4.0 seconds per item.
 - Space items with at least 15-20s gap (no overlap).
-- Templates: "stat_counter", "quote_card", "point_highlight", "vox_versus_split", "vox_headline_punch", "vox_explainer_def", "vox_bar_chart".
+- Templates: "sleek_stat_badge" (or "stat_counter"), "sleek_quote_card" (or "quote_card"), "sleek_step_list" (or "point_highlight"), "sleek_keyword_pill" (or "vox_headline_punch"), "vox_versus_split", "vox_explainer_def", "vox_bar_chart".
 Vary the template_id according to the content context!
 {transcript_chunk}
 OUTPUT JSON ONLY:

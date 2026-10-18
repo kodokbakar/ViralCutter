@@ -8,89 +8,64 @@
     width: 1080px; height: 1920px;
     background: transparent;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Impact, "Arial Black", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   }
   .stage {
     width: 100%; height: 100%;
     position: relative;
-    display: flex; align-items: center; justify-content: center;
-    padding: 60px;
-    perspective: 1200px;
+    padding-top: 190px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
-  /* Vox Dark Graph Card */
+  /* Sleek Glass Chart Card */
   .chart-card {
     position: relative;
-    width: 960px;
-    background: #14161E;
-    border: 4px solid #FAF7F2;
-    clip-path: polygon(
-      0.5% 1.8%, 14% 0.4%, 28% 1.6%, 42% 0.2%, 56% 1.4%, 70% 0.5%, 84% 1.8%, 98% 0.4%, 100% 3%,
-      99.1% 20%, 100% 40%, 98.8% 60%, 100% 80%, 98.5% 97%,
-      96% 99.2%, 80% 98.4%, 60% 99.6%, 40% 98.2%, 20% 99.5%, 2% 98.2%, 0.5% 96%,
-      1.2% 75%, 0.3% 50%, 1.4% 25%
-    );
-    padding: 65px 60px 55px 60px;
+    width: 780px;
+    background: rgba(13, 17, 23, 0.88);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 26px;
+    padding: 24px 34px 20px 34px;
     box-shadow: 
-      0 35px 70px rgba(0, 0, 0, 0.9),
-      8px 10px 0 #000;
+      0 20px 50px rgba(0, 0, 0, 0.65),
+      0 0 30px rgba(16, 185, 129, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
     opacity: 0;
-    transform-origin: center center;
-    filter: url(#paper-grain);
+    transform: translateY(-35px) scale(0.95);
+    transform-origin: center top;
   }
-  /* Header */
   .chart-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 2px dashed rgba(250, 247, 242, 0.25);
-    padding-bottom: 20px;
-    margin-bottom: 30px;
-    font-family: ui-monospace, monospace;
-    font-size: 20px;
-    letter-spacing: 2px;
-    color: #FAF7F2;
+    margin-bottom: 12px;
   }
   .chart-tag {
-    background: #FF5A36;
-    color: #FFFFFF;
-    font-weight: 900;
-    padding: 6px 16px;
-    border-radius: 4px;
-    font-size: 18px;
-    box-shadow: 3px 3px 0 #000;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #10B981;
+    text-transform: uppercase;
   }
   .chart-title {
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: 56px;
-    color: #FAF7F2;
-    line-height: 1.15;
-    text-transform: uppercase;
-    letter-spacing: -0.5px;
-    margin-bottom: 40px;
-    text-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    font-size: 26px;
+    font-weight: 850;
+    color: #FFFFFF;
+    letter-spacing: -0.4px;
+    margin-bottom: 20px;
   }
-  /* Bars Canvas Container */
   .bars-container {
-    height: 500px;
+    height: 180px;
     display: flex;
     align-items: flex-end;
     justify-content: space-around;
-    gap: 36px;
-    padding: 20px 20px 0 20px;
-    border-bottom: 4px solid #FAF7F2;
-    position: relative;
+    gap: 28px;
+    padding: 10px 16px 0 16px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.12);
   }
-  /* Background Guideline Lines */
-  .grid-line {
-    position: absolute;
-    left: 0; right: 0;
-    border-top: 1px dashed rgba(250, 247, 242, 0.2);
-    pointer-events: none;
-  }
-  .gl-25 { bottom: 25%; }
-  .gl-50 { bottom: 50%; }
-  .gl-75 { bottom: 75%; }
-
   .bar-col {
     flex: 1;
     display: flex;
@@ -98,94 +73,60 @@
     align-items: center;
     height: 100%;
     justify-content: flex-end;
-    position: relative;
-    z-index: 2;
   }
   .bar-value {
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: 42px;
-    color: #FFE600;
-    margin-bottom: 12px;
+    font-size: 20px;
+    font-weight: 800;
+    color: #94A3B8;
+    margin-bottom: 8px;
     opacity: 0;
-    transform: translateY(12px);
-    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
   }
   .bar-pillar {
     width: 100%;
-    max-width: 170px;
-    background: #374151;
-    border: 3px solid #FAF7F2;
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
+    max-width: 90px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px 8px 0 0;
     height: 0%;
-    box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
   }
-  /* Accent / Winner Bar with Diagonal Stripe Hatching */
   .bar-col.accent .bar-pillar {
-    background: 
-      repeating-linear-gradient(
-        45deg,
-        #FF5A36,
-        #FF5A36 14px,
-        #E04826 14px,
-        #E04826 28px
-      );
-    border-color: #FFE600;
+    background: linear-gradient(180deg, #10B981 0%, #059669 100%);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
   }
   .bar-col.accent .bar-value {
-    color: #FFE600;
+    color: #10B981;
   }
-  /* Label beneath bar */
   .bar-label {
-    margin-top: 22px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 28px;
-    font-weight: 900;
-    color: #FAF7F2;
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: -0.5px;
+    margin-top: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #E2E8F0;
   }
-  /* Footer Footnote */
   .chart-footer {
-    margin-top: 38px;
+    margin-top: 14px;
     font-family: ui-monospace, monospace;
-    font-size: 18px;
-    color: rgba(250, 247, 242, 0.6);
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.4);
     display: flex;
     justify-content: space-between;
   }
 </style>
 </head>
 <body>
-<!-- Procedural SVG Paper Noise Filter -->
-<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
-  <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" result="noise" />
-    <feColorMatrix type="matrix" values="0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.1  0 0 0 0 0.08 0" result="coloredNoise" />
-    <feComposite in="SourceGraphic" in2="coloredNoise" operator="over" />
-  </filter>
-</svg>
-
 <div class="stage">
   <div class="chart-card" id="card">
     <div class="chart-header">
       <span class="chart-tag">DATA COMPARISON</span>
-      <span>VOX INDEX 9:16</span>
+      <span style="font-size: 12px; color: rgba(255,255,255,0.4); font-family: monospace;">CHART</span>
     </div>
     <div class="chart-title">{{CHART_TITLE}}</div>
     
     <div class="bars-container">
-      <div class="grid-line gl-25"></div>
-      <div class="grid-line gl-50"></div>
-      <div class="grid-line gl-75"></div>
-
       {{BARS_HTML}}
     </div>
 
     <div class="chart-footer">
       <span>SOURCE: {{SOURCE}}</span>
-      <span>+ [VERIFIED DATA]</span>
+      <span>+ [VERIFIED]</span>
     </div>
   </div>
 </div>
@@ -198,42 +139,35 @@
   function spring(t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
-    return 1 - Math.exp(-6.5 * t) * Math.cos(8.5 * t);
+    return 1 - Math.exp(-7.0 * t) * Math.cos(9.0 * t);
   }
   function easeIn(t) { return t * t * t; }
 
   window.renderSeek = function(progress) {
     progress = Math.max(0, Math.min(1, progress));
 
-    const stepCount = 48;
-    const step = Math.floor(progress * stepCount);
-    const jX = ((step * 5) % 3 - 1) * 1.0;
-    const jY = ((step * 11) % 3 - 1) * 1.0;
-
-    if (progress < 0.18) {
-      const p = spring(progress / 0.18);
-      card.style.opacity = Math.min(1, p * 1.4);
-      card.style.transform = `translateY(${90 * (1 - p)}px) rotate(${-1.2 * p}deg) scale(${0.9 + 0.1 * p})`;
+    if (progress < 0.16) {
+      const p = spring(progress / 0.16);
+      card.style.opacity = Math.min(1, p * 1.3);
+      card.style.transform = `translateY(${-35 * (1 - p)}px) scale(${0.95 + 0.05 * p})`;
       pillars.forEach(bar => { bar.style.height = '0%'; });
       values.forEach(v => { v.style.opacity = 0; });
-    } else if (progress <= 0.82) {
+    } else if (progress <= 0.84) {
       card.style.opacity = 1;
-      card.style.transform = `translate(${jX}px, ${jY}px) rotate(-1.2deg) scale(1)`;
+      card.style.transform = 'translateY(0) scale(1)';
 
-      // Bar growth animation with spring physics between 0.18 and 0.46
-      const growProgress = spring(Math.min(1, Math.max(0, (progress - 0.18) / 0.28)));
+      const growProgress = spring(Math.min(1, Math.max(0, (progress - 0.16) / 0.28)));
       pillars.forEach(bar => {
         const targetH = parseFloat(bar.getAttribute('data-target-height')) || 50;
         bar.style.height = `${Math.round(targetH * growProgress)}%`;
       });
       values.forEach(v => {
-        v.style.opacity = Math.min(1, growProgress * 1.3);
-        v.style.transform = `translateY(${12 * (1 - growProgress)}px)`;
+        v.style.opacity = growProgress;
       });
     } else {
-      const p = easeIn((progress - 0.82) / 0.18);
-      card.style.opacity = Math.max(0, 1 - p * 1.5);
-      card.style.transform = `translateY(${110 * p}px) rotate(${-1.2 - 3 * p}deg) scale(${1 - 0.08 * p})`;
+      const p = easeIn((progress - 0.84) / 0.16);
+      card.style.opacity = Math.max(0, 1 - p * 1.4);
+      card.style.transform = `translateY(${-25 * p}px) scale(${1 - 0.04 * p})`;
     }
   };
   window.renderSeek(0);

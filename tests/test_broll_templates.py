@@ -5,16 +5,15 @@ from scripts import broll_engine
 def test_list_templates_returns_full_catalog():
     templates = broll_engine.list_templates()
     ids = [t["id"] for t in templates]
-    # Check that all 7 distinct Vox templates are present
+    # Check sleek templates and classic aliases
+    assert "sleek_stat_badge" in ids
+    assert "sleek_quote_card" in ids
+    assert "sleek_step_list" in ids
+    assert "sleek_keyword_pill" in ids
     assert "stat_counter" in ids
     assert "quote_card" in ids
     assert "point_highlight" in ids
-    assert "vox_versus_split" in ids
-    assert "vox_headline_punch" in ids
-    assert "vox_explainer_def" in ids
-    assert "vox_bar_chart" in ids
     assert len(templates) >= 7
-
 
 def test_render_stat_counter_html():
     data = {
@@ -193,3 +192,72 @@ def test_snap_broll_items_to_transcript_aligns_timing():
     assert snapped[0]["start_offset"] == 48.95
     assert snapped[0]["audio_snapped"] is True
     assert snapped[0]["matched_word"] == "85"
+
+
+def test_render_sleek_templates():
+    stat_html = broll_engine.render_html_content("sleek_stat_badge", {
+        "target_number": "95",
+        "suffix": "%",
+        "label": "Tingkat Retensi",
+    })
+    assert "95" in stat_html
+    assert "Tingkat Retensi" in stat_html
+    assert "window.renderSeek" in stat_html
+
+    quote_html = broll_engine.render_html_content("sleek_quote_card", {
+        "quote": "Sleek and minimal",
+        "author": "Steve",
+        "title": "Designer",
+    })
+    assert "Sleek and minimal" in quote_html
+    assert "Steve" in quote_html
+
+    step_html = broll_engine.render_html_content("sleek_step_list", {
+        "headline": "3 Langkah",
+        "points": ["Pertama", "Kedua"],
+    })
+    assert "3 Langkah" in step_html
+    assert "Pertama" in step_html
+
+    pill_html = broll_engine.render_html_content("sleek_keyword_pill", {
+        "tag": "INSIGHT",
+        "line_1": "FOCUS ON",
+        "line_2": "RETENTION",
+        "line_3": "NOW",
+        "subtext": "Details",
+    })
+    assert "INSIGHT" in pill_html
+    assert "FOCUS ON" in pill_html
+
+
+def test_snap_broll_with_exact_trigger_phrase():
+    transcript_mock = {
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 60.0,
+                "words": [
+                    {"word": "cara", "start": 10.0, "end": 10.4},
+                    {"word": "terbaik", "start": 10.5, "end": 11.0},
+                    {"word": "adalah", "start": 11.1, "end": 11.5},
+                    {"word": "naik", "start": 48.0, "end": 48.4},
+                    {"word": "85", "start": 48.5, "end": 48.9},
+                    {"word": "persen", "start": 49.0, "end": 49.6},
+                ],
+            }
+        ]
+    }
+    broll_items = [
+        {
+            "template_id": "sleek_stat_badge",
+            "trigger_phrase": "naik 85 persen",
+            "start_offset": 20.0,  # AI hallucinated 20s
+            "data": {"target_number": "85%"},
+        }
+    ]
+    snapped = broll_engine.snap_broll_items_to_transcript(broll_items, transcript_mock, lead_in=0.15)
+    assert len(snapped) == 1
+    # First word of phrase is 'naik' at 48.0s -> 48.0 - 0.15 = 47.85s
+    assert snapped[0]["start_offset"] == 47.85
+    assert snapped[0]["audio_snapped"] is True
+    assert snapped[0]["matched_word"] == "naik"

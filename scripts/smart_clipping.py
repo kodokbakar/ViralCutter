@@ -217,9 +217,10 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
       }},
       "broll_items": [
         {{
+          "trigger_phrase": "naik 85 persen",
           "start_offset": 5.0,
           "duration": 3.5,
-          "template_id": "stat_counter",
+          "template_id": "sleek_stat_badge",
           "data": {{
             "target_number": "85",
             "suffix": "%",
@@ -231,16 +232,16 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
   ]
 }}
 
-MOTION B-ROLL RULES:
-Suggest 2 to 3 contextual Vox-style motion graphic overlays ("broll_items") per topic matching what is spoken (minimum 0 if no relevant moments, max 3 per topic):
+MOTION B-ROLL RULES (SLEEK MINIMALIST GLASS OVERLAYS):
+Suggest 2 to 3 contextual sleek motion graphic overlays ("broll_items") per topic matching what is spoken (minimum 0 if no relevant moments, max 3 per topic):
+- TRANSCRIPT-FIRST TIMING (CRITICAL): Always provide "trigger_phrase" containing the EXACT 2 to 4 consecutive words as spoken in the transcript where this B-roll should trigger (e.g. "naik 85 persen", "kunci sukses pertama"). This ensures millisecond-accurate audio sync!
 - Duration: 3.0 to 4.0 seconds per item.
-- Timing: start_offset is seconds relative to the start of the topic. Leave at least 15-20 seconds gap between items (NEVER overlap or stack back-to-back).
 - Template Catalog:
-  1. "stat_counter" -> For numbers, percentages, financial amounts, metrics (data: {{"target_number": "85", "suffix": "%", "label": "Lonjakan Bisnis"}}).
-  2. "quote_card" -> For memorable punchlines or quoted wisdom (data: {{"quote": "...", "author": "...", "title": "..."}}).
-  3. "point_highlight" -> For 2-3 key takeaways or steps (data: {{"headline": "...", "points": ["...", "..."]}}).
-  4. "vox_versus_split" -> Full-screen comparison of two concepts ("dulu vs sekarang", "A vs B") (data: {{"tag_a": "DULU", "title_a": "...", "desc_a": "...", "tag_b": "SEKARANG", "title_b": "...", "desc_b": "..."}}).
-  5. "vox_headline_punch" -> Full-screen shocking claims, urgent warnings, key hooks (data: {{"tag": "PENTING", "line_1": "...", "line_2": "...", "line_3": "...", "subtext": "..."}}).
+  1. "sleek_stat_badge" (or "stat_counter") -> For numbers, percentages, financial amounts, metrics (data: {{"target_number": "85", "prefix": "+", "suffix": "%", "label": "Lonjakan Bisnis"}}).
+  2. "sleek_quote_card" (or "quote_card") -> For memorable punchlines or quoted wisdom (data: {{"quote": "...", "author": "...", "title": "..."}}).
+  3. "sleek_step_list" (or "point_highlight") -> For 2-3 key takeaways or steps (data: {{"headline": "...", "points": ["...", "..."]}}).
+  4. "sleek_keyword_pill" (or "vox_headline_punch") -> For key insights, urgent warnings, key hooks (data: {{"tag": "KEY INSIGHT", "line_1": "...", "line_2": "...", "line_3": "...", "subtext": "..."}}).
+  5. "vox_versus_split" -> Full-screen comparison of two concepts ("dulu vs sekarang", "A vs B") (data: {{"tag_a": "DULU", "title_a": "...", "desc_a": "...", "tag_b": "SEKARANG", "title_b": "...", "desc_b": "..."}}).
   6. "vox_explainer_def" -> For defining a technical term or jargon (data: {{"term": "...", "phonetic": "...", "pos": "noun", "definition": "...", "context_note": "..."}}).
   7. "vox_bar_chart" -> For comparing 2-3 quantities or data points (data: {{"chart_title": "...", "source": "...", "bars": [{{"label": "A", "value": "20%", "height": 30, "accent": false}}, {{"label": "B", "value": "80%", "height": 85, "accent": true}}]}}).
 All text in data MUST be in the SAME LANGUAGE as the transcript.

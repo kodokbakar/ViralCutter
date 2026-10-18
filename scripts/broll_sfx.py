@@ -12,6 +12,10 @@ DEFAULT_SFX_DIR = os.path.join(
 )
 
 TEMPLATE_SFX_MAP: Dict[str, str] = {
+    "sleek_stat_badge": "paper_slide.wav",
+    "sleek_quote_card": "marker_sweep.wav",
+    "sleek_keyword_pill": "soft_thud.wav",
+    "sleek_step_list": "tape_snap.wav",
     "stat_counter": "paper_slide.wav",
     "vox_stat_counter": "paper_slide.wav",
     "quote_card": "marker_sweep.wav",

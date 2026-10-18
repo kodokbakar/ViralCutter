@@ -2,12 +2,18 @@ import html
 import json
 import os
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "broll_templates")
 
 # Map of supported template IDs to their underlying HTML files
 TEMPLATE_FILE_MAP: Dict[str, str] = {
+    # Sleek Minimalist Glassmorphism (Upper-Third Safe-Zone)
+    "sleek_stat_badge": "sleek_stat_badge.html",
+    "sleek_quote_card": "sleek_quote_card.html",
+    "sleek_keyword_pill": "sleek_keyword_pill.html",
+    "sleek_step_list": "sleek_step_list.html",
+    # Backward compatible aliases
     "stat_counter": "stat_counter.html",
     "vox_stat_counter": "stat_counter.html",
     "quote_card": "quote_card.html",
@@ -105,7 +111,7 @@ def extract_keywords_from_broll(item: Dict[str, Any]) -> Tuple[List[str], List[s
     tpl_id = str(item.get("template_id", "")).strip()
 
     # 2. Template-specific keyword extraction
-    if tpl_id in ("stat_counter", "vox_stat_counter"):
+    if tpl_id in ("stat_counter", "vox_stat_counter", "sleek_stat_badge"):
         target_num = str(data.get("target_number", "")).strip()
         if target_num:
             # Strip percent / currency symbols for pure number matching
@@ -117,7 +123,7 @@ def extract_keywords_from_broll(item: Dict[str, Any]) -> Tuple[List[str], List[s
             words = [w.strip().lower() for w in label.split() if len(w.strip()) >= 4]
             secondary.extend(words)
 
-    elif tpl_id in ("quote_card", "vox_quote_card"):
+    elif tpl_id in ("quote_card", "vox_quote_card", "sleek_quote_card"):
         quote = str(data.get("quote", "")).strip()
         if quote:
             words = [w.strip().lower() for w in quote.split() if len(w.strip()) >= 4]
@@ -128,7 +134,7 @@ def extract_keywords_from_broll(item: Dict[str, Any]) -> Tuple[List[str], List[s
         if author:
             secondary.extend([w.strip().lower() for w in author.split() if len(w.strip()) >= 3])
 
-    elif tpl_id in ("point_highlight", "vox_point_list"):
+    elif tpl_id in ("point_highlight", "vox_point_list", "sleek_step_list"):
         headline = str(data.get("headline", "")).strip()
         if headline:
             words = [w.strip().lower() for w in headline.split() if len(w.strip()) >= 4]
@@ -137,6 +143,15 @@ def extract_keywords_from_broll(item: Dict[str, Any]) -> Tuple[List[str], List[s
         if isinstance(points, list) and points:
             first_pt = str(points[0]).strip()
             secondary.extend([w.strip().lower() for w in first_pt.split() if len(w.strip()) >= 4])
+
+    elif tpl_id in ("vox_headline_punch", "sleek_keyword_pill"):
+        for field in ("line_1", "line_2", "line_3"):
+            val = str(data.get(field, "")).strip()
+            if val:
+                primary.extend([w.strip().lower() for w in val.split() if len(w.strip()) >= 4])
+        tag = str(data.get("tag", "")).strip()
+        if tag:
+            secondary.extend([w.strip().lower() for w in tag.split() if len(w.strip()) >= 4])
 
     elif tpl_id == "vox_versus_split":
         for field in ("title_a", "title_b"):
@@ -264,38 +279,67 @@ def snap_broll_items_to_transcript(
             continue
         item_copy = dict(item)
         est_offset = float(item_copy.get("start_offset", 0.0))
+        trigger_phrase = str(item_copy.get("trigger_phrase") or item_copy.get("anchor_phrase") or "").strip()
         primary_kw, secondary_kw = extract_keywords_from_broll(item_copy)
 
-        def _find_best_match(kw_list: List[str]) -> Any:
-            match = None
-            lowest_dist = float("inf")
-            for kw in kw_list:
-                kw_tokens = kw.split()
-                if len(kw_tokens) > 1:
-                    kw_str = " ".join(kw_tokens)
-                    for i in range(len(words) - len(kw_tokens) + 1):
-                        window_tokens = [w["clean_word"] for w in words[i:i + len(kw_tokens)]]
-                        window_str = " ".join(window_tokens)
-                        if kw_str in window_str or window_str in kw_str:
-                            w_start = words[i]["start"]
-                            dist = abs(w_start - est_offset)
-                            if dist <= search_window and dist < lowest_dist:
-                                lowest_dist = dist
-                                match = words[i]
-                else:
-                    for w in words:
-                        cw = w["clean_word"]
-                        if kw == cw or (len(kw) >= 3 and (kw in cw or cw in kw)):
-                            dist = abs(w["start"] - est_offset)
-                            if dist <= search_window and dist < lowest_dist:
-                                lowest_dist = dist
-                                match = w
-            return match
+        best_match = None
+        matched_end_time = None
 
-        # Match against primary keywords first (e.g. number, main phrase, term)
-        best_match = _find_best_match(primary_kw)
-        if best_match is None and secondary_kw:
-            best_match = _find_best_match(secondary_kw)
+        # 1. Transcript-First: Search exact trigger_phrase in spoken words
+        if trigger_phrase:
+            tp_clean = re.sub(r"[^\w\s]", "", trigger_phrase.lower()).strip()
+            tp_tokens = [t for t in tp_clean.split() if t]
+            if tp_tokens and len(words) >= len(tp_tokens):
+                for i in range(len(words) - len(tp_tokens) + 1):
+                    window = [words[i + j]["clean_word"] for j in range(len(tp_tokens))]
+                    if window == tp_tokens:
+                        best_match = words[i]
+                        matched_end_time = words[i + len(tp_tokens) - 1]["end"]
+                        break
+                # Substring/partial match fallback
+                if not best_match:
+                    for i in range(len(words) - len(tp_tokens) + 1):
+                        window_str = " ".join(words[i + j]["clean_word"] for j in range(len(tp_tokens)))
+                        if tp_clean in window_str or window_str in tp_clean:
+                            best_match = words[i]
+                            matched_end_time = words[i + len(tp_tokens) - 1]["end"]
+                            break
+
+        # 2. Fall back to primary / secondary keywords matching near estimated offset
+        if best_match is None:
+            def _find_best_match(kw_list: List[str]) -> Tuple[Any, Optional[float]]:
+                match = None
+                end_t = None
+                lowest_dist = float("inf")
+                for kw in kw_list:
+                    kw_tokens = kw.split()
+                    if len(kw_tokens) > 1:
+                        kw_str = " ".join(kw_tokens)
+                        for i in range(len(words) - len(kw_tokens) + 1):
+                            window_tokens = [w["clean_word"] for w in words[i:i + len(kw_tokens)]]
+                            window_str = " ".join(window_tokens)
+                            if kw_str in window_str or window_str in kw_str:
+                                w_start = words[i]["start"]
+                                dist = abs(w_start - est_offset)
+                                if dist <= search_window and dist < lowest_dist:
+                                    lowest_dist = dist
+                                    match = words[i]
+                                    end_t = words[i + len(kw_tokens) - 1]["end"]
+                    else:
+                        for w in words:
+                            cw = w["clean_word"]
+                            if kw == cw or (len(kw) >= 3 and (kw in cw or cw in kw)):
+                                dist = abs(w["start"] - est_offset)
+                                if dist <= search_window and dist < lowest_dist:
+                                    lowest_dist = dist
+                                    match = w
+                                    end_t = w["end"]
+                return match, end_t
+
+            best_match, matched_end_time = _find_best_match(primary_kw)
+            if best_match is None and secondary_kw:
+                best_match, matched_end_time = _find_best_match(secondary_kw)
+
         if best_match is not None:
             snapped_start = max(0.0, round(best_match["start"] - lead_in, 3))
             print(
@@ -306,8 +350,8 @@ def snap_broll_items_to_transcript(
             item_copy["audio_snapped"] = True
             item_copy["matched_word"] = best_match["word"]
             item_copy["matched_time"] = round(best_match["start"], 3)
-            dur = float(item_copy.get("duration", 3.5))
-            item_copy["duration"] = max(3.0, min(5.0, dur))
+            phrase_dur = (matched_end_time - best_match["start"]) if matched_end_time else 1.0
+            item_copy["duration"] = max(3.0, min(5.0, round(phrase_dur + 2.0, 3)))
 
         snapped_items.append(item_copy)
 
@@ -315,6 +359,53 @@ def snap_broll_items_to_transcript(
 
 
 CATALOG: List[Dict[str, Any]] = [
+    {
+        "id": "sleek_stat_badge",
+        "name": "Sleek Metric Island",
+        "description": "Minimalist Dynamic Island glass capsule with glowing LED and metric counter",
+        "default_duration": 3.5,
+        "sample_data": {
+            "target_number": "87",
+            "prefix": "+",
+            "suffix": "%",
+            "label": "Lonjakan Retensi Penonton",
+            "accent_color": "#00F0FF",
+        },
+    },
+    {
+        "id": "sleek_quote_card",
+        "name": "Sleek Quote Island",
+        "description": "Compact upper-third translucent glass card with glowing accent line and speaker attribution",
+        "default_duration": 4.0,
+        "sample_data": {
+            "quote": "Bila pembukaan video tidak memikat dalam 2 detik, penonton pergi selamanya.",
+            "author": "Dr. Sarah Adams",
+            "title": "Media Psychologist",
+        },
+    },
+    {
+        "id": "sleek_keyword_pill",
+        "name": "Sleek Keyword Pill",
+        "description": "Dynamic Island horizontal capsule with blinking status LED and punchy keywords",
+        "default_duration": 3.5,
+        "sample_data": {
+            "tag": "KEY INSIGHT",
+            "line_1": "JANGAN PERNAH",
+            "line_2": "BUANG 3 DETIK",
+            "line_3": "PERTAMA ANDA",
+            "subtext": "Algoritma TikTok dan Reels mengukur 70% retensi dari detik pembuka.",
+        },
+    },
+    {
+        "id": "sleek_step_list",
+        "name": "Sleek Step List",
+        "description": "Minimalist upper-third glass board with sleek numbered gradient step rows",
+        "default_duration": 4.5,
+        "sample_data": {
+            "headline": "3 KUNCI VIRAL",
+            "points": ["Hook 3 detik pertama", "Pacing tanpa dead-air", "Punchline memuaskan"],
+        },
+    },
     {
         "id": "stat_counter",
         "name": "Vox Metric Punch",
@@ -427,8 +518,7 @@ def render_html_content(template_id: str, data: Dict[str, Any]) -> str:
         template_str = f.read()
 
     data = data or {}
-
-    if template_id in ("stat_counter", "vox_stat_counter"):
+    if template_id in ("stat_counter", "vox_stat_counter", "sleek_stat_badge"):
         target_num = html.escape(str(data.get("target_number", "100")))
         prefix = html.escape(str(data.get("prefix", "")))
         suffix = html.escape(str(data.get("suffix", "%")))
@@ -442,7 +532,7 @@ def render_html_content(template_id: str, data: Dict[str, Any]) -> str:
         rendered = rendered.replace("{{ACCENT_COLOR}}", accent)
         return rendered
 
-    elif template_id in ("quote_card", "vox_quote_card"):
+    elif template_id in ("quote_card", "vox_quote_card", "sleek_quote_card"):
         quote = html.escape(str(data.get("quote", "")))
         author = html.escape(str(data.get("author", "Speaker")))
         title = html.escape(str(data.get("title", "")))
@@ -452,7 +542,7 @@ def render_html_content(template_id: str, data: Dict[str, Any]) -> str:
         rendered = rendered.replace("{{TITLE}}", title)
         return rendered
 
-    elif template_id in ("point_highlight", "vox_point_list"):
+    elif template_id in ("point_highlight", "vox_point_list", "sleek_step_list"):
         headline = html.escape(str(data.get("headline", "Summary")))
         raw_points = data.get("points") or ["Key Point 1", "Key Point 2"]
         if isinstance(raw_points, str):
@@ -490,7 +580,7 @@ def render_html_content(template_id: str, data: Dict[str, Any]) -> str:
         rendered = rendered.replace("{{DESC_B}}", desc_b)
         return rendered
 
-    elif template_id == "vox_headline_punch":
+    elif template_id in ("vox_headline_punch", "sleek_keyword_pill"):
         tag = html.escape(str(data.get("tag", "KEY TAKEAWAY")))
         line_1 = html.escape(str(data.get("line_1", "JANGAN PERNAH")))
         line_2 = html.escape(str(data.get("line_2", "LEWATKAN INI")))

@@ -15,9 +15,56 @@ import type { BrollTemplate } from '../api/types';
 
 const DEFAULT_TEMPLATES: BrollTemplate[] = [
   {
+    id: 'sleek_stat_badge',
+    name: 'Sleek Metric Island',
+    description: 'Minimalist Dynamic Island glass capsule with glowing LED and metric counter (Upper-Third)',
+    default_duration: 3.5,
+    sample_data: {
+      target_number: '87',
+      prefix: '+',
+      suffix: '%',
+      label: 'Lonjakan Retensi Penonton',
+      accent_color: '#00F0FF',
+    },
+  },
+  {
+    id: 'sleek_quote_card',
+    name: 'Sleek Quote Island',
+    description: 'Compact upper-third translucent glass card with glowing accent line and speaker attribution',
+    default_duration: 4.0,
+    sample_data: {
+      quote: 'Bila pembukaan video tidak memikat dalam 2 detik, penonton pergi selamanya.',
+      author: 'Dr. Sarah Adams',
+      title: 'Media Psychologist',
+    },
+  },
+  {
+    id: 'sleek_keyword_pill',
+    name: 'Sleek Keyword Pill',
+    description: 'Dynamic Island horizontal capsule with blinking status LED and punchy keywords',
+    default_duration: 3.5,
+    sample_data: {
+      tag: 'KEY INSIGHT',
+      line_1: 'JANGAN PERNAH',
+      line_2: 'BUANG 3 DETIK',
+      line_3: 'PERTAMA ANDA',
+      subtext: 'Algoritma TikTok dan Reels mengukur 70% retensi dari detik pembuka.',
+    },
+  },
+  {
+    id: 'sleek_step_list',
+    name: 'Sleek Step List',
+    description: 'Minimalist upper-third glass board with sleek numbered gradient step rows',
+    default_duration: 4.5,
+    sample_data: {
+      headline: '3 KUNCI VIRAL',
+      points: ['Hook 3 detik pertama', 'Pacing tanpa dead-air', 'Punchline memuaskan'],
+    },
+  },
+  {
     id: 'stat_counter',
     name: 'Vox Metric Punch',
-    description: 'Bold kinetic number counter with kraft tape, ruler marks, and highlighter sweep',
+    description: 'Kinetic number counter capsule in upper-third safe-zone',
     default_duration: 3.5,
     sample_data: {
       target_number: '87',
@@ -30,7 +77,7 @@ const DEFAULT_TEMPLATES: BrollTemplate[] = [
   {
     id: 'quote_card',
     name: 'Vox Editorial Pull-Quote',
-    description: 'Angled newsprint paper cutout with animated highlighter marker and speaker stamp',
+    description: 'Newsprint paper cutout card with speaker stamp',
     default_duration: 4.0,
     sample_data: {
       quote: 'Bila pembukaan video tidak memikat dalam 2 detik, penonton pergi selamanya.',
@@ -41,7 +88,7 @@ const DEFAULT_TEMPLATES: BrollTemplate[] = [
   {
     id: 'point_highlight',
     name: 'Vox Collage Sticky Steps',
-    description: 'Staggered numbered paper index cards with caution tape and stop-motion timing',
+    description: 'Numbered paper index cards with stop-motion timing',
     default_duration: 4.5,
     sample_data: {
       headline: '3 KUNCI VIRAL',
@@ -280,8 +327,24 @@ export const BrollTab: React.FC = () => {
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1">
+                  Trigger Phrase (Spoken anchor in speech)
+                </label>
+                <input
+                  type="text"
+                  value={String(templateData.trigger_phrase ?? '')}
+                  onChange={(e) => handleDataChange('trigger_phrase', e.target.value)}
+                  className="w-full rounded bg-zinc-950 border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 focus:border-red-500 focus:outline-none placeholder-zinc-600"
+                  placeholder="e.g. naik 85 persen"
+                />
+                <span className="text-[10px] text-zinc-500 block mt-0.5">
+                  Exact 2-4 spoken words from transcript for millisecond-accurate audio sync
+                </span>
+              </div>
+
               {/* Dynamic inputs based on template */}
-              {selectedTemplateId === 'stat_counter' && (
+              {['stat_counter', 'sleek_stat_badge', 'vox_stat_counter'].includes(selectedTemplateId) && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-zinc-300 mb-1">Prefix</label>
@@ -345,7 +408,7 @@ export const BrollTab: React.FC = () => {
                 </div>
               )}
 
-              {selectedTemplateId === 'quote_card' && (
+              {['quote_card', 'sleek_quote_card', 'vox_quote_card'].includes(selectedTemplateId) && (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-zinc-300 mb-1">Quote</label>
@@ -382,7 +445,7 @@ export const BrollTab: React.FC = () => {
                 </div>
               )}
 
-              {selectedTemplateId === 'point_highlight' && (
+              {['point_highlight', 'sleek_step_list', 'vox_point_list'].includes(selectedTemplateId) && (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-zinc-300 mb-1">Headline</label>
@@ -484,7 +547,7 @@ export const BrollTab: React.FC = () => {
                 </div>
               )}
 
-              {selectedTemplateId === 'vox_headline_punch' && (
+              {['vox_headline_punch', 'sleek_keyword_pill'].includes(selectedTemplateId) && (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-zinc-300 mb-1">Tag</label>
