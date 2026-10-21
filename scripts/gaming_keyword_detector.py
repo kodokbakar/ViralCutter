@@ -1,5 +1,6 @@
+import math
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 GAMING_KEYWORDS_ID = [
     "anjir", "gila", "mati", "woi", "bisa gitu", "hoki", "rata",
@@ -20,7 +21,10 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
     try:
         if val is None:
             return default
-        return float(val)
+        res = float(val)
+        if math.isnan(res) or math.isinf(res):
+            return default
+        return res
     except (ValueError, TypeError):
         return default
 
@@ -29,9 +33,11 @@ def match_gaming_keywords(text: str) -> List[str]:
     """Finds all gaming shout keywords occurring in text."""
     if not text or not isinstance(text, str):
         return []
+    normalized_text = text.replace("’", "'").replace("`", "'")
+    normalized_text = re.sub(r"\s+", " ", normalized_text)
     matched = []
     for kw, pattern in KEYWORD_PATTERNS:
-        if pattern.search(text):
+        if pattern.search(normalized_text):
             matched.append(kw)
     return matched
 
@@ -43,6 +49,8 @@ def scan_shout_keywords(words: List[Dict[str, Any]], window_sec: float = 8.0) ->
     """
     if not words or not isinstance(words, list):
         return []
+
+    window_sec = max(0.1, _safe_float(window_sec, 8.0))
 
     # Map each word / consecutive word n-gram to matched keywords
     keyword_hits = []
@@ -56,7 +64,7 @@ def scan_shout_keywords(words: List[Dict[str, Any]], window_sec: float = 8.0) ->
             continue
 
         start = _safe_float(w.get("start"), 0.0)
-        word_text = str(w.get("word") or "").strip()
+        word_text = str(w.get("word") or "").replace("’", "'").replace("`", "'").strip()
 
         matched = []
         matched_span = 1
@@ -74,8 +82,10 @@ def scan_shout_keywords(words: List[Dict[str, Any]], window_sec: float = 8.0) ->
                             close = False
                             break
                     if close:
-                        combined = " ".join(str(c.get("word") or "").strip() for c in cand)
+                        combined = " ".join(str(c.get("word") or "").replace("’", "'").replace("`", "'").strip() for c in cand)
+                        combined = re.sub(r"\s+", " ", combined)
                         clean_combined = re.sub(r"[^\w\s']", "", combined).strip().lower()
+                        clean_combined = re.sub(r"\s+", " ", clean_combined)
                         if clean_combined in MULTI_WORD_KEYWORDS:
                             matched = [clean_combined]
                             matched_span = span
@@ -126,8 +136,8 @@ def scan_shout_keywords(words: List[Dict[str, Any]], window_sec: float = 8.0) ->
             "score": round(score, 1)
         })
 
-        # Advance past window
-        i += len(sub)
+        # Advance past window, guaranteed to make progress
+        i += max(1, len(sub))
 
     clusters.sort(key=lambda x: x["score"], reverse=True)
     return clusters
@@ -138,16 +148,19 @@ def get_keyword_score_at_time(events: List[Dict[str, Any]], timestamp: float, ma
     if not events or not isinstance(events, list):
         return 0.0
 
+    target_ts = _safe_float(timestamp, 0.0)
+    max_dist = _safe_float(max_distance, 4.0)
+
     best_score = 0.0
     for ev in events:
         if not isinstance(ev, dict):
             continue
         ev_ts = _safe_float(ev.get("timestamp"), 0.0)
         ev_score = _safe_float(ev.get("score"), 0.0)
-        dist = abs(ev_ts - timestamp)
+        dist = abs(ev_ts - target_ts)
 
-        if dist <= max_distance:
-            decay = 1.0 if max_distance <= 0 else max(0.0, 1.0 - (dist / max_distance))
+        if dist <= max_dist:
+            decay = 1.0 if max_dist <= 0 else max(0.0, 1.0 - (dist / max_dist))
             eff_score = ev_score * decay
             if eff_score > best_score:
                 best_score = eff_score

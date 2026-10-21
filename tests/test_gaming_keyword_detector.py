@@ -21,6 +21,13 @@ def test_match_gaming_keywords_english():
     assert "no way" in matched
     assert "let's go" in matched
 
+def test_match_gaming_keywords_curly_quotes_and_spaces():
+    text = "let’s go guys holy   shit no way"
+    matched = match_gaming_keywords(text)
+    assert "let's go" in matched
+    assert "holy shit" in matched
+    assert "no way" in matched
+
 def test_match_gaming_keywords_empty_or_non_string():
     assert match_gaming_keywords("") == []
     assert match_gaming_keywords(None) == []
@@ -57,6 +64,33 @@ def test_scan_shout_keywords_multiword_split():
     assert "clutch" in clusters[0]["matched_words"]
     assert clusters[0]["count"] == 2
 
+def test_scan_shout_keywords_curly_quote_in_word():
+    words = [
+        {"word": "let’s", "start": 20.0, "end": 20.3},
+        {"word": "go", "start": 20.35, "end": 20.6},
+    ]
+    clusters = scan_shout_keywords(words, window_sec=4.0)
+    assert len(clusters) == 1
+    assert "let's go" in clusters[0]["matched_words"]
+
+def test_scan_shout_keywords_negative_window_sec_no_hang():
+    words = [
+        {"word": "clutch", "start": 10.0, "end": 10.5},
+        {"word": "ace", "start": 10.6, "end": 11.0},
+    ]
+    clusters = scan_shout_keywords(words, window_sec=-5.0)
+    assert isinstance(clusters, list)
+    assert len(clusters) >= 1
+
+def test_scan_shout_keywords_nan_timestamp_no_hang():
+    words = [
+        {"word": "clutch", "start": float("nan"), "end": 10.5},
+        {"word": "gila", "start": 12.0, "end": 12.5},
+    ]
+    clusters = scan_shout_keywords(words, window_sec=5.0)
+    assert isinstance(clusters, list)
+    assert len(clusters) >= 1
+
 def test_get_keyword_score_at_time():
     clusters = [{"timestamp": 15.0, "score": 90.0}]
     assert get_keyword_score_at_time(clusters, 15.0) == 90.0
@@ -68,3 +102,8 @@ def test_get_keyword_score_at_time_empty_or_zero_dist():
     clusters = [{"timestamp": 10.0, "score": 80.0}]
     assert get_keyword_score_at_time(clusters, 10.0, max_distance=0.0) == 80.0
     assert get_keyword_score_at_time(clusters, 11.0, max_distance=0.0) == 0.0
+
+def test_get_keyword_score_at_time_string_inputs():
+    clusters = [{"timestamp": "15.0", "score": "90.0"}]
+    assert get_keyword_score_at_time(clusters, "15.0", max_distance="4.0") == 90.0
+    assert get_keyword_score_at_time(clusters, "17.0", max_distance="4.0") > 0.0
