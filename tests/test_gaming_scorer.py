@@ -352,3 +352,40 @@ def test_run_gaming_clipping_pipeline_pathlib_path(mock_rms, mock_audio_ev, mock
     )
     assert len(result["segments"]) == 1
     assert (proj_path / "viral_segments.json").exists()
+
+def test_generate_gaming_windows_anchoring_max_dur_less_than_pre_roll():
+    # Peak at 40.0s, pre_roll 20.0s, max_dur 15.0s (< pre_roll)
+    peaks = [{"timestamp": 40.0, "score": 90.0, "keywords": ["clutch"]}]
+    windows = generate_gaming_windows(
+        peaks,
+        video_duration=100.0,
+        min_duration=10.0,
+        max_duration=15.0,
+        pre_roll=20.0,
+        post_roll=10.0
+    )
+    assert len(windows) == 1
+    seg = windows[0]
+    # Invariant: peak timestamp must always be included in [start, end]
+    assert seg["start_time"] <= 40.0 <= seg["end_time"]
+    assert seg["duration"] <= 15.0
+    # Output segments must have "title" alongside "hook_title"
+    assert "title" in seg
+    assert "hook_title" in seg
+    assert seg["title"] == seg["hook_title"]
+
+
+def test_fuse_gaming_scores_preserves_standalone_keyword_peaks():
+    audio_events = [{"timestamp": 20.0, "score": 80.0}]
+    keyword_events = [{"timestamp": 85.0, "score": 95.0, "matched_words": ["epic"]}]
+    face_events = []
+
+    fused = fuse_gaming_scores(audio_events, keyword_events, face_events)
+    assert len(fused) == 2
+    timestamps = {c["timestamp"] for c in fused}
+    assert 20.0 in timestamps
+    assert 85.0 in timestamps
+
+    kw_cand = next(c for c in fused if c["timestamp"] == 85.0)
+    assert kw_cand["keyword_score"] == 95.0
+    assert "epic" in kw_cand["keywords"]

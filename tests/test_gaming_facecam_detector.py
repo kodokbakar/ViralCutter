@@ -172,3 +172,51 @@ def test_detect_facecam_reactions_deduplicates_and_sorts(tmp_path):
     )
     assert len(events) == 3
     assert [e["timestamp"] for e in events] == [10.0, 20.0, 30.0]
+
+def test_detect_facecam_reactions_frame_sampling_mocked(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+
+    dummy_video = tmp_path / "stream.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    # Create mock cv2 and capture
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    # 720x1280 mock frame
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    # Mock face with landmarks
+    mock_face = MagicMock()
+    mock_face.bbox = [100.0, 100.0, 300.0, 300.0]
+    # Open mouth landmarks: MAR ~ 0.5
+    mock_face.landmarks = [(10.0, 50.0), (90.0, 50.0), (50.0, 30.0), (50.0, 70.0)]
+
+    mock_insight_app = MagicMock()
+    mock_insight_app.get.return_value = [mock_face]
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("scripts.face_detection_insightface.init_insightface", return_value=mock_insight_app):
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["timestamp"] == 10.0
+    assert ev["mar"] > 0.2
+    assert ev["score"] > 50.0
+    assert mock_cap.release.called

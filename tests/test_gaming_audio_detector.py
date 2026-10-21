@@ -44,6 +44,20 @@ def test_detect_audio_events_min_contrast_jump_filter():
     assert events == []
 
 
+def test_detect_audio_events_gradual_buildup_allowed():
+    # Baseline 10.0, gradual rise from 10 to 70 over 30 samples (3s), peak at 80
+    # Because of gradual buildup, jump_ratio from preceding 3s is ~1.2 (less than 1.5)
+    ramp = [10.0 + i * 2.0 for i in range(30)]
+    samples = [10.0] * 100 + ramp + [80.0] * 10 + [10.0] * 60
+    # Default min_contrast_jump=None should keep the peak
+    events = detect_audio_events(samples, sample_rate_hz=10.0, z_threshold=1.8)
+    assert len(events) >= 1
+    assert events[0]["z_score"] >= 1.8
+
+    # If strictly specified min_contrast_jump=3.0, it is filtered out
+    filtered = detect_audio_events(samples, sample_rate_hz=10.0, z_threshold=1.8, min_contrast_jump=3.0)
+    assert filtered == []
+
 def test_detect_audio_events_low_sample_rate_no_hang():
     samples = [10.0] * 20 + [50.0] * 5 + [10.0] * 20
     events = detect_audio_events(samples, sample_rate_hz=0.0, z_threshold=1.5)

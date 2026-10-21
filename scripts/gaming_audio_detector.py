@@ -1,7 +1,7 @@
 import os
 import math
 import subprocess
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 
 def compute_audio_zscores(rms_values: List[float], mean: float, std: float) -> List[float]:
@@ -17,7 +17,7 @@ def detect_audio_events(
     rms_values: List[float],
     sample_rate_hz: float = 10.0,
     z_threshold: float = 2.0,
-    min_contrast_jump: float = 1.5,
+    min_contrast_jump: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     Detects spike audio events where volume exceeds z_threshold above baseline.
@@ -57,15 +57,20 @@ def detect_audio_events(
             pre_mean = sum(rms_values[contrast_start:best_idx]) / max(1, best_idx - contrast_start) if best_idx > contrast_start else mean
             jump_ratio = rms_values[best_idx] / max(1e-3, pre_mean)
 
-            if jump_ratio >= min_contrast_jump:
-                score = min(100.0, max(0.0, (best_z / 4.0) * 80.0 + min(20.0, jump_ratio * 4.0)))
-                events.append({
-                    "timestamp": round(best_idx * step_sec, 2),
-                    "z_score": round(best_z, 2),
-                    "intensity": round(rms_values[best_idx], 2),
-                    "contrast_jump": round(jump_ratio, 2),
-                    "score": round(score, 1),
-                })
+            # Do not drop peaks if Z >= z_threshold; treat contrast jump as score multiplier/bonus
+            # unless min_contrast_jump is strictly specified and not matched.
+            if min_contrast_jump is not None and jump_ratio < min_contrast_jump:
+                i = max(i + 1, cluster_end)
+                continue
+
+            score = min(100.0, max(0.0, (best_z / 4.0) * 80.0 + min(20.0, jump_ratio * 4.0)))
+            events.append({
+                "timestamp": round(best_idx * step_sec, 2),
+                "z_score": round(best_z, 2),
+                "intensity": round(rms_values[best_idx], 2),
+                "contrast_jump": round(jump_ratio, 2),
+                "score": round(score, 1),
+            })
             # Skip past cluster; ensure i always advances by at least 1
             i = max(i + 1, cluster_end)
         else:

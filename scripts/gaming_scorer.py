@@ -90,20 +90,44 @@ def fuse_gaming_scores(
     w_face = 0.30 if has_face else 0.00
     w_kw = 0.20 if has_face else 0.30
 
-    # Primary anchors: audio events; fallback: keyword events if audio events empty
-    primary_events = audio_events if audio_events else keyword_events
-    if not primary_events:
+    # Candidate anchors from the UNION of audio, keyword, and face events
+    candidate_ts_list = []
+    for ev in audio_events:
+        if isinstance(ev, dict):
+            ts = _safe_float(ev.get("timestamp"), None)
+            if ts is not None and ts >= 0.0 and not isinstance(ev.get("timestamp"), bool):
+                candidate_ts_list.append((ts, 0, _safe_float(ev.get("score"), 0.0)))
+    for ev in keyword_events:
+        if isinstance(ev, dict):
+            ts = _safe_float(ev.get("timestamp"), None)
+            if ts is not None and ts >= 0.0 and not isinstance(ev.get("timestamp"), bool):
+                candidate_ts_list.append((ts, 1, _safe_float(ev.get("score"), 0.0)))
+    for ev in face_events:
+        if isinstance(ev, dict):
+            ts = _safe_float(ev.get("timestamp"), None)
+            if ts is not None and ts >= 0.0 and not isinstance(ev.get("timestamp"), bool):
+                candidate_ts_list.append((ts, 2, _safe_float(ev.get("score"), 0.0)))
+
+    if not candidate_ts_list:
         return []
 
-    candidates = []
-    for anchor in primary_events:
-        if not isinstance(anchor, dict):
+    # Cluster timestamps within tol_sec, prioritizing audio, then keyword, then face, sorted by score descending
+    candidate_ts_list.sort(key=lambda item: (item[1], -item[2], item[0]))
+    anchor_timestamps = []
+    for ts, prio, sc in candidate_ts_list:
+        if any(abs(ts - a) <= tol_sec for a in anchor_timestamps):
             continue
-        ts = _safe_float(anchor.get("timestamp"), None)
-        if ts is None or ts < 0.0:
-            continue
+        anchor_timestamps.append(ts)
 
-        a_score = _safe_float(anchor.get("score"), 0.0) if primary_events is audio_events else 0.0
+    candidates = []
+    for ts in anchor_timestamps:
+        a_score = 0.0
+        for a in audio_events:
+            if isinstance(a, dict):
+                a_ts = _safe_float(a.get("timestamp"), None)
+                if a_ts is not None and abs(a_ts - ts) <= tol_sec:
+                    a_score = max(a_score, _safe_float(a.get("score"), 0.0))
+
         kw_score = gaming_keyword_detector.get_keyword_score_at_time(keyword_events, ts, max_distance=tol_sec)
 
         f_score = 0.0
@@ -210,8 +234,17 @@ def generate_gaming_windows(
         score = _safe_float(p.get("score"), 0.0)
         audio_score = _safe_float(p.get("audio_score", score), score)
 
-        start = max(0.0, round(ts - pre, 2))
-        end = min(vid_dur, round(ts + post, 2))
+        total_roll = pre + post
+        ratio_pre = (pre / total_roll) if total_roll > 0 else 0.6
+        if total_roll > max_dur:
+            eff_pre = max_dur * ratio_pre
+            eff_post = max_dur * (1.0 - ratio_pre)
+        else:
+            eff_pre = pre
+            eff_post = post
+
+        start = max(0.0, round(ts - eff_pre, 2))
+        end = min(vid_dur, round(ts + eff_post, 2))
         dur = round(end - start, 2)
 
         if dur < target_min:
@@ -224,8 +257,23 @@ def generate_gaming_windows(
                 dur = round(end - start, 2)
 
         if dur > max_dur:
-            end = round(start + max_dur, 2)
-            dur = max_dur
+            ideal_pre = max_dur * ratio_pre
+            ideal_post = max_dur - ideal_pre
+            start = max(0.0, round(ts - ideal_pre, 2))
+            end = min(vid_dur, round(ts + ideal_post, 2))
+            if round(end - start, 2) < max_dur:
+                if start == 0.0:
+                    end = min(vid_dur, round(start + max_dur, 2))
+                elif end == vid_dur:
+                    start = max(0.0, round(end - max_dur, 2))
+            dur = round(end - start, 2)
+
+        # Invariant: ts must always be inside [start, end]
+        if start > ts:
+            start = max(0.0, ts)
+        if end < ts:
+            end = min(vid_dur, ts)
+        dur = round(end - start, 2)
 
         kws = p.get("keywords")
         if kws is not None:
@@ -242,6 +290,7 @@ def generate_gaming_windows(
             "end_time": end,
             "duration": dur,
             "score": int(round(score)),
+            "title": hook,
             "hook_title": hook,
             "virality_explanation": f"High-energy gaming climax at {round(ts, 1)}s with intense volume spike.",
             "rubric": {
@@ -285,7 +334,11 @@ def run_gaming_clipping_pipeline(
     keyword_events = gaming_keyword_detector.scan_shout_keywords(transcript_words)
 
     # 3. Facecam reaction detection
-    candidate_ts = [a["timestamp"] for a in audio_events[:10] if isinstance(a, dict) and "timestamp" in a]
+    candidate_ts = [
+        a["timestamp"]
+        for a in (audio_events + keyword_events)[:10]
+        if isinstance(a, dict) and "timestamp" in a and not isinstance(a.get("timestamp"), bool)
+    ]
     face_events = []
     if video_str and os.path.exists(video_str):
         face_events = gaming_facecam_detector.detect_facecam_reactions(

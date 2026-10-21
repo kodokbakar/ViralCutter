@@ -797,6 +797,7 @@ def main():
                         if not video_duration and words:
                             video_duration = max(w.get("end", 0.0) for w in words)
 
+                        resolved_lang = transcript_data.get("language") or args.language
                         viral_segments = gaming_scorer.run_gaming_clipping_pipeline(
                             video_path=video_file,
                             project_folder=project_folder,
@@ -806,7 +807,7 @@ def main():
                             min_duration=args.min_duration,
                             max_duration=args.max_duration,
                             facecam_crop=args.gaming_facecam,
-                            language=args.language
+                            language=resolved_lang
                         )
                     elif args.smart_clipping:
                         print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))

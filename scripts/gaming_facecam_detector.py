@@ -112,14 +112,180 @@ def detect_facecam_reactions(
     clean_ts = sorted(set(clean_ts))
     if not clean_ts:
         return []
-    # Fallback neutral reaction if CV detector is unavailable or no faces found
-    reactions = []
-    for ts in clean_ts:
-        reactions.append({
+    fallback_reactions = [
+        {
             "timestamp": ts,
             "mar": 0.05,
             "motion_velocity": 0.0,
-            "score": 0.0
-        })
+            "score": 0.0,
+        }
+        for ts in clean_ts
+    ]
 
-    return reactions
+    try:
+        import cv2
+    except ImportError:
+        return fallback_reactions
+
+    if facecam_box_str is None:
+        return fallback_reactions
+
+    try:
+        from scripts.gaming_split import parse_normalized_box
+        x_norm, y_norm, w_norm, h_norm = parse_normalized_box(facecam_box_str)
+    except Exception:
+        x_norm, y_norm, w_norm, h_norm = 0.0, 0.0, 0.5, 0.5
+
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return fallback_reactions
+    except Exception:
+        return fallback_reactions
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        if fps <= 0.0 or math.isnan(fps):
+            fps = 30.0
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+        px_x = int(round(x_norm * width)) if width > 0 else 0
+        px_y = int(round(y_norm * height)) if height > 0 else 0
+        px_w = max(1, int(round(w_norm * width))) if width > 0 else 1
+        px_h = max(1, int(round(h_norm * height))) if height > 0 else 1
+
+        insight_app = None
+        try:
+            from scripts.face_detection_insightface import init_insightface
+            insight_app = init_insightface()
+        except Exception:
+            insight_app = None
+
+        face_cascade = None
+        if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+            cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+            if os.path.exists(cascade_path):
+                try:
+                    face_cascade = cv2.CascadeClassifier(cascade_path)
+                except Exception:
+                    face_cascade = None
+
+        reactions = []
+        for ts in clean_ts:
+            center_frame = int(round(ts * fps))
+            sample_offsets = [-2, -1, 0, 1, 2]
+
+            sampled_frames = []
+            for off in sample_offsets:
+                f_idx = max(0, center_frame + off)
+                if total_frames > 0 and f_idx >= total_frames:
+                    f_idx = max(0, total_frames - 1)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    if height > 0 and width > 0:
+                        crop = frame[px_y:px_y + px_h, px_x:px_x + px_w]
+                        if crop.size > 0:
+                            sampled_frames.append(crop)
+                        else:
+                            sampled_frames.append(frame)
+                    else:
+                        sampled_frames.append(frame)
+
+            if not sampled_frames:
+                reactions.append({
+                    "timestamp": ts,
+                    "mar": 0.05,
+                    "motion_velocity": 0.0,
+                    "score": 0.0,
+                })
+                continue
+
+            face_centers = []
+            mars = []
+
+            for crop_img in sampled_frames:
+                face_detected = False
+                if insight_app is not None:
+                    try:
+                        faces = insight_app.get(crop_img)
+                        if faces:
+                            best_face = max(
+                                faces,
+                                 key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+                            )
+                            cx = (best_face.bbox[0] + best_face.bbox[2]) / 2.0
+                            cy = (best_face.bbox[1] + best_face.bbox[3]) / 2.0
+                            face_centers.append((cx, cy))
+                            face_detected = True
+
+                            if hasattr(best_face, "landmarks") and best_face.landmarks is not None:
+                                mar_val = compute_mouth_aspect_ratio(best_face.landmarks)
+                                mars.append(mar_val)
+                            elif hasattr(best_face, "kps") and best_face.kps is not None and len(best_face.kps) >= 5:
+                                left_m = best_face.kps[3]
+                                right_m = best_face.kps[4]
+                                mouth_center_x = (left_m[0] + right_m[0]) / 2.0
+                                mouth_center_y = (left_m[1] + right_m[1]) / 2.0
+                                approx_landmarks = [
+                                    (float(left_m[0]), float(left_m[1])),
+                                    (float(right_m[0]), float(right_m[1])),
+                                    (float(mouth_center_x), float(mouth_center_y - 5.0)),
+                                    (float(mouth_center_x), float(mouth_center_y + 5.0)),
+                                ]
+                                mar_val = compute_mouth_aspect_ratio(approx_landmarks)
+                                mars.append(mar_val)
+                    except Exception:
+                        pass
+
+                if not face_detected and face_cascade is not None:
+                    try:
+                        gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+                        det_faces = face_cascade.detectMultiScale(gray, 1.1, 3)
+                        if len(det_faces) > 0:
+                            fx, fy, fw, fh = det_faces[0]
+                            cx = fx + fw / 2.0
+                            cy = fy + fh / 2.0
+                            face_centers.append((cx, cy))
+                            face_detected = True
+                    except Exception:
+                        pass
+
+            if not face_centers:
+                reactions.append({
+                    "timestamp": ts,
+                    "mar": 0.05,
+                    "motion_velocity": 0.0,
+                    "score": 0.0,
+                })
+                continue
+
+            displacements = []
+            for k in range(1, len(face_centers)):
+                d = math.sqrt(
+                    (face_centers[k][0] - face_centers[k - 1][0]) ** 2
+                    + (face_centers[k][1] - face_centers[k - 1][1]) ** 2
+                )
+                displacements.append(d)
+
+            motion_velocity = max(displacements) if displacements else 0.0
+            mar = max(mars) if mars else 0.05
+            reaction_score = score_facecam_reaction(mar=mar, motion_velocity=motion_velocity)
+
+            reactions.append({
+                "timestamp": ts,
+                "mar": round(mar, 3),
+                "motion_velocity": round(motion_velocity, 2),
+                "score": reaction_score,
+            })
+
+        cap.release()
+        return reactions
+    except Exception:
+        try:
+            cap.release()
+        except Exception:
+            pass
+        return fallback_reactions

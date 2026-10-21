@@ -373,3 +373,69 @@ def test_gaming_pipeline_cli_e2e_dry_run(tmp_path, monkeypatch):
     assert "rubric" in seg
     assert seg["rubric"]["audio_dynamics"] > 0.0
     assert seg["rubric"]["hook_strength"] > 0.0
+
+
+def test_main_improved_auto_language_resolution(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_auto_lang"
+    project_dir.mkdir()
+
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "id",
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 30.0,
+                    "words": [{"word": "mantap", "start": 5.0, "end": 5.5}]
+                }
+            ]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--workflow", "2",
+        "--skip-prompts",
+        "--language", "auto",
+    ]
+
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 30.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 20.0,
+                    "duration": 20.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(
+        gaming_scorer,
+        "run_gaming_clipping_pipeline",
+        mock_pipeline
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_improved.main()
+    assert exc_info.value.code == 0
+
+    # Language resolved from transcript_data should be "id" instead of "auto"
+    assert captured_pipeline_kwargs.get("language") == "id"
