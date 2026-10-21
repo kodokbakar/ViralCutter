@@ -425,6 +425,7 @@ DEFAULT_PROMPT_TEXT = """You are a World-Class Viral Video Editor.
 {context_instruction}
 Analyze the transcript below with time tags (XXs). Find {amount} viral segments.
 Constraints: Each segment MUST be between {min_duration} seconds and {max_duration} seconds.
+- Keep "reasoning" concise (1 to 2 sentences) to preserve token output capacity for all requested segments.
 IMPORTANT: Output "Title", "Hook", and "Reasoning" in the SAME LANGUAGE as the transcript.
 
 MOTION B-ROLL INSTRUCTIONS (SLEEK MINIMALIST GLASS OVERLAYS):

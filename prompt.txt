@@ -29,6 +29,7 @@ The transcript below is a continuous text stream with embedded **Time Tags** lik
 4.  **DURATION MATH:**
     -   Use the `(XXs)` tags to estimate duration.
     -   CONSTRAINT: Segment MUST be between {min_duration}s and {max_duration}s.
+    -   Keep "reasoning" concise (1 to 2 sentences) to preserve token output capacity for all requested segments.
 
 5.  **AI HOOK TITLE (STOP-THE-SCROLL HEADER):**
     -   High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g. "RAHASIA CUAN DARI AI?!", "JANGAN LAKUKAN HAL INI!").

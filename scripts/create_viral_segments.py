@@ -117,9 +117,10 @@ def clean_json_response(response_text):
         return {"segments": []}
 
     # 1. Limpeza preliminar
-    # Remove tags de pensamento (DeepSeek R1)
+    # Strip complete think blocks
     response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-    
+    # Strip unclosed think block at start if present
+    response_text = re.sub(r'^\s*<think>.*?(?=\{)', '', response_text, flags=re.DOTALL)
     # Normaliza escapes excessivos (\n virando \\n) e aspas se parecer necessário
     try:
         if "\\n" in response_text or "\\\"" in response_text:
@@ -510,7 +511,7 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
-def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=4096):
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=16384):
     """
     Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
     """
@@ -536,7 +537,7 @@ def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", time
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.5,
-        "max_tokens": max_tokens or 4096,
+        "max_tokens": max_tokens or 16384,
     }
 
     response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
@@ -1139,7 +1140,7 @@ OUTPUT JSON ONLY:
         elif ai_mode == "custom":
             print(f"Enviando chunk {i+1} para Custom API (Base: {base_url}, Model: {model_name})...", flush=True)
             try:
-                response_text = call_custom_api(prompt, base_url=base_url, api_key=api_key, model_name=model_name)
+                response_text = call_custom_api(prompt, base_url=base_url, api_key=api_key, model_name=model_name, max_tokens=16384)
             except Exception as e:
                 print(f"[ERROR] Custom API call failed: {e}")
                 response_text = "{}"

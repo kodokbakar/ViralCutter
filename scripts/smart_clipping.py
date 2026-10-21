@@ -316,7 +316,8 @@ def query_ai_backend(
                 prompt,
                 base_url=base_url or "http://localhost:11434/v1",
                 api_key=api_key or "",
-                model_name=ai_model_name or "gpt-4o-mini"
+                model_name=ai_model_name or "gpt-4o-mini",
+                max_tokens=16384
             )
         else:
             print(f"[SMART-CLIPPING] Unrecognized AI backend: {ai_backend}")

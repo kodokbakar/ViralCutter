@@ -87,7 +87,7 @@ def test_call_custom_api_max_tokens_default():
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "choices": [
-            {"message": {"content": "response content"}}
+            {"message": {"content": '{"segments": []}'}}
         ]
     }
 
@@ -96,12 +96,20 @@ def test_call_custom_api_max_tokens_default():
             prompt="Hello",
             base_url="http://localhost:11434/v1",
             api_key="sk-test",
-            model_name="qwen",
+            model_name="deepseek-v4.1",
         )
-        assert result == "response content"
+        assert result == '{"segments": []}'
         payload = mock_post.call_args[1].get("json", {})
-        assert payload.get("max_tokens") == 4096
+        # Verify expanded token limit
+        assert payload.get("max_tokens") == 16384
 
+
+def test_clean_json_response_strips_unclosed_think_tags():
+    from scripts.create_viral_segments import clean_json_response
+    raw = "<think>\nThinking about viral segments...\n" + '{"segments": [{"title": "Seg 1"}]}'
+    cleaned = clean_json_response(raw)
+    assert len(cleaned.get("segments", [])) == 1
+    assert cleaned["segments"][0]["title"] == "Seg 1"
 
 def test_call_custom_api_truncation_warning(capsys):
     mock_resp = MagicMock()
