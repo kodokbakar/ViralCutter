@@ -33,6 +33,13 @@ try:
     HAS_LLAMA_CPP = True
 except ImportError:
     HAS_LLAMA_CPP = False
+try:
+    from scripts import virality_rubric
+except ImportError:
+    try:
+        import virality_rubric
+    except ImportError:
+        virality_rubric = None
 
 def build_hook_title_prompt(transcript_chunk: str, language_instruction: str = "Same Language as Transcript") -> str:
     """
@@ -859,6 +866,23 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             title = seg.get('title', 'Viral Segment')
             hook_title = extract_hook_title_from_response(seg.get('hook_title') or title or 'VIRAL HOOK', fallback=title or 'VIRAL HOOK')
 
+            raw_rubric = seg.get("rubric")
+            raw_score = seg.get("score") or 80
+            try:
+                raw_score_int = int(round(float(raw_score)))
+            except Exception:
+                raw_score_int = 80
+
+            if virality_rubric:
+                score_val, normalized_rubric = virality_rubric.compute_composite_score(
+                    raw_rubric,
+                    audio_energy=75.0,  # default if audio energy not precomputed
+                    user_verdict=seg.get("reasoning")
+                ) if raw_rubric else (raw_score_int, virality_rubric.normalize_rubric_dict(None, raw_score_int))
+            else:
+                score_val = raw_score_int
+                normalized_rubric = raw_rubric
+
             segment_dict = {
                 "title": title,
                 "hook_title": hook_title,
@@ -866,7 +890,8 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 "end_time": final_end_time,
                 "hook": seg.get('hook') or title, 
                 "reasoning": seg.get('reasoning', ''),
-                "score": seg.get('score', 0),
+                "score": score_val,
+                "rubric": normalized_rubric,
                 "duration": duration
             }
             if "broll_items" in seg and isinstance(seg["broll_items"], list):

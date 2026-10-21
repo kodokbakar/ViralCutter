@@ -74,3 +74,83 @@ def test_compute_composite_score_custom_verdict_and_aliases():
 def test_weights_and_dimensions_contract():
     assert sum(virality_rubric.WEIGHTS.values()) == pytest.approx(1.0)
     assert set(virality_rubric.WEIGHTS.keys()) == set(virality_rubric.DIMENSIONS.keys())
+
+def test_process_segments_attaches_rubric_and_composite():
+    from scripts.create_viral_segments import process_segments
+    transcript = [{"start": 0.0, "end": 10.0, "text": "hello viral world"}]
+    raw_segments = [
+        {
+            "title": "Test Viral Clip",
+            "start_time_ref": "(0s)",
+            "start_text": "hello viral",
+            "end_text": "viral world",
+            "hook_title": "JANGAN LAKUKAN INI!",
+            "rubric": {
+                "hook_strength": 9.0,
+                "retention_flow": 9.0,
+                "emotional_resonance": 8.0,
+                "shareability": 8.5
+            }
+        }
+    ]
+    res = process_segments(raw_segments, transcript, min_duration=3, max_duration=15)
+    seg = res["segments"][0]
+    assert "rubric" in seg
+    assert seg["score"] >= 80
+    assert seg["rubric"]["hook_strength"] == 9.0
+    assert seg["rubric"]["audio_dynamics"] > 0
+def test_smart_clipping_pipeline_attaches_rubric_and_composite(tmp_path):
+    from unittest.mock import patch
+    from scripts.smart_clipping import run_smart_clipping_pipeline
+
+    llm_payload = """```json
+    {
+      "topics": [
+        {
+          "title": "Smart Clip Rubric Test",
+          "hook_title": "INI RAHASIA BESAR",
+          "rationale": "High curiosity viral hook",
+          "target_duration": 10.0,
+          "score": 90,
+          "rubric": {
+            "hook_strength": 9.0,
+            "retention_flow": 8.5,
+            "emotional_resonance": 8.0,
+            "shareability": 9.0
+          },
+          "segments": {
+            "hook": {"start_time": 1.0, "end_time": 4.0, "text": "start hook"},
+            "core": {"start_time": 4.0, "end_time": 8.0, "text": "core body"},
+            "payoff": {"start_time": 8.0, "end_time": 11.0, "text": "final payoff"}
+          }
+        }
+      ]
+    }
+    ```"""
+
+    dummy_video = str(tmp_path / "input.mp4")
+    with open(dummy_video, "w") as f:
+        f.write("dummy")
+
+    with patch("scripts.create_viral_segments.load_transcript", return_value=[{"start": 0.0, "end": 12.0, "text": "start hook core body final payoff"}]), \
+         patch("scripts.create_viral_segments.preprocess_transcript_for_ai", return_value="start hook core body final payoff"), \
+         patch("scripts.smart_clipping.query_ai_backend", return_value=llm_payload), \
+         patch("scripts.smart_clipping.compute_audio_energy_score", return_value=80.0), \
+         patch("scripts.smart_clipping.splice_topic_segments", return_value=str(tmp_path / "out.mp4")):
+
+        res = run_smart_clipping_pipeline(
+            project_folder=str(tmp_path),
+            ai_backend="gemini",
+            min_duration=5,
+            max_duration=15,
+        )
+
+        assert "segments" in res
+        assert len(res["segments"]) == 1
+        seg = res["segments"][0]
+        assert seg["score"] == 85
+        assert seg["rubric"]["hook_strength"] == 9.0
+        assert seg["rubric"]["retention_flow"] == 8.5
+        assert seg["rubric"]["audio_dynamics"] == 8.0
+        assert seg["rubric"]["composite_score"] == 85
+        assert seg["hook_title"] == "INI RAHASIA BESAR"

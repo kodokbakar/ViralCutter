@@ -3,6 +3,14 @@ import json
 import math
 import subprocess
 from typing import List, Dict, Tuple, Optional, Any
+try:
+    from scripts import virality_rubric
+except ImportError:
+    try:
+        import virality_rubric
+    except ImportError:
+        virality_rubric = None
+
 
 def extract_words_from_transcript(transcript_data: Any) -> List[Dict[str, Any]]:
     """
@@ -732,8 +740,19 @@ def run_smart_clipping_pipeline(
         if os.path.exists(input_video) and segments_to_splice:
             hook_s, hook_e = segments_to_splice[0]
             audio_energy = compute_audio_energy_score(input_video, hook_s, hook_e)
-        final_score = compute_hybrid_virality_score(text_score, audio_energy)
-
+        raw_rubric = snapped_topic.get("rubric")
+        if virality_rubric and raw_rubric is not None:
+            final_score, rubric_data = virality_rubric.compute_composite_score(
+                raw_rubric if isinstance(raw_rubric, dict) else {},
+                audio_energy=audio_energy,
+                user_verdict=snapped_topic.get("rationale")
+            )
+        elif virality_rubric:
+            final_score = compute_hybrid_virality_score(text_score, audio_energy)
+            rubric_data = virality_rubric.normalize_rubric_dict(None, final_score)
+        else:
+            final_score = compute_hybrid_virality_score(text_score, audio_energy)
+            rubric_data = raw_rubric
         output_filename = f"{idx+1:03d}_{final_score}_{safe_title}.mp4"
         output_clip_path = os.path.join(clips_folder, output_filename)
 
@@ -768,7 +787,7 @@ def run_smart_clipping_pipeline(
             "title": title,
             "hook_title": clean_hook,
             "score": final_score,
-            "rubric": snapped_topic.get("rubric"),
+            "rubric": rubric_data,
             "description": snapped_topic.get("rationale", ""),
             "filepath": output_clip_path,
             "filename": os.path.relpath(output_clip_path, project_folder),
