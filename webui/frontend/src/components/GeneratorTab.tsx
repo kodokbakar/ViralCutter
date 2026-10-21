@@ -171,6 +171,17 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 }) => {
   // Preset & Core Pipeline Parameters
   const [preset, setPreset] = useState<GeneratorPreset>('viral_shorts');
+  const [pipelineMode, setPipelineMode] = useState<'podcast' | 'gaming'>('podcast');
+
+  const handlePipelineModeChange = (mode: 'podcast' | 'gaming') => {
+    setPipelineMode(mode);
+    if (mode === 'gaming') {
+      setOrientation('9:16_gaming_split');
+      setSmartRemoveDeadAir(false);
+    } else if (orientation === '9:16_gaming_split') {
+      setOrientation('9:16');
+    }
+  };
   const [targetDuration, setTargetDuration] = useState<number>(60);
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
   const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
@@ -788,6 +799,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       url: inputMode === 'youtube' ? youtubeUrl.trim() : undefined,
       video_path: inputMode === 'upload' || inputMode === 'path' ? videoPath.trim() : undefined,
       project_name: projectName.trim() || undefined,
+      pipeline_mode: pipelineMode,
       workflow: effectiveWorkflow,
       orientation,
       gaming_facecam_crop: orientation === '9:16_gaming_split' ? gamingFacecamCrop : undefined,
@@ -841,7 +853,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       smart_clipping: smartClipping,
       smart_clipping_mode: smartClippingMode,
       smart_snap_margin: smartSnapMargin,
-      smart_remove_dead_air: smartRemoveDeadAir,
+      smart_remove_dead_air: pipelineMode === 'gaming' ? false : smartRemoveDeadAir,
       smart_silence_threshold: smartSilenceThreshold,
 
       // Subtitles & Hook Header
@@ -975,6 +987,39 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
               </div>
             )}
 
+            {/* Pipeline Mode Selector */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-zinc-300">
+                Pipeline Mode
+              </label>
+              <div className="inline-flex rounded-lg p-0.5 bg-zinc-800 border border-zinc-700 w-full">
+                <button
+                  type="button"
+                  data-testid="mode-podcast-button"
+                  onClick={() => handlePipelineModeChange('podcast')}
+                  className={`flex-1 px-4 py-2 rounded-md text-xs font-semibold transition-colors ${
+                    pipelineMode === 'podcast'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  🎙️ Podcast
+                </button>
+                <button
+                  type="button"
+                  data-testid="mode-gaming-button"
+                  onClick={() => handlePipelineModeChange('gaming')}
+                  className={`flex-1 px-4 py-2 rounded-md text-xs font-semibold transition-colors ${
+                    pipelineMode === 'gaming'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  🎮 Gaming
+                </button>
+              </div>
+            </div>
+
             {/* 1. Preset Selector */}
             <div className="space-y-1.5">
               <label htmlFor="generator-preset-select" className="block text-xs font-medium text-zinc-300">
@@ -1029,7 +1074,16 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   id="orientation-select"
                   aria-label="Orientation"
                   value={orientation}
-                  onChange={(e) => setOrientation(e.target.value as VideoOrientation)}
+                  onChange={(e) => {
+                    const newOri = e.target.value as VideoOrientation;
+                    setOrientation(newOri);
+                    if (newOri === '9:16_gaming_split') {
+                      setPipelineMode('gaming');
+                      setSmartRemoveDeadAir(false);
+                    } else if (pipelineMode === 'gaming') {
+                      setPipelineMode('podcast');
+                    }
+                  }}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-500"
                 >
                   <option value="9:16">9:16 (Vertical Shorts / TikTok)</option>
@@ -1081,7 +1135,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             )}
 
 
-            {orientation === '9:16_gaming_split' && (
+            {(pipelineMode === 'gaming' || orientation === '9:16_gaming_split') && (
               <GamingCropEditor
                 sampleFrames={sampleFrames}
                 isLoadingSamples={isLoadingSampleFrames}
@@ -1809,7 +1863,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                     <label className="flex items-center space-x-2 text-xs text-zinc-300 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={smartRemoveDeadAir}
+                        checked={pipelineMode === 'gaming' ? false : smartRemoveDeadAir}
+                        disabled={pipelineMode === 'gaming'}
                         onChange={(e) => setSmartRemoveDeadAir(e.target.checked)}
                         className="rounded bg-zinc-800 border-zinc-700 text-red-600 focus:ring-0 h-4 w-4"
                       />

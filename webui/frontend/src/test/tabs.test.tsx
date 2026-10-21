@@ -87,6 +87,39 @@ function renderComponent(element: React.ReactElement) {
     },
   };
 }
+const render = renderComponent;
+
+const screen = {
+  getByText: (pattern: RegExp | string) => {
+    const candidates = Array.from(document.body.querySelectorAll('*')).filter((el) => {
+      if (el.tagName.toLowerCase() === 'select' || el.tagName.toLowerCase() === 'option') return false;
+      const directText = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent || '')
+        .join('')
+        .trim();
+      const text = directText || el.textContent || '';
+      return typeof pattern === 'string' ? text.includes(pattern) : pattern.test(text);
+    });
+    const match = candidates.find((el) => {
+      return !candidates.some((other) => other !== el && el.contains(other));
+    });
+    if (!match) {
+      throw new Error(`Unable to find element with text matching: ${pattern}`);
+    }
+    return match;
+  },
+};
+
+expect.extend({
+  toBeInTheDocument(received: Element | null | undefined) {
+    const pass = Boolean(received && document.body.contains(received));
+    return {
+      pass,
+      message: () => `expected element ${pass ? 'not ' : ''}to be in document`,
+    };
+  },
+});
 
 describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
   const originalEventSource = globalThis.EventSource;
@@ -116,6 +149,50 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
   // 1. GeneratorTab
   // -------------------------------------------------------------
   describe('GeneratorTab', () => {
+    it('renders pipeline mode selector with podcast and gaming options', () => {
+      render(<GeneratorTab />);
+      expect(screen.getByText(/🎮 Gaming/i)).toBeInTheDocument();
+      expect(screen.getByText(/🎙️ Podcast/i)).toBeInTheDocument();
+    });
+
+    it('toggles pipeline mode to gaming, auto-configuring orientation and disabling dead air', async () => {
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gaming_123',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = render(
+        <GeneratorTab defaultVideoPath="/videos/game.mp4" defaultProjectName="GameClip" />
+      );
+
+      const gamingBtn = container.querySelector('[data-testid="mode-gaming-button"]') as HTMLButtonElement;
+      expect(gamingBtn).toBeTruthy();
+
+      act(() => {
+        gamingBtn.click();
+      });
+
+      const orientationSelect = container.querySelector('#orientation-select') as HTMLSelectElement;
+      expect(orientationSelect.value).toBe('9:16_gaming_split');
+      expect(container.textContent).toContain('9:16 Gaming Split Framing');
+
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pipeline_mode: 'gaming',
+          orientation: '9:16_gaming_split',
+          smart_remove_dead_air: false,
+        })
+      );
+
+      unmount();
+    });
+
     it('renders parameter controls and file selection inputs', () => {
       const { container, unmount } = renderComponent(
         <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />
