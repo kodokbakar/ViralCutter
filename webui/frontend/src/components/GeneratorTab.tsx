@@ -25,6 +25,7 @@ import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from
 import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
 import VerticalCropEditor from './VerticalCropEditor';
+import { RubricInspectorModal } from './RubricInspectorModal';
 
 export interface GeneratorTabProps {
   activeJob?: ActiveJobResponse | null;
@@ -330,6 +331,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   // Completed Clips Preview & Export State
   const [outputClips, setOutputClips] = useState<GeneratedClipItem[]>([]);
   const [selectedClip, setSelectedClip] = useState<GeneratedClipItem | null>(null);
+  const [inspectedClip, setInspectedClip] = useState<GeneratedClipItem | null>(null);
   const [isExportingGdrive, setIsExportingGdrive] = useState<boolean>(false);
   const [gdriveExportMsg, setGdriveExportMsg] = useState<string | null>(null);
 
@@ -2245,16 +2247,18 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                           </span>
                         ) : null}
                         {selectedClip.score !== undefined && selectedClip.score !== null && (
-                          <span
+                          <button
+                            type="button"
+                            onClick={() => setInspectedClip(selectedClip)}
                             data-testid="selected-clip-score"
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors hover:brightness-110 cursor-pointer ${
                               selectedClip.score >= 80
                                 ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80'
                                 : 'bg-amber-950/90 text-amber-300 border-amber-700/80'
                             }`}
                           >
                             Score: {selectedClip.score}
-                          </span>
+                          </button>
                         )}
                       </div>
                       <h4 className="text-sm font-semibold text-zinc-100 truncate mt-1">
@@ -2368,9 +2372,14 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                           })();
 
                           return scoreVal !== null && scoreVal !== undefined ? (
-                            <span
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInspectedClip(clip);
+                              }}
                               data-testid="clip-score-badge"
-                              className={`font-bold px-2 py-0.5 rounded border text-[11px] ${
+                              className={`font-bold px-2 py-0.5 rounded border text-[11px] transition-colors hover:brightness-110 cursor-pointer ${
                                 scoreVal >= 80
                                   ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/60'
                                   : scoreVal >= 70
@@ -2379,14 +2388,19 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                               }`}
                             >
                               AI Rating: {scoreVal}/100
-                            </span>
+                            </button>
                           ) : (
-                            <span
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInspectedClip(clip);
+                              }}
                               data-testid="clip-score-badge"
-                              className="text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 text-[11px]"
+                              className="text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 text-[11px] transition-colors hover:text-zinc-400 cursor-pointer"
                             >
                               AI Rating: N/A
-                            </span>
+                            </button>
                           );
                         })()}
                         {clip.duration !== undefined && clip.duration !== null && (
@@ -2403,6 +2417,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
           </div>
         )}
       </div>
+
+      <RubricInspectorModal clip={inspectedClip} onClose={() => setInspectedClip(null)} />
     </div>
   );
 };

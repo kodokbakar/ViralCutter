@@ -673,6 +673,72 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('renders rubric breakdown modal when clicking AI rating badge', async () => {
+      const mockGeneratedClips = [
+        {
+          name: '000_ClipAlpha_subtitled.mp4',
+          path: '/virals/TestProj/burned_sub/000_ClipAlpha_subtitled.mp4',
+          size: 1048576,
+          folder_type: 'burned_sub' as const,
+          score: 95,
+          hook_title: 'STOP SCROLLING HOOK',
+          duration: 35,
+          rubric: {
+            composite_score: 95,
+            hook_strength: 9.5,
+            retention_flow: 9.0,
+            emotional_resonance: 8.5,
+            shareability: 9.0,
+            audio_dynamics: 8.0,
+            verdict: 'Elite viral retention potential.',
+          },
+        },
+      ];
+      vi.spyOn(libraryApi, 'getProjectClips').mockResolvedValue(mockGeneratedClips);
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab
+          defaultVideoPath="/videos/test.mp4"
+          defaultProjectName="TestProj"
+        />
+      );
+
+      const refreshBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Refresh Clips')
+      );
+      expect(refreshBtn).toBeTruthy();
+
+      await act(async () => {
+        refreshBtn?.click();
+      });
+
+      const badge = container.querySelector('[data-testid="clip-score-badge"]') as HTMLElement;
+      expect(badge).toBeTruthy();
+      expect(container.textContent).not.toContain('Virality Rubric Audit');
+
+      await act(async () => {
+        badge.click();
+      });
+
+      expect(container.textContent).toContain('Virality Rubric Audit');
+      expect(container.textContent).toContain('Elite viral retention potential.');
+      expect(container.textContent).toContain('STOP SCROLLING HOOK');
+      expect(container.textContent).toContain('Hook Strength (0-3s)');
+      expect(container.textContent).toContain('Retention & Narrative Flow');
+      expect(container.textContent).toContain('Emotional Resonance');
+      expect(container.textContent).toContain('Shareability Probability');
+      expect(container.textContent).toContain('Audio Delivery Dynamics');
+
+      const closeBtn = container.querySelector('button[aria-label="Close"]') as HTMLElement;
+      expect(closeBtn).toBeTruthy();
+      await act(async () => {
+        closeBtn.click();
+      });
+      expect(container.textContent).not.toContain('Virality Rubric Audit');
+
+      unmount();
+    });
+
     it('renders hook title overlay controls and includes them in run request', async () => {
       const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
         job_id: 'job_hook_test',
