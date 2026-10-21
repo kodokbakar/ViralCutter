@@ -5,6 +5,7 @@ import sys
 import time
 import ast
 import io
+from typing import Any
 
 # Configura stdout para evitar erros de encoding no Windows (substitui caracteres inválidos por ?)
 if sys.platform == "win32" and sys.stdout and hasattr(sys.stdout, 'buffer') and "pytest" not in sys.modules:
@@ -662,6 +663,50 @@ def load_transcript(project_folder):
     
     return transcript_segments
 
+def parse_time_ref(ref_time_str: Any) -> float:
+    """
+    Robustly parses time tags into float seconds.
+    Supports:
+      - '01:15:30' / '1:15:30.500' -> 4530.5s
+      - '15:30' / '05:20' -> 930.0s / 320.0s
+      - '(120s)' / '120s' / '120.5' -> 120.5s
+      - numeric int / float
+    """
+    if ref_time_str is None:
+        return 0.0
+    if isinstance(ref_time_str, (int, float)):
+        return max(0.0, float(ref_time_str))
+
+    cleaned = str(ref_time_str).strip("()s \t\r\n")
+    if not cleaned:
+        return 0.0
+
+    # 1. Check for HH:MM:SS or MM:SS
+    if ":" in cleaned:
+        parts = cleaned.split(":")
+        try:
+            if len(parts) == 3:
+                h = float(parts[0])
+                m = float(parts[1])
+                s = float(parts[2])
+                return max(0.0, round(h * 3600.0 + m * 60.0 + s, 3))
+            elif len(parts) == 2:
+                m = float(parts[0])
+                s = float(parts[1])
+                return max(0.0, round(m * 60.0 + s, 3))
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Check for numeric seconds with optional decimal
+    match = re.search(r"(\d+(?:\.\d+)?)", cleaned)
+    if match:
+        try:
+            return max(0.0, float(match.group(1)))
+        except (ValueError, TypeError):
+            pass
+
+    return 0.0
+
 def process_segments(raw_segments, transcript_segments, min_duration, max_duration, output_count=None):
     """
     Aligns raw AI segments (with reference tags) to actual transcript timestamps.
@@ -687,16 +732,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
         try:
             # 1. Parse Reference Time
             ref_time_str = seg.get('start_time_ref', '(0s)')
-            ref_time_val = 0
-            try:
-                if isinstance(ref_time_str, str):
-                    match = re.search(r'\d+', ref_time_str)
-                    if match:
-                         ref_time_val = int(match.group())
-                else:
-                    ref_time_val = int(ref_time_str)
-            except:
-                ref_time_val = 0
+            ref_time_val = parse_time_ref(ref_time_str)
                 
             # Find segment index closest to ref_time
             start_idx = 0
@@ -721,9 +757,10 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             match_start_idx = -1
             
             # Search window
-            search_limit = min(len(transcript_segments), start_idx + 50)
+            search_start = max(0, start_idx - 30)
+            search_limit = min(len(transcript_segments), start_idx + 150)
             
-            for i in range(start_idx, search_limit):
+            for i in range(search_start, search_limit):
                 s_text = transcript_segments[i]['text'].lower()
                 s_text = re.sub(r'[^\w\s]', '', s_text)
                 
@@ -733,6 +770,15 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                     match_start_idx = i
                     break
             
+            # Global fallback if start text was not matched in local window
+            if final_start_time == -1 and start_text_target:
+                for i, t_seg in enumerate(transcript_segments):
+                    s_text = re.sub(r'[^\w\s]', '', t_seg.get('text', '').lower())
+                    if start_text_target in s_text or s_text in start_text_target:
+                        final_start_time = t_seg['start']
+                        match_start_idx = i
+                        break
+
             # Fallback
             if final_start_time == -1:
                 final_start_time = transcript_segments[start_idx]['start'] if start_idx < len(transcript_segments) else ref_time_val
