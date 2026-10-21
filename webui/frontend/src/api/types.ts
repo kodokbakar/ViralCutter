@@ -254,6 +254,16 @@ export interface ExportResponse {
   size_bytes: number;
 }
 
+export interface ClipRubricBreakdown {
+  composite_score: number;
+  hook_strength: number;
+  retention_flow: number;
+  emotional_resonance: number;
+  shareability: number;
+  audio_dynamics: number;
+  verdict: string;
+}
+
 export interface GeneratedClipItem {
   name: string;
   path: string;
@@ -263,6 +273,7 @@ export interface GeneratedClipItem {
   hook_title?: string | null;
   duration?: number | null;
   modified_at?: number | null;
+  rubric?: ClipRubricBreakdown | null;
 }
 
 // Subtitle schemas

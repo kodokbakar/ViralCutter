@@ -330,6 +330,11 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
         if duration is None:
             duration = _probe_duration_sync(clip_file)
 
+        clip_rubric = matched_seg.get("rubric") if matched_seg else None
+        if not clip_rubric and score is not None:
+            from scripts import virality_rubric
+            clip_rubric = virality_rubric.normalize_rubric_dict(None, int(score))
+
         clips.append(
             GeneratedClipItem(
                 name=fname,
@@ -339,6 +344,7 @@ def _get_project_clips_sync(proj_dir: Path) -> List[GeneratedClipItem]:
                 score=score,
                 hook_title=hook_title,
                 duration=duration,
+                rubric=clip_rubric,
             )
         )
 

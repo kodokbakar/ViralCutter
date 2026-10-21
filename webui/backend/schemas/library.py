@@ -46,3 +46,4 @@ class GeneratedClipItem(BaseModel):
     score: Optional[float] = Field(default=None, description="AI Virality Score (0-100)")
     hook_title: Optional[str] = Field(default=None, description="AI Hook title or headline")
     duration: Optional[float] = Field(default=None, description="Clip duration in seconds")
+    rubric: Optional[Dict[str, Any]] = Field(default=None, description="5-dimension virality rubric breakdown")

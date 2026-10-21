@@ -671,3 +671,73 @@ def test_gdrive_export_local(tmp_path):
     finally:
         shutil.rmtree(proj_dir, ignore_errors=True)
 
+
+
+def test_library_clip_item_contains_rubric_metadata(tmp_path):
+    from webui.backend.schemas.library import GeneratedClipItem
+    item = GeneratedClipItem(
+        name="001_92_Clip.mp4",
+        path="/tmp/001_92_Clip.mp4",
+        size=1024,
+        folder_type="burned_sub",
+        score=92.0,
+        hook_title="STOP BIKIN KONTEN INI!",
+        rubric={
+            "composite_score": 92,
+            "hook_strength": 9.5,
+            "retention_flow": 9.0,
+            "emotional_resonance": 8.5,
+            "shareability": 9.0,
+            "audio_dynamics": 8.8,
+            "verdict": "Exceptional hook retention."
+        }
+    )
+    assert item.rubric["hook_strength"] == 9.5
+    assert item.hook_title == "STOP BIKIN KONTEN INI!"
+
+
+def test_library_get_project_clips_rubric_fallback(tmp_path, monkeypatch):
+    mock_virals = tmp_path / "VIRALS"
+    mock_virals.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("webui.backend.api.v1.library.VIRALS_DIR", mock_virals)
+
+    proj_dir = mock_virals / "test_rubric_proj"
+    burned_dir = proj_dir / "burned_sub"
+    burned_dir.mkdir(parents=True, exist_ok=True)
+
+    segments_data = {
+        "segments": [
+            {
+                "index": 0,
+                "score": 85.0,
+                "hook_title": "Hook 1",
+                "rubric": {
+                    "composite_score": 85,
+                    "hook_strength": 9.0,
+                    "retention_flow": 8.0,
+                    "emotional_resonance": 8.0,
+                    "shareability": 8.5,
+                    "audio_dynamics": 8.5,
+                    "verdict": "Great hook.",
+                },
+            },
+            {
+                "index": 1,
+                "score": 75.0,
+                "hook_title": "Hook 2",
+            },
+        ]
+    }
+    (proj_dir / "viral_segments.txt").write_text(json.dumps(segments_data), encoding="utf-8")
+    (burned_dir / "000_Clip1.mp4").write_bytes(b"DATA1")
+    (burned_dir / "001_Clip2.mp4").write_bytes(b"DATA2")
+
+    res = client.get("/api/v1/library/projects/test_rubric_proj/clips")
+    assert res.status_code == 200
+    clips = res.json()
+    assert len(clips) == 2
+    assert clips[0]["rubric"]["hook_strength"] == 9.0
+    assert clips[0]["rubric"]["verdict"] == "Great hook."
+    assert clips[1]["rubric"] is not None
+    assert clips[1]["rubric"]["composite_score"] == 75
+    assert clips[1]["rubric"]["hook_strength"] == 7.5
