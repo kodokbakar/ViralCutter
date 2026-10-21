@@ -118,3 +118,57 @@ def test_detect_facecam_reactions_sanitizes_timestamps(tmp_path):
     assert len(events) == 2
     assert events[0]["timestamp"] == 5.0
     assert events[1]["timestamp"] == 15.25
+
+
+def test_compute_mouth_aspect_ratio_numpy_ndarray():
+    import numpy as np
+
+    arr_closed = np.array([(10.0, 50.0), (90.0, 50.0), (50.0, 48.0), (50.0, 52.0)])
+    assert compute_mouth_aspect_ratio(arr_closed) < 0.08
+
+    arr_open = np.array([(10.0, 50.0), (90.0, 50.0), (50.0, 30.0), (50.0, 70.0)])
+    assert compute_mouth_aspect_ratio(arr_open) > 0.25
+
+    arr_empty = np.zeros((0, 2))
+    assert compute_mouth_aspect_ratio(arr_empty) == 0.0
+
+
+def test_score_facecam_reaction_boolean_inputs():
+    assert score_facecam_reaction(mar=True, motion_velocity=False) == 0.0
+    assert score_facecam_reaction(mar=False, motion_velocity=True) == 0.0
+    assert score_facecam_reaction(mar=True, motion_velocity=True) == 0.0
+
+
+def test_detect_facecam_reactions_numpy_and_tuples(tmp_path):
+    import numpy as np
+
+    dummy_video = tmp_path / "test.mp4"
+    dummy_video.write_bytes(b"dummy video data")
+
+    # candidate_timestamps as numpy array
+    events_np = detect_facecam_reactions(
+        str(dummy_video),
+        candidate_timestamps=np.array([10.0, 20.0, 30.0])
+    )
+    assert len(events_np) == 3
+    assert [e["timestamp"] for e in events_np] == [10.0, 20.0, 30.0]
+
+    # candidate_timestamps as tuple
+    events_tuple = detect_facecam_reactions(
+        str(dummy_video),
+        candidate_timestamps=(15.0, 5.0)
+    )
+    assert len(events_tuple) == 2
+    assert [e["timestamp"] for e in events_tuple] == [5.0, 15.0]
+
+
+def test_detect_facecam_reactions_deduplicates_and_sorts(tmp_path):
+    dummy_video = tmp_path / "test.mp4"
+    dummy_video.write_bytes(b"dummy video data")
+
+    events = detect_facecam_reactions(
+        str(dummy_video),
+        candidate_timestamps=[30.0, 10.0, 30.0, 20.0, 10.0]
+    )
+    assert len(events) == 3
+    assert [e["timestamp"] for e in events] == [10.0, 20.0, 30.0]

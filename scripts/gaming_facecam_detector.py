@@ -2,16 +2,10 @@ import os
 import math
 from typing import List, Dict, Tuple, Optional, Any
 
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-
 
 def _safe_float(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
-    """Safely converts input to float, guarding against None, NaN, and Inf."""
-    if val is None:
+    """Safely converts input to float, guarding against None, bool, NaN, and Inf."""
+    if val is None or isinstance(val, bool):
         return default
     try:
         res = float(val)
@@ -21,7 +15,6 @@ def _safe_float(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
     except (ValueError, TypeError):
         return default
 
-
 def compute_mouth_aspect_ratio(landmarks: List[Tuple[float, float]]) -> float:
     """
     Computes Mouth Aspect Ratio (MAR) from 4 or 5 landmark coordinates:
@@ -29,10 +22,12 @@ def compute_mouth_aspect_ratio(landmarks: List[Tuple[float, float]]) -> float:
     landmarks[2]: top lip, landmarks[3]: bottom lip.
     MAR = height / width.
     """
-    if not landmarks or not isinstance(landmarks, (list, tuple)) or len(landmarks) < 4:
+    if landmarks is None:
         return 0.0
 
     try:
+        if len(landmarks) < 4:
+            return 0.0
         left = landmarks[0]
         right = landmarks[1]
         top = landmarks[2]
@@ -102,18 +97,21 @@ def detect_facecam_reactions(
     if not video_path or not isinstance(video_path, str) or not os.path.exists(video_path):
         return []
 
-    if not candidate_timestamps or not isinstance(candidate_timestamps, list):
+    if candidate_timestamps is None:
         return []
 
-    clean_ts = []
-    for ts in candidate_timestamps:
-        v = _safe_float(ts, None)
-        if v is not None and v >= 0.0:
-            clean_ts.append(round(v, 2))
+    try:
+        clean_ts = []
+        for ts in candidate_timestamps:
+            v = _safe_float(ts, None)
+            if v is not None and v >= 0.0:
+                clean_ts.append(round(v, 2))
+    except (TypeError, Exception):
+        return []
 
+    clean_ts = sorted(set(clean_ts))
     if not clean_ts:
         return []
-
     # Fallback neutral reaction if CV detector is unavailable or no faces found
     reactions = []
     for ts in clean_ts:
