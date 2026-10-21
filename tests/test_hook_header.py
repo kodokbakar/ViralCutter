@@ -266,6 +266,80 @@ def test_build_and_extract_hook_title_prompt():
     assert extract_hook_title_from_response(empty_resp, fallback="DEFAULT HOOK") == "DEFAULT HOOK"
 
 
+def test_build_hook_title_prompt_contains_calibrated_frameworks():
+    prompt = build_hook_title_prompt("sample transcript", language_instruction="Indonesian")
+    assert "CALIBRATED HOOK FRAMEWORKS" in prompt
+    assert "Curiosity Gap" in prompt
+    assert "Negative Warning" in prompt
+    assert "strictly 3 to 6 words" in prompt
+
+
+def test_extract_hook_title_cleans_passive_fluff():
+    # Test that passive fluff prefixes like "Tips Untuk..." are stripped or sanitized
+    raw_fluffy = '{"hook_title": "TIPS UNTUK MENJADI KAYA SECARA CEPAT"}'
+    cleaned = extract_hook_title_from_response(raw_fluffy)
+    assert not cleaned.startswith("TIPS UNTUK ")
+    assert len(cleaned.split()) <= 6
+
+
+def test_extract_hook_title_limits_to_six_words():
+    raw_long = '{"hook_title": "SATU DUA TIGA EMPAT LIMA ENAM TUJUH DELAPAN"}'
+    cleaned = extract_hook_title_from_response(raw_long)
+    assert len(cleaned.split()) <= 6
+    assert cleaned == "SATU DUA TIGA EMPAT LIMA ENAM"
+
+
+@pytest.mark.parametrize("fluff_prefix", [
+    "TIPS UNTUK ",
+    "TIPS ",
+    "CARA CEPAT UNTUK ",
+    "MEMBAHAS TENTANG ",
+    "APAKAH ANDA TAHU ",
+    "BAGAIMANA CARA ",
+    "INILAH CARA ",
+])
+def test_extract_hook_title_all_banned_prefixes(fluff_prefix):
+    raw = f'{{"hook_title": "{fluff_prefix}RAHASIA SUKSES BISNIS DIGITAL"}}'
+    cleaned = extract_hook_title_from_response(raw)
+    assert not cleaned.startswith(fluff_prefix)
+    assert "RAHASIA SUKSES BISNIS DIGITAL" in cleaned
+
+def test_smart_clipping_prompt_contains_rubric_and_hook():
+    from scripts.smart_clipping import build_narrative_prompt, parse_narrative_topics
+    prompt = build_narrative_prompt("sample transcript", target_min=20.0, target_max=60.0)
+    assert "hook_strength" in prompt
+    assert "retention_flow" in prompt
+    assert "emotional_resonance" in prompt
+    assert "shareability" in prompt
+    assert "verdict" in prompt
+    assert "hook_title" in prompt
+
+    sample_resp = json.dumps({
+        "topics": [{
+            "title": "Topik Viral",
+            "hook_title": "JANGAN BIKIN INI",
+            "rationale": "High interest",
+            "target_duration": 40.0,
+            "score": 92,
+            "rubric": {
+                "hook_strength": 9.5,
+                "retention_flow": 9.0,
+                "emotional_resonance": 8.5,
+                "shareability": 9.0,
+                "verdict": "Great hook"
+            },
+            "segments": {
+                "hook": {"start_time": 0.0, "end_time": 4.0, "text": "Hook text"},
+                "core": {"start_time": 5.0, "end_time": 25.0, "text": "Core text"},
+                "payoff": {"start_time": 26.0, "end_time": 35.0, "text": "Payoff text"}
+            }
+        }]
+    })
+    topics = parse_narrative_topics(sample_resp)
+    assert len(topics) == 1
+    assert topics[0]["hook_title"] == "JANGAN BIKIN INI"
+    assert topics[0]["rubric"]["hook_strength"] == 9.5
+
 def test_generate_ass_hook_duration_custom(tmp_path):
     """Verify that hook header respects custom hook_duration parameter and JSON hook_duration."""
     input_json = tmp_path / "custom_dur.json"

@@ -55,11 +55,20 @@ The transcript below is a continuous text stream with embedded **Time Tags** lik
     -   Keep "reasoning" concise (1 to 2 sentences) to preserve token output capacity for all requested segments.
 
 5.  **AI HOOK TITLE (STOP-THE-SCROLL HEADER):**
-    -   High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g. "RAHASIA CUAN DARI AI?!", "JANGAN LAKUKAN HAL INI!").
-    -   Must induce FOMO, extreme curiosity, or urgent interest to stop viewers from scrolling.
+    -   High-converting, curiosity-inducing hook headline in ALL CAPS (strictly 3 to 6 words, e.g. "RAHASIA CUAN DARI AI?!", "JANGAN LAKUKAN HAL INI!").
+    -   Must use calibrated frameworks: Negative Warning/FOMO, Curiosity Gap, Speed/Outcome, or Direct Challenge.
+    -   BANNED: Never start with passive fluff like 'Tips untuk...', 'Cara membuat...', 'Membahas tentang...', 'Apakah kamu tahu...'.
     -   In the SAME LANGUAGE as the transcript.
 
-6.  **CONTEXTUAL MOTION B-ROLL OVERLAYS (SLEEK MINIMALIST GLASS OVERLAYS):**
+6.  **VIRALITY RUBRIC (5 DIMENSIONS):**
+    -   Evaluate each segment across the 5 virality dimensions in the 'rubric' object:
+        * hook_strength: (1.0 - 10.0) 0-3s stop-the-scroll impact and curiosity gap.
+        * retention_flow: (1.0 - 10.0) Narrative momentum and pacing without dead spots.
+        * emotional_resonance: (1.0 - 10.0) Relatability, surprise, or controversy.
+        * shareability: (1.0 - 10.0) Urge to forward or share with others.
+        * verdict: Concise summary explaining the viral velocity.
+
+7.  **CONTEXTUAL MOTION B-ROLL OVERLAYS (SLEEK MINIMALIST GLASS OVERLAYS):**
     -   Suggest 2 to 3 contextual sleek motion graphic overlays ("broll_items") per ~60-90s segment (minimum 0 if no relevant moments, max 3 per segment).
     -   TRANSCRIPT-FIRST TIMING (CRITICAL): Always provide "trigger_phrase" containing the EXACT 2 to 4 consecutive words as spoken in the transcript where this B-roll should trigger (e.g. "naik 85 persen", "kunci sukses pertama", "bahaya fatal"). This ensures millisecond-accurate audio sync!
     -   Duration: 3.0 to 4.0 seconds per item.

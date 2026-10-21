@@ -36,24 +36,30 @@ except ImportError:
 
 def build_hook_title_prompt(transcript_chunk: str, language_instruction: str = "Same Language as Transcript") -> str:
     """
-    Builds a focused prompt for LLM to extract/generate a concise, high-impact hook title
-    (Stop-the-Scroll Header) from the provided transcript.
+    Builds a focused prompt for LLM to generate a high-converting, curiosity-inducing
+    Stop-the-Scroll hook title using 4 proven copywriting frameworks.
     """
     return f"""You are an elite short-form video strategist and copywriter.
-Analyze the transcript below and generate a high-converting, curiosity-inducing "Stop-the-Scroll" hook title.
+Analyze the transcript below and generate a high-converting "Stop-the-Scroll" hook headline.
 
-RULES:
-1. Short & Punchy: strictly 4 to 7 words.
-2. ALL CAPS.
-3. High Impact: Provoke curiosity, FOMO, shock, or urgent value (e.g. 'RAHASIA CUAN DARI AI?!', 'JANGAN LAKUKAN HAL INI!').
-4. Language: Output in the {language_instruction}.
-5. Return JSON ONLY with key "hook_title".
+CALIBRATED HOOK FRAMEWORKS (Pick the one that fits best):
+1. Negative Warning / FOMO: Highlight a costly mistake, trap, or urgent warning (e.g. 'JANGAN PERNAH LAKUKAN INI!', 'KESALAHAN FATAL BISNIS!').
+2. Curiosity Gap / Counter-Intuitive: Create unbearable curiosity about an unexpected truth (e.g. 'KENAPA CARA INI SALAH?!', 'RAHASIA GELAP ALGORITMA!').
+3. Speed / High-Value Outcome: Promise a specific, shocking result (e.g. 'DAPAT 100 JUTA DALAM 30 HARI?!', 'TRIK CEPAT TEMBUS FYP!').
+4. Direct Challenge / Accusation: Call out the viewer directly (e.g. 'KAMU MASIH SALAH PAHAM?!', 'STOP BIKIN KONTEN BEGINI!').
+
+STRICT ANTI-FLUFF RULES:
+- Length: strictly 3 to 6 words.
+- ALL CAPS ONLY.
+- BANNED: Never start with passive fluff like 'Tips untuk...', 'Cara membuat...', 'Membahas tentang...', 'Apakah kamu tahu...'.
+- Language: Output in the {language_instruction}.
+- Return JSON ONLY with key "hook_title".
 
 TRANSCRIPT:
 {transcript_chunk}
 
 OUTPUT JSON ONLY:
-{{"hook_title": "YOUR HOOK TITLE HERE"}}"""
+{{"hook_title": "YOUR HOOK HEADLINE HERE"}}"""
 
 
 def extract_hook_title_from_response(response_text: str, fallback: str = "VIRAL HOOK") -> str:
@@ -63,46 +69,75 @@ def extract_hook_title_from_response(response_text: str, fallback: str = "VIRAL 
     if not response_text:
         return fallback.strip().upper()
 
+    title = ""
     # Try json parse
     try:
         data = clean_json_response(response_text)
         if isinstance(data, dict):
             if data.get("hook_title"):
-                return str(data["hook_title"]).strip().upper()
-            if data.get("title"):
-                return str(data["title"]).strip().upper()
-            segments = data.get("segments", [])
-            if segments and isinstance(segments[0], dict):
-                cand = segments[0].get("hook_title") or segments[0].get("title")
-                if cand:
-                    return str(cand).strip().upper()
+                title = str(data["hook_title"]).strip().upper()
+            elif data.get("title"):
+                title = str(data["title"]).strip().upper()
+            else:
+                segments = data.get("segments", [])
+                if segments and isinstance(segments[0], dict):
+                    cand = segments[0].get("hook_title") or segments[0].get("title")
+                    if cand:
+                        title = str(cand).strip().upper()
     except Exception:
         pass
 
     # Direct json loads attempt
-    try:
-        data = json.loads(response_text)
-        if isinstance(data, dict):
-            cand = data.get("hook_title") or data.get("title")
-            if cand:
-                return str(cand).strip().upper()
-    except Exception:
-        pass
+    if not title:
+        try:
+            data = json.loads(response_text)
+            if isinstance(data, dict):
+                cand = data.get("hook_title") or data.get("title")
+                if cand:
+                    title = str(cand).strip().upper()
+        except Exception:
+            pass
 
     # Regex search for "hook_title": "..."
-    match = re.search(r'["\']hook_title["\']\s*:\s*["\']([^"\']+)["\']', response_text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip().upper()
+    if not title:
+        match = re.search(r'["\']hook_title["\']\s*:\s*["\']([^"\']+)["\']', response_text, re.IGNORECASE)
+        if match:
+            title = match.group(1).strip().upper()
 
     # Plain text cleanup if response is just a line of text
-    lines = [line.strip().strip('"\'`') for line in response_text.splitlines() if line.strip()]
-    if lines:
-        first_line = lines[0]
-        if not first_line.startswith(("{", "[", "```")):
-            return first_line.strip().upper()
+    if not title:
+        lines = [line.strip().strip('"\'`') for line in response_text.splitlines() if line.strip()]
+        if lines:
+            first_line = lines[0]
+            if not first_line.startswith(("{", "[", "```")):
+                title = first_line.strip().upper()
 
-    return fallback.strip().upper()
+    if not title:
+        title = fallback.strip().upper()
 
+    # Sanitize passive fluff prefixes
+    FLUFF_PREFIXES = [
+        "TIPS UNTUK ", "TIPS ", "CARA CEPAT UNTUK ", "MEMBAHAS TENTANG ",
+        "APAKAH ANDA TAHU ", "BAGAIMANA CARA ", "INILAH CARA "
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for prefix in FLUFF_PREFIXES:
+            if title.startswith(prefix):
+                title = title[len(prefix):].strip()
+                changed = True
+                break
+
+    if not title:
+        title = fallback.strip().upper()
+
+    # Limit to 6 words max
+    words = title.split()
+    if len(words) > 6:
+        title = " ".join(words[:6])
+
+    return title
 
 def clean_json_response(response_text):
     """
@@ -822,8 +857,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
 
             # Construct Final Segment
             title = seg.get('title', 'Viral Segment')
-            hook_title = seg.get('hook_title') or title or 'VIRAL HOOK'
-            hook_title = str(hook_title).strip().upper()
+            hook_title = extract_hook_title_from_response(seg.get('hook_title') or title or 'VIRAL HOOK', fallback=title or 'VIRAL HOOK')
 
             segment_dict = {
                 "title": title,
@@ -991,9 +1025,16 @@ OUTPUT JSON ONLY:
                         "end_text": "Exact last 5-10 words of the segment",
                         "start_time_ref": "Value of closest (XXs) tag",
                         "title": "Viral Segment Title (Same Language as Transcript)",
-                        "hook_title": "High-converting, curiosity-inducing hook headline in ALL CAPS (4-7 words, e.g., 'RAHASIA CUAN DARI AI?!')",
+                        "hook_title": "High-converting, curiosity-inducing hook headline in ALL CAPS (strictly 3 to 6 words, e.g., 'RAHASIA CUAN DARI AI?!')",
                         "reasoning": "Why this is viral? Hook? Value? (Same Language as Transcript)",
                         "score": 95,
+                        "rubric": {
+                            "hook_strength": 9.5,
+                            "retention_flow": 9.0,
+                            "emotional_resonance": 8.5,
+                            "shareability": 9.0,
+                            "verdict": "High viral velocity hook with strong curiosity gap"
+                        },
                         "broll_items": [
                             {
                                 "trigger_phrase": "naik 85 persen",

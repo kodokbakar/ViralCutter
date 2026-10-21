@@ -195,9 +195,17 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
   "topics": [
     {{
       "title": "Short punchy title",
+      "hook_title": "High-converting hook headline in ALL CAPS (strictly 3 to 6 words, e.g. 'RAHASIA BESAR INI!')",
       "rationale": "Why this story holds retention",
       "target_duration": 45.0,
       "score": 92,
+      "rubric": {{
+        "hook_strength": 9.5,
+        "retention_flow": 9.0,
+        "emotional_resonance": 8.5,
+        "shareability": 9.0,
+        "verdict": "High viral velocity hook with strong curiosity gap"
+      }},
       "segments": {{
         "hook": {{
           "start_time": 0.0,
@@ -383,9 +391,11 @@ def parse_narrative_topics(llm_response: str) -> List[Dict[str, Any]]:
         if normalized_segs:
             valid_topics.append({
                 "title": str(t.get("title", "Untitled Topic")),
+                "hook_title": str(t.get("hook_title", "")).strip().upper() if t.get("hook_title") else None,
                 "rationale": str(t.get("rationale", "")),
                 "target_duration": float(t.get("target_duration", 0.0)),
                 "score": score,
+                "rubric": t.get("rubric") if isinstance(t.get("rubric"), dict) else None,
                 "segments": normalized_segs,
                 "broll_items": normalized_broll
             })
@@ -748,9 +758,17 @@ def run_smart_clipping_pipeline(
             print(f"[WARN] Failed to snap broll items in smart_clipping: {e}")
             final_broll = raw_broll
 
+        try:
+            from scripts.create_viral_segments import extract_hook_title_from_response
+            clean_hook = extract_hook_title_from_response(snapped_topic.get("hook_title") or title or "VIRAL HOOK", fallback=title or "VIRAL HOOK")
+        except Exception:
+            clean_hook = str(snapped_topic.get("hook_title") or title or "VIRAL HOOK").strip().upper()
+
         viral_segments_list.append({
             "title": title,
+            "hook_title": clean_hook,
             "score": final_score,
+            "rubric": snapped_topic.get("rubric"),
             "description": snapped_topic.get("rationale", ""),
             "filepath": output_clip_path,
             "filename": os.path.relpath(output_clip_path, project_folder),
