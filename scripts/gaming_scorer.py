@@ -41,19 +41,22 @@ def _safe_float(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
         return default
 
 
-def generate_gaming_hook_title(keywords: Optional[List[str]] = None, language: str = "id") -> str:
+def generate_gaming_hook_title(keywords: Optional[Any] = None, language: str = "id") -> str:
     """Generates a high-CTR ALL CAPS 3-6 word gaming hook headline."""
     lang_str = str(language).lower() if language else "id"
     catalog = GAMING_HOOKS_ID if lang_str in ["id", "indonesian"] else GAMING_HOOKS_EN
 
-    if keywords and isinstance(keywords, (list, tuple, set)):
-        clean_kws = [str(k).upper() for k in keywords if k]
+    if keywords is not None:
+        try:
+            kw_list = list(keywords)
+        except TypeError:
+            kw_list = []
+        clean_kws = [str(k).upper() for k in kw_list if k]
         matching = [t for t in catalog if any(k in t for k in clean_kws)]
         if matching:
             return random.choice(matching)
 
     return random.choice(catalog)
-
 
 def fuse_gaming_scores(
     audio_events: Optional[List[Dict[str, Any]]],
@@ -224,8 +227,13 @@ def generate_gaming_windows(
             end = round(start + max_dur, 2)
             dur = max_dur
 
-        kws = p.get("keywords", [])
-        if not isinstance(kws, list):
+        kws = p.get("keywords")
+        if kws is not None:
+            try:
+                kws = list(kws)
+            except TypeError:
+                kws = []
+        else:
             kws = []
         hook = generate_gaming_hook_title(keywords=kws, language=language)
 
@@ -249,40 +257,47 @@ def generate_gaming_windows(
 
 
 def run_gaming_clipping_pipeline(
-    video_path: str,
-    project_folder: str,
-    transcript_words: Optional[List[Dict[str, Any]]],
+    video_path: Any,
+    project_folder: Any,
+    transcript_words: Optional[Any],
     video_duration: float,
-    num_segments: int = 5,
+    num_segments: Optional[int] = 5,
     min_duration: float = 20.0,
     max_duration: float = 60.0,
     facecam_crop: Optional[str] = None,
     language: str = "id"
 ) -> Dict[str, Any]:
     """Runs the full offline gaming clipping detection pipeline."""
+    video_str = str(video_path) if video_path else None
+    proj_str = str(project_folder) if project_folder else None
+
     # 1. Audio spike detection
     audio_events = []
-    if video_path and isinstance(video_path, str) and os.path.exists(video_path):
-        rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(video_path)
+    if video_str and os.path.exists(video_str):
+        rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(video_str)
         audio_events = gaming_audio_detector.detect_audio_events(rms_values, sample_rate_hz=10.0)
 
     # 2. Exclamatory keyword scanning
-    transcript_words = transcript_words or []
+    try:
+        transcript_words = list(transcript_words) if transcript_words is not None else []
+    except TypeError:
+        transcript_words = []
     keyword_events = gaming_keyword_detector.scan_shout_keywords(transcript_words)
 
     # 3. Facecam reaction detection
     candidate_ts = [a["timestamp"] for a in audio_events[:10] if isinstance(a, dict) and "timestamp" in a]
     face_events = []
-    if video_path and isinstance(video_path, str) and os.path.exists(video_path):
+    if video_str and os.path.exists(video_str):
         face_events = gaming_facecam_detector.detect_facecam_reactions(
-            video_path=video_path,
+            video_path=video_str,
             facecam_box_str=facecam_crop,
             candidate_timestamps=candidate_ts
         )
 
     # 4. Fusion and NMS
     fused = fuse_gaming_scores(audio_events, keyword_events, face_events)
-    peaks = apply_non_maximum_suppression(fused, radius_sec=45.0)[:max(1, int(num_segments))]
+    num_limit = int(_safe_float(num_segments, 5.0) or 5)
+    peaks = apply_non_maximum_suppression(fused, radius_sec=45.0)[:max(1, num_limit)]
 
     # 5. Window generation
     segments = generate_gaming_windows(
@@ -294,10 +309,10 @@ def run_gaming_clipping_pipeline(
     )
 
     out = {"segments": segments}
-    if project_folder and isinstance(project_folder, str):
+    if proj_str:
         try:
-            os.makedirs(project_folder, exist_ok=True)
-            out_file = os.path.join(project_folder, "viral_segments.json")
+            os.makedirs(proj_str, exist_ok=True)
+            out_file = os.path.join(proj_str, "viral_segments.json")
             with open(out_file, "w", encoding="utf-8") as f:
                 json.dump(out, f, indent=2, ensure_ascii=False)
         except OSError:

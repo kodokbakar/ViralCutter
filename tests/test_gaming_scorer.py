@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import json
 import math
@@ -205,6 +206,24 @@ def test_generate_gaming_hook_title():
     assert title_default == title_default.upper()
     assert 3 <= len(title_default.split()) <= 6
 
+def test_generate_gaming_hook_title_numpy_array():
+    import numpy as np
+    kws = np.array(["clutch", "epic"])
+    title = generate_gaming_hook_title(keywords=kws, language="en")
+    assert title == title.upper()
+    assert 3 <= len(title.split()) <= 6
+
+
+def test_generate_gaming_windows_tuple_and_set_keywords():
+    peaks = [
+        {"timestamp": 40.0, "score": 80.0, "keywords": ("clutch", "gila")},
+        {"timestamp": 80.0, "score": 85.0, "keywords": {"clutch", "epic"}},
+    ]
+    windows = generate_gaming_windows(peaks, video_duration=120.0)
+    assert len(windows) == 2
+    assert "hook_title" in windows[0]
+    assert "hook_title" in windows[1]
+
 
 @patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
 @patch("scripts.gaming_keyword_detector.scan_shout_keywords")
@@ -262,3 +281,74 @@ def test_run_gaming_clipping_pipeline_missing_video(tmp_path):
     assert result["segments"] == []
     out_file = os.path.join(project_folder, "viral_segments.json")
     assert os.path.exists(out_file)
+
+
+@patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
+@patch("scripts.gaming_keyword_detector.scan_shout_keywords")
+@patch("scripts.gaming_audio_detector.detect_audio_events")
+@patch("scripts.gaming_audio_detector.extract_audio_rms_curve")
+def test_run_gaming_clipping_pipeline_numpy_transcript_words(mock_rms, mock_audio_ev, mock_kw, mock_face, tmp_path):
+    import numpy as np
+    mock_rms.return_value = ([0.1] * 50, 0.1, 0.02)
+    mock_audio_ev.return_value = [{"timestamp": 25.0, "score": 80.0}]
+    mock_kw.return_value = []
+    mock_face.return_value = []
+
+    words = np.array([{"word": "clutch", "start": 24.0, "end": 25.0}], dtype=object)
+    dummy_vid = tmp_path / "vid.mp4"
+    dummy_vid.write_text("test")
+
+    result = run_gaming_clipping_pipeline(
+        video_path=str(dummy_vid),
+        project_folder=str(tmp_path),
+        transcript_words=words,
+        video_duration=60.0
+    )
+    assert len(result["segments"]) == 1
+
+
+@patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
+@patch("scripts.gaming_keyword_detector.scan_shout_keywords")
+@patch("scripts.gaming_audio_detector.detect_audio_events")
+@patch("scripts.gaming_audio_detector.extract_audio_rms_curve")
+def test_run_gaming_clipping_pipeline_num_segments_none(mock_rms, mock_audio_ev, mock_kw, mock_face, tmp_path):
+    mock_rms.return_value = ([0.1] * 50, 0.1, 0.02)
+    mock_audio_ev.return_value = [{"timestamp": 25.0, "score": 80.0}]
+    mock_kw.return_value = []
+    mock_face.return_value = []
+
+    dummy_vid = tmp_path / "vid.mp4"
+    dummy_vid.write_text("test")
+
+    result = run_gaming_clipping_pipeline(
+        video_path=str(dummy_vid),
+        project_folder=str(tmp_path),
+        transcript_words=[],
+        video_duration=60.0,
+        num_segments=None
+    )
+    assert len(result["segments"]) == 1
+
+
+@patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
+@patch("scripts.gaming_keyword_detector.scan_shout_keywords")
+@patch("scripts.gaming_audio_detector.detect_audio_events")
+@patch("scripts.gaming_audio_detector.extract_audio_rms_curve")
+def test_run_gaming_clipping_pipeline_pathlib_path(mock_rms, mock_audio_ev, mock_kw, mock_face, tmp_path):
+    mock_rms.return_value = ([0.1] * 50, 0.1, 0.02)
+    mock_audio_ev.return_value = [{"timestamp": 25.0, "score": 80.0}]
+    mock_kw.return_value = []
+    mock_face.return_value = []
+
+    proj_path = Path(tmp_path / "pathlib_proj")
+    vid_path = Path(tmp_path / "pathlib_vid.mp4")
+    vid_path.write_text("dummy")
+
+    result = run_gaming_clipping_pipeline(
+        video_path=vid_path,
+        project_folder=proj_path,
+        transcript_words=[],
+        video_duration=60.0
+    )
+    assert len(result["segments"]) == 1
+    assert (proj_path / "viral_segments.json").exists()
