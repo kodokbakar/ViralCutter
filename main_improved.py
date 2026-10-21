@@ -453,7 +453,7 @@ def main():
         project_folder_anticipated = os.path.dirname(input_video)
         viral_segments_file = os.path.join(project_folder_anticipated, "viral_segments.txt")
         
-        if os.path.exists(viral_segments_file) and not getattr(args, "smart_clipping", False):
+        if os.path.exists(viral_segments_file) and not getattr(args, "smart_clipping", False) and getattr(args, "pipeline_mode", "podcast") != "gaming":
              print(i18n("\nExisting viral segments found: {}").format(viral_segments_file))
              if args.skip_prompts:
                  use_existing_json = 'yes'
@@ -516,90 +516,95 @@ def main():
                  except ValueError:
                      print(i18n("Invalid number. Using previous values."))
 
-        # Load API Config
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-        api_config = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    api_config = json.load(f)
-            except:
-                pass
+        if getattr(args, "pipeline_mode", "podcast") == "gaming":
+            ai_backend = "offline"
+        else:
+            # Load API Config
+            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+            api_config = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        api_config = json.load(f)
+                except:
+                    pass
 
-        # Seleção do Backend de IA
-        ai_backend = args.ai_backend
-        
-        # Try to load backend from config if not in args
-        if not ai_backend and api_config.get("selected_api"):
-            ai_backend = api_config.get("selected_api")
-            print(i18n("Using AI Backend from config: {}").format(ai_backend))
+            # Seleção do Backend de IA
+            ai_backend = args.ai_backend
+            
+            # Try to load backend from config if not in args
+            if not ai_backend and api_config.get("selected_api"):
+                ai_backend = api_config.get("selected_api")
+                print(i18n("Using AI Backend from config: {}").format(ai_backend))
 
-        if not ai_backend:
-            if args.skip_prompts:
-                print(i18n("No AI backend selected, defaulting to Manual."))
-                ai_backend = "manual"
-            else:
-                print("\n" + i18n("Select AI Backend for Viral Analysis:"))
-                print(i18n("1. Gemini API (Best / Recommended)"))
-                print(i18n("2. G4F (Free / Experimental)"))
-                print(i18n("3. Local (GGUF via llama.cpp)"))
-                print(i18n("4. Manual (Copy/Paste Prompt)"))
-                choice = input(i18n("Choose (1-4): ")).strip()
-                
-                if choice == "1":
-                    ai_backend = "gemini"
-                elif choice == "2":
-                    ai_backend = "g4f"
-                elif choice == "3":
-                    ai_backend = "local"
-                    # Interactive model selection for local
-                    # List models
-                    models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-                    if not os.path.exists(models_dir): os.makedirs(models_dir)
-                    models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
-                    
-                    if not models:
-                        print(i18n("\nNo .gguf models found in 'models' directory."))
-                        print(i18n("Please place a module file in: {}").format(models_dir))
-                        print(i18n("Falling back to Manual..."))
-                        ai_backend = "manual"
-                    else:
-                        print(i18n("\nAvailable Models:"))
-                        for idx, m in enumerate(models):
-                            print(f"{idx+1}. {m}")
-                        
-                        try:
-                            m_idx = int(input(i18n("Select Model (Number): "))) - 1
-                            if 0 <= m_idx < len(models):
-                                args.ai_model_name = models[m_idx] # Set global arg
-                            else:
-                                print(i18n("Invalid selection. Using first model."))
-                                args.ai_model_name = models[0]
-                        except:
-                             print(i18n("Invalid input. Using first model."))
-                             args.ai_model_name = models[0]
-                             
-                else:
+            if not ai_backend:
+                if args.skip_prompts:
+                    print(i18n("No AI backend selected, defaulting to Manual."))
                     ai_backend = "manual"
+                else:
+                    print("\n" + i18n("Select AI Backend for Viral Analysis:"))
+                    print(i18n("1. Gemini API (Best / Recommended)"))
+                    print(i18n("2. G4F (Free / Experimental)"))
+                    print(i18n("3. Local (GGUF via llama.cpp)"))
+                    print(i18n("4. Manual (Copy/Paste Prompt)"))
+                    choice = input(i18n("Choose (1-4): ")).strip()
+                    
+                    if choice == "1":
+                        ai_backend = "gemini"
+                    elif choice == "2":
+                        ai_backend = "g4f"
+                    elif choice == "3":
+                        ai_backend = "local"
+                        # Interactive model selection for local
+                        # List models
+                        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+                        if not os.path.exists(models_dir): os.makedirs(models_dir)
+                        models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
+                        
+                        if not models:
+                            print(i18n("\nNo .gguf models found in 'models' directory."))
+                            print(i18n("Please place a module file in: {}").format(models_dir))
+                            print(i18n("Falling back to Manual..."))
+                            ai_backend = "manual"
+                        else:
+                            print(i18n("\nAvailable Models:"))
+                            for idx, m in enumerate(models):
+                                print(f"{idx+1}. {m}")
+                            
+                            try:
+                                m_idx = int(input(i18n("Select Model (Number): "))) - 1
+                                if 0 <= m_idx < len(models):
+                                    args.ai_model_name = models[m_idx] # Set global arg
+                                else:
+                                    print(i18n("Invalid selection. Using first model."))
+                                    args.ai_model_name = models[0]
+                            except:
+                                 print(i18n("Invalid input. Using first model."))
+                                 args.ai_model_name = models[0]
+                                 
+                    else:
+                        ai_backend = "manual"
 
-        api_key = args.api_key
-        # Check config for API Key if using Gemini
-        if ai_backend == "gemini" and not api_key:
-            cfg_key = api_config.get("gemini", {}).get("api_key", "")
-            if cfg_key and cfg_key != "SUA_KEY_AQUI":
-                api_key = cfg_key
-        
-        if ai_backend == "gemini" and not api_key:
-             if args.skip_prompts:
-                 print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
-             else:
-                 print(i18n("Gemini API Key not found in api_config.json or arguments."))
-                 api_key = input(i18n("Enter your Gemini API Key: ")).strip()
-
+            api_key = args.api_key
+            # Check config for API Key if using Gemini
+            if ai_backend == "gemini" and not api_key:
+                cfg_key = api_config.get("gemini", {}).get("api_key", "")
+                if cfg_key and cfg_key != "SUA_KEY_AQUI":
+                    api_key = cfg_key
+            
+            if ai_backend == "gemini" and not api_key:
+                 if args.skip_prompts:
+                     print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
+                 else:
+                     print(i18n("Gemini API Key not found in api_config.json or arguments."))
+                     api_key = input(i18n("Enter your Gemini API Key: ")).strip()
     # Workflow & Face Config Inputs
     workflow_choice = args.workflow
     face_model = args.face_model
     face_mode = args.face_mode
+    if getattr(args, "pipeline_mode", "podcast") == "gaming" and args.orientation == "9:16":
+        args.orientation = "9:16_gaming_split"
+        face_mode = "none"
     if args.orientation == "9:16_gaming_split" or args.manual_crop:
         face_mode = "none"
 
@@ -734,7 +739,7 @@ def main():
             if not viral_segments:
                 # Checagem tardia para downloads novos que por acaso ja tenham json (Ex: URL repetida)
                 viral_segments_file_late = os.path.join(project_folder, "viral_segments.txt")
-                if os.path.exists(viral_segments_file_late):
+                if os.path.exists(viral_segments_file_late) and getattr(args, "pipeline_mode", "podcast") != "gaming":
                     print(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
                     if args.skip_prompts:
                         print(i18n("Skipping prompts enabled. Loading existing segments."))
@@ -874,7 +879,7 @@ def main():
                           # If alignment fails, it might crash later, but we tried. 
 
         # 3.6. Snap segment timing to sentence boundaries before cutting
-        if workflow_choice != "3" and viral_segments and "segments" in viral_segments:
+        if workflow_choice != "3" and getattr(args, "pipeline_mode", "podcast") != "gaming" and viral_segments and "segments" in viral_segments:
             try:
                 viral_segments = refine_segments.refine_to_sentence_boundaries(
                     viral_segments,

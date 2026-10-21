@@ -239,8 +239,11 @@ class JobRunRequest(BaseModel):
         cmd.extend(["--workflow", str(self.workflow)])
         if self.pipeline_mode:
             cmd.extend(["--pipeline-mode", str(self.pipeline_mode)])
-        if self.orientation:
-            cmd.extend(["--orientation", str(self.orientation)])
+        orient = self.orientation
+        if self.pipeline_mode == "gaming" and orient == "9:16":
+            orient = "9:16_gaming_split"
+        if orient:
+            cmd.extend(["--orientation", str(orient)])
         if self.gaming_facecam_crop:
             cmd.extend(["--gaming-facecam", str(self.gaming_facecam_crop)])
         if self.gaming_gameplay_crop:

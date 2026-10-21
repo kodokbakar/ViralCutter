@@ -27,6 +27,8 @@ STAGE_RULES = [
     ("creating viral segments", "AI segment selection"),
     ("enviando chunk", "AI segment selection"),
     ("processing chunk", "AI segment selection"),
+    ("gaming moment detection", "AI segment selection"),
+    ("offline multimodal gaming moment detection", "AI segment selection"),
     ("matching", "Segment alignment"),
     ("segments aligned", "Segment alignment"),
     ("segment timings snapped", "Timing refinement"),
