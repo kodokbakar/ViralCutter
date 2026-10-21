@@ -165,6 +165,12 @@ def main():
         help="Target video orientation / framing format"
     )
     parser.add_argument(
+        "--pipeline-mode",
+        choices=["podcast", "gaming"],
+        default="podcast",
+        help="Moment detection pipeline: 'podcast' (narrative LLM) or 'gaming' (offline multimodal audio/face/keyword)",
+    )
+    parser.add_argument(
         "--gaming-facecam",
         type=str,
         default="0.68,0.05,0.28,0.1493",
@@ -746,7 +752,58 @@ def main():
                             print(i18n("Error loading existing JSON: {}.").format(e))
                     
                 if not viral_segments:
-                    if args.smart_clipping:
+                    if args.pipeline_mode == "gaming":
+                        print(i18n("Running Offline Multimodal Gaming Moment Detection Pipeline..."))
+                        from scripts import gaming_scorer, smart_clipping
+                        args.smart_remove_dead_air = False
+
+                        input_json_path = os.path.join(project_folder, "input.json")
+                        transcript_data = {}
+                        if os.path.exists(input_json_path):
+                            try:
+                                with open(input_json_path, "r", encoding="utf-8") as f:
+                                    transcript_data = json.load(f)
+                            except Exception:
+                                pass
+                        if not transcript_data:
+                            try:
+                                transcript_data = create_viral_segments.load_transcript(project_folder)
+                            except Exception:
+                                transcript_data = {}
+
+                        words = smart_clipping.extract_words_from_transcript(transcript_data)
+
+                        video_file = input_video
+                        if not video_file or not os.path.exists(video_file):
+                            cand = os.path.join(project_folder, "input.mp4")
+                            if os.path.exists(cand):
+                                video_file = cand
+
+                        video_duration = 0.0
+                        try:
+                            video_duration = transcribe_video.get_audio_duration(video_file) or 0.0
+                        except Exception:
+                            pass
+                        if not video_duration:
+                            try:
+                                video_duration = refine_segments.get_project_video_duration(project_folder) or 0.0
+                            except Exception:
+                                pass
+                        if not video_duration and words:
+                            video_duration = max(w.get("end", 0.0) for w in words)
+
+                        viral_segments = gaming_scorer.run_gaming_clipping_pipeline(
+                            video_path=video_file,
+                            project_folder=project_folder,
+                            transcript_words=words,
+                            video_duration=video_duration,
+                            num_segments=num_segments,
+                            min_duration=args.min_duration,
+                            max_duration=args.max_duration,
+                            facecam_crop=args.gaming_facecam,
+                            language=args.language
+                        )
+                    elif args.smart_clipping:
                         print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))
                         viral_segments = smart_clipping.run_smart_clipping_pipeline(
                             project_folder=project_folder,
