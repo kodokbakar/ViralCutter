@@ -41,8 +41,9 @@ def detect_audio_events(
     while i < n:
         z = z_scores[i]
         if z >= z_threshold:
-            # Find peak within cluster (next 2 seconds)
-            cluster_end = min(n, i + int(2.0 * sample_rate_hz))
+            # Enforce minimum 1-step cluster span to prevent infinite loops on low/zero rate
+            cluster_span = max(1, int(2.0 * max(0.1, sample_rate_hz)))
+            cluster_end = min(n, i + cluster_span)
             best_idx = i
             best_z = z
             for j in range(i, cluster_end):
@@ -51,24 +52,24 @@ def detect_audio_events(
                     best_idx = j
 
             # Check quiet-to-burst contrast (preceding 3 seconds)
-            contrast_start = max(0, best_idx - int(3.0 * sample_rate_hz))
+            contrast_span = max(1, int(3.0 * max(0.1, sample_rate_hz)))
+            contrast_start = max(0, best_idx - contrast_span)
             pre_mean = sum(rms_values[contrast_start:best_idx]) / max(1, best_idx - contrast_start) if best_idx > contrast_start else mean
             jump_ratio = rms_values[best_idx] / max(1e-3, pre_mean)
 
-            score = min(100.0, max(0.0, (best_z / 4.0) * 80.0 + min(20.0, jump_ratio * 4.0)))
-
-            events.append({
-                "timestamp": round(best_idx * step_sec, 2),
-                "z_score": round(best_z, 2),
-                "intensity": round(rms_values[best_idx], 2),
-                "contrast_jump": round(jump_ratio, 2),
-                "score": round(score, 1),
-            })
-            # Skip past cluster to prevent duplicate triggers
-            i = cluster_end
+            if jump_ratio >= min_contrast_jump:
+                score = min(100.0, max(0.0, (best_z / 4.0) * 80.0 + min(20.0, jump_ratio * 4.0)))
+                events.append({
+                    "timestamp": round(best_idx * step_sec, 2),
+                    "z_score": round(best_z, 2),
+                    "intensity": round(rms_values[best_idx], 2),
+                    "contrast_jump": round(jump_ratio, 2),
+                    "score": round(score, 1),
+                })
+            # Skip past cluster; ensure i always advances by at least 1
+            i = max(i + 1, cluster_end)
         else:
             i += 1
-
     events.sort(key=lambda x: x["score"], reverse=True)
     return events
 
@@ -82,12 +83,19 @@ def extract_audio_rms_curve(video_path: str, chunk_sec: float = 0.1) -> Tuple[Li
         return [], 0.0, 0.0
 
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        "ffmpeg", "-nostdin", "-y", "-i", video_path,
         "-vn", "-ac", "1", "-ar", "16000",
         "-f", "s16le", "-"
     ]
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+            check=False,
+        )
         raw_bytes = proc.stdout
         if not raw_bytes:
             return [], 0.0, 0.0
@@ -118,5 +126,5 @@ def extract_audio_rms_curve(video_path: str, chunk_sec: float = 0.1) -> Tuple[Li
         var = sum((x - mean) ** 2 for x in rms_values) / len(rms_values)
         std = math.sqrt(var)
         return rms_values, mean, std
-    except Exception:
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception):
         return [], 0.0, 0.0
