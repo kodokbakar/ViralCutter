@@ -193,6 +193,61 @@ describe('Phase 4 Frontend Tabs & Job Workflow Integration', () => {
       unmount();
     });
 
+    it('detects vertical video metadata and displays preservation indicator', async () => {
+      vi.spyOn(previewApi, 'getMetadata').mockResolvedValue({
+        width: 1080,
+        height: 1920,
+        duration: 45,
+        fps: 30,
+        codec: 'h264',
+        bitrate: 5000000,
+      });
+
+      const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+        job_id: 'job_gaming_vertical_123',
+        status: 'started',
+      });
+      vi.spyOn(jobsApi, 'streamLogs').mockReturnValue(() => {});
+
+      const { container, unmount } = render(
+        <GeneratorTab defaultVideoPath="/videos/vertical_game.mp4" defaultProjectName="VerticalGame" />
+      );
+
+      // Allow metadata load effect to settle
+      await act(async () => {});
+
+      const gamingBtn = container.querySelector('[data-testid="mode-gaming-button"]') as HTMLButtonElement;
+      expect(gamingBtn).toBeTruthy();
+
+      await act(async () => {
+        gamingBtn.click();
+      });
+
+      // Info banner should indicate vertical video detected
+      expect(container.textContent).toContain('Vertical Video Detected (1080x1920)');
+      expect(container.textContent).toContain('Source framing will be preserved automatically without cropping.');
+
+      // GamingCropEditor should be hidden for vertical video
+      expect(container.querySelector('[data-testid="gaming-crop-editor"]')).toBeNull();
+      expect(container.textContent).not.toContain('Center Action');
+
+      // Form submission should route to 16:9 orientation and face_mode none
+      const form = container.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      expect(runMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pipeline_mode: 'gaming',
+          orientation: '16:9',
+          face_mode: 'none',
+        })
+      );
+
+      unmount();
+    });
+
     it('renders parameter controls and file selection inputs', () => {
       const { container, unmount } = renderComponent(
         <GeneratorTab defaultVideoPath="/videos/sample.mp4" defaultProjectName="SampleProj" />

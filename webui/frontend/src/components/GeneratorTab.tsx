@@ -22,7 +22,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig, VideoMetadata } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
 import VerticalCropEditor from './VerticalCropEditor';
 import { RubricInspectorModal } from './RubricInspectorModal';
@@ -33,6 +33,7 @@ export interface GeneratorTabProps {
   defaultVideoPath?: string;
   defaultProjectName?: string;
   onNavigateTab?: (tab: string, projectName?: string) => void;
+  defaultMetadata?: VideoMetadata | null;
 }
 
 export type GeneratorPreset = 'viral_shorts' | 'fast' | 'balanced' | 'accurate' | 'custom';
@@ -168,7 +169,11 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   defaultVideoPath = '',
   defaultProjectName = '',
   onNavigateTab,
+  defaultMetadata = null,
 }) => {
+  const [metadata, setMetadata] = useState<VideoMetadata | null>(defaultMetadata);
+  const isVerticalSource = metadata ? metadata.width < metadata.height : false;
+
   // Preset & Core Pipeline Parameters
   const [preset, setPreset] = useState<GeneratorPreset>('viral_shorts');
   const [pipelineMode, setPipelineMode] = useState<'podcast' | 'gaming'>('podcast');
@@ -631,6 +636,31 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       fetchSampleFrames(videoPath.trim());
     }
   }, [orientation, framingMode, videoPath, sampleFrames.length, fetchSampleFrames]);
+  useEffect(() => {
+    if (!videoPath || !videoPath.trim()) {
+      if (!defaultMetadata) {
+        setMetadata(null);
+      }
+      return;
+    }
+    let cancelled = false;
+    previewApi
+      .getMetadata(videoPath.trim())
+      .then((meta) => {
+        if (!cancelled && meta) {
+          setMetadata(meta);
+        }
+      })
+      .catch(() => {
+        if (!cancelled && !defaultMetadata) {
+          setMetadata(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoPath, defaultMetadata]);
+
 
   // Live SSE Stream Connection
   useEffect(() => {
@@ -778,7 +808,12 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     // Map orientation and face controls
     let effectiveFaceMode = faceMode;
     let effectiveNoFaceMode = noFaceMode;
-    if (orientation === '16:9') {
+    let effectiveOrientation = orientation;
+    if (isVerticalSource && pipelineMode === 'gaming') {
+      effectiveOrientation = '16:9';
+      effectiveFaceMode = 'none';
+      effectiveNoFaceMode = 'zoom';
+    } else if (orientation === '16:9') {
       effectiveFaceMode = 'none';
       effectiveNoFaceMode = 'zoom';
     } else if (
@@ -790,7 +825,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       effectiveFaceMode = 'auto';
       effectiveNoFaceMode = 'padding';
     }
-
     // Determine workflow: if burnSubtitles is false, force Cut Only ("2")
     const effectiveWorkflow = !burnSubtitles ? '2' : workflow;
 
@@ -801,9 +835,9 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       project_name: projectName.trim() || undefined,
       pipeline_mode: pipelineMode,
       workflow: effectiveWorkflow,
-      orientation,
-      gaming_facecam_crop: orientation === '9:16_gaming_split' ? gamingFacecamCrop : undefined,
-      gaming_gameplay_crop: orientation === '9:16_gaming_split' ? gamingGameplayCrop : undefined,
+      orientation: effectiveOrientation,
+      gaming_facecam_crop: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource ? gamingFacecamCrop : undefined,
+      gaming_gameplay_crop: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource ? gamingGameplayCrop : undefined,
       manual_crop:
         orientation === '9:16' && framingMode === 'manual_crop'
           ? manualCropBox
@@ -1135,17 +1169,31 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             )}
 
 
-            {(pipelineMode === 'gaming' || orientation === '9:16_gaming_split') && (
-              <GamingCropEditor
-                sampleFrames={sampleFrames}
-                isLoadingSamples={isLoadingSampleFrames}
-                facecamCrop={gamingFacecamCrop}
-                gameplayCrop={gamingGameplayCrop}
-                onChange={(cam, game) => {
-                  setGamingFacecamCrop(cam);
-                  setGamingGameplayCrop(game);
-                }}
-              />
+            {isVerticalSource && pipelineMode === 'gaming' && (
+              <div
+                data-testid="vertical-source-notice"
+                className="p-3 bg-blue-950/40 border border-blue-800/60 rounded-lg text-xs text-blue-200 flex items-center gap-2"
+              >
+                <span>📱</span>
+                <span>
+                  <strong>Vertical Video Detected ({metadata?.width}x{metadata?.height}):</strong> Source framing will be preserved automatically without cropping.
+                </span>
+              </div>
+            )}
+
+            {(pipelineMode === 'gaming' || orientation === '9:16_gaming_split') && !isVerticalSource && (
+              <div data-testid="gaming-crop-editor">
+                <GamingCropEditor
+                  sampleFrames={sampleFrames}
+                  isLoadingSamples={isLoadingSampleFrames}
+                  facecamCrop={gamingFacecamCrop}
+                  gameplayCrop={gamingGameplayCrop}
+                  onChange={(cam, game) => {
+                    setGamingFacecamCrop(cam);
+                    setGamingGameplayCrop(game);
+                  }}
+                />
+              </div>
             )}
 
             {/* 3. Whisper Model & Language Selectors */}
