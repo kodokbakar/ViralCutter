@@ -239,9 +239,20 @@ class JobRunRequest(BaseModel):
         cmd.extend(["--workflow", str(self.workflow)])
         if self.pipeline_mode:
             cmd.extend(["--pipeline-mode", str(self.pipeline_mode)])
+        # Auto-route orientation and face mode for gaming mode:
+        # If source video is already vertical (W < H), preserve framing with face_mode none.
+        # Otherwise for horizontal video, route default 9:16 to 9:16_gaming_split.
+        from scripts.gaming_split import is_vertical_video
+        source_is_vertical = bool(self.video_path and is_vertical_video(self.video_path))
+
         orient = self.orientation
-        if self.pipeline_mode == "gaming" and orient == "9:16":
-            orient = "9:16_gaming_split"
+        face_mode = self.face_mode
+        if self.pipeline_mode == "gaming":
+            if source_is_vertical:
+                orient = "16:9"  # preserve original framing
+                face_mode = "none"
+            elif orient == "9:16":
+                orient = "9:16_gaming_split"
         if orient:
             cmd.extend(["--orientation", str(orient)])
         if self.gaming_facecam_crop:
@@ -291,7 +302,7 @@ class JobRunRequest(BaseModel):
 
         # Face tracking
         cmd.extend(["--face-model", str(self.face_model)])
-        cmd.extend(["--face-mode", str(self.face_mode)])
+        cmd.extend(["--face-mode", str(face_mode)])
         cmd.extend(["--no-face-mode", str(self.no_face_mode)])
         if self.face_detect_interval:
             cmd.extend(["--face-detect-interval", str(self.face_detect_interval)])
