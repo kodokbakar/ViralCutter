@@ -334,11 +334,13 @@ def run_gaming_clipping_pipeline(
     keyword_events = gaming_keyword_detector.scan_shout_keywords(transcript_words)
 
     # 3. Facecam reaction detection
-    candidate_ts = [
-        a["timestamp"]
-        for a in (audio_events + keyword_events)[:10]
-        if isinstance(a, dict) and "timestamp" in a and not isinstance(a.get("timestamp"), bool)
+    valid_events = [
+        ev
+        for ev in (audio_events + keyword_events)
+        if isinstance(ev, dict) and "timestamp" in ev and not isinstance(ev.get("timestamp"), bool)
     ]
+    valid_events.sort(key=lambda x: _safe_float(x.get("score"), 0.0), reverse=True)
+    candidate_ts = [ev["timestamp"] for ev in valid_events[:15]]
     face_events = []
     if video_str and os.path.exists(video_str):
         face_events = gaming_facecam_detector.detect_facecam_reactions(
