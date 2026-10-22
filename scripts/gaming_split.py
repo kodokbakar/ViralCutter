@@ -106,6 +106,16 @@ def probe_video_dimensions(video_path: str) -> Tuple[int, int]:
         pass
     return 1920, 1080
 
+def is_vertical_video(video_path: str) -> bool:
+    """Returns True if the video exists and has width < height (portrait/vertical)."""
+    if not video_path or not isinstance(video_path, str):
+        return False
+    try:
+        w, h = probe_video_dimensions(video_path)
+        return bool(w > 0 and h > 0 and w < h)
+    except Exception:
+        return False
+
 def render_gaming_split_clip(
     input_path: str,
     output_path: str,

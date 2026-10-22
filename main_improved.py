@@ -934,35 +934,73 @@ def main():
             print(i18n(f"Process completed! Check your results in: {project_folder}"), flush=True)
             sys.exit(0)
 
+        # Check if source video is already vertical (e.g. 9:16)
+        from scripts.gaming_split import is_vertical_video
+        video_to_probe = input_video
+        if not video_to_probe or not os.path.exists(video_to_probe):
+            cand = os.path.join(project_folder, "input.mp4")
+            if os.path.exists(cand):
+                video_to_probe = cand
+            else:
+                cuts_folder = os.path.join(project_folder, "cuts")
+                if os.path.exists(cuts_folder):
+                    c_files = [
+                        os.path.join(cuts_folder, f)
+                        for f in sorted(os.listdir(cuts_folder))
+                        if f.endswith(".mp4")
+                    ]
+                    if c_files:
+                        video_to_probe = c_files[0]
+
+        is_already_vertical = is_vertical_video(video_to_probe)
+
+        if is_already_vertical and getattr(args, "pipeline_mode", "podcast") == "gaming":
+            print(i18n("Source video is already vertical (portrait). Preserving original framing without gaming split..."))
+            args.orientation = "16:9"  # Signals preserve_original_scale
+            face_mode = "none"
+
         # 5. Edit Video / Preserve Original Framing
         if workflow_choice != "3":
-            if args.orientation == "9:16_gaming_split":
-                print(i18n("Gaming Split framing mode selected (30% facecam top / 70% gameplay bottom)..."))
-                face_mode = "none"
-                from scripts import gaming_split
+            if (is_already_vertical and getattr(args, "pipeline_mode", "podcast") == "gaming"):
+                print(i18n("Preserving original source framing..."), flush=True)
+                preserve_segments.preserve_original_scale(project_folder=project_folder)
+            elif args.orientation == "9:16_gaming_split":
                 cuts_folder = os.path.join(project_folder, "cuts")
-                final_folder = os.path.join(project_folder, "final")
-                os.makedirs(final_folder, exist_ok=True)
-                face_modes = {}
                 cut_files = [
                     f for f in sorted(os.listdir(cuts_folder))
                     if f.endswith(".mp4") and "input" not in f.lower()
                 ] if os.path.exists(cuts_folder) else []
-                for idx, c_file in enumerate(cut_files):
-                    c_path = os.path.join(cuts_folder, c_file)
-                    base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
-                    target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
-                    print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
-                    gaming_split.render_gaming_split_clip(
-                        input_path=c_path,
-                        output_path=target_out,
-                        facecam_box=args.gaming_facecam,
-                        gameplay_box=args.gaming_gameplay
-                    )
-                    face_modes[f"output{idx:03d}"] = "none"
-                modes_file = os.path.join(project_folder, "face_modes.json")
-                with open(modes_file, "w", encoding="utf-8") as f:
-                    json.dump(face_modes, f, indent=4)
+                if cut_files and is_vertical_video(os.path.join(cuts_folder, cut_files[0])):
+                    print(i18n("Source video is already vertical (portrait). Preserving original framing without gaming split..."))
+                    print(i18n("Preserving original source framing..."), flush=True)
+                    preserve_segments.preserve_original_scale(project_folder=project_folder)
+                else:
+                    print(i18n("Gaming Split framing mode selected (30% facecam top / 70% gameplay bottom)..."))
+                    face_mode = "none"
+                    from scripts import gaming_split
+                    cuts_folder = os.path.join(project_folder, "cuts")
+                    final_folder = os.path.join(project_folder, "final")
+                    os.makedirs(final_folder, exist_ok=True)
+                    face_modes = {}
+                    cut_files = [
+                        f for f in sorted(os.listdir(cuts_folder))
+                        if f.endswith(".mp4") and "input" not in f.lower()
+                    ] if os.path.exists(cuts_folder) else []
+                    for idx, c_file in enumerate(cut_files):
+                        c_path = os.path.join(cuts_folder, c_file)
+                        base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
+                        target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
+                        print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
+                        gaming_split.render_gaming_split_clip(
+                            input_path=c_path,
+                            output_path=target_out,
+                            facecam_box=args.gaming_facecam,
+                            gameplay_box=args.gaming_gameplay
+                        )
+                        face_modes[f"output{idx:03d}"] = "none"
+                    modes_file = os.path.join(project_folder, "face_modes.json")
+                    with open(modes_file, "w", encoding="utf-8") as f:
+                        json.dump(face_modes, f, indent=4)
             elif args.manual_crop:
                 print(i18n("Manual 9:16 crop framing mode selected..."))
                 face_mode = "none"
