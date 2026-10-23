@@ -165,6 +165,12 @@ def main():
         help="Target video orientation / framing format"
     )
     parser.add_argument(
+        "--pipeline-mode",
+        choices=["podcast", "gaming"],
+        default="podcast",
+        help="Moment detection pipeline: 'podcast' (narrative LLM) or 'gaming' (offline multimodal audio/face/keyword)",
+    )
+    parser.add_argument(
         "--gaming-facecam",
         type=str,
         default="0.68,0.05,0.28,0.1493",
@@ -447,7 +453,7 @@ def main():
         project_folder_anticipated = os.path.dirname(input_video)
         viral_segments_file = os.path.join(project_folder_anticipated, "viral_segments.txt")
         
-        if os.path.exists(viral_segments_file) and not getattr(args, "smart_clipping", False):
+        if os.path.exists(viral_segments_file) and not getattr(args, "smart_clipping", False) and getattr(args, "pipeline_mode", "podcast") != "gaming":
              print(i18n("\nExisting viral segments found: {}").format(viral_segments_file))
              if args.skip_prompts:
                  use_existing_json = 'yes'
@@ -510,90 +516,95 @@ def main():
                  except ValueError:
                      print(i18n("Invalid number. Using previous values."))
 
-        # Load API Config
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-        api_config = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    api_config = json.load(f)
-            except:
-                pass
+        if getattr(args, "pipeline_mode", "podcast") == "gaming":
+            ai_backend = "offline"
+        else:
+            # Load API Config
+            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+            api_config = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        api_config = json.load(f)
+                except:
+                    pass
 
-        # Seleção do Backend de IA
-        ai_backend = args.ai_backend
-        
-        # Try to load backend from config if not in args
-        if not ai_backend and api_config.get("selected_api"):
-            ai_backend = api_config.get("selected_api")
-            print(i18n("Using AI Backend from config: {}").format(ai_backend))
+            # Seleção do Backend de IA
+            ai_backend = args.ai_backend
+            
+            # Try to load backend from config if not in args
+            if not ai_backend and api_config.get("selected_api"):
+                ai_backend = api_config.get("selected_api")
+                print(i18n("Using AI Backend from config: {}").format(ai_backend))
 
-        if not ai_backend:
-            if args.skip_prompts:
-                print(i18n("No AI backend selected, defaulting to Manual."))
-                ai_backend = "manual"
-            else:
-                print("\n" + i18n("Select AI Backend for Viral Analysis:"))
-                print(i18n("1. Gemini API (Best / Recommended)"))
-                print(i18n("2. G4F (Free / Experimental)"))
-                print(i18n("3. Local (GGUF via llama.cpp)"))
-                print(i18n("4. Manual (Copy/Paste Prompt)"))
-                choice = input(i18n("Choose (1-4): ")).strip()
-                
-                if choice == "1":
-                    ai_backend = "gemini"
-                elif choice == "2":
-                    ai_backend = "g4f"
-                elif choice == "3":
-                    ai_backend = "local"
-                    # Interactive model selection for local
-                    # List models
-                    models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-                    if not os.path.exists(models_dir): os.makedirs(models_dir)
-                    models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
-                    
-                    if not models:
-                        print(i18n("\nNo .gguf models found in 'models' directory."))
-                        print(i18n("Please place a module file in: {}").format(models_dir))
-                        print(i18n("Falling back to Manual..."))
-                        ai_backend = "manual"
-                    else:
-                        print(i18n("\nAvailable Models:"))
-                        for idx, m in enumerate(models):
-                            print(f"{idx+1}. {m}")
-                        
-                        try:
-                            m_idx = int(input(i18n("Select Model (Number): "))) - 1
-                            if 0 <= m_idx < len(models):
-                                args.ai_model_name = models[m_idx] # Set global arg
-                            else:
-                                print(i18n("Invalid selection. Using first model."))
-                                args.ai_model_name = models[0]
-                        except:
-                             print(i18n("Invalid input. Using first model."))
-                             args.ai_model_name = models[0]
-                             
-                else:
+            if not ai_backend:
+                if args.skip_prompts:
+                    print(i18n("No AI backend selected, defaulting to Manual."))
                     ai_backend = "manual"
+                else:
+                    print("\n" + i18n("Select AI Backend for Viral Analysis:"))
+                    print(i18n("1. Gemini API (Best / Recommended)"))
+                    print(i18n("2. G4F (Free / Experimental)"))
+                    print(i18n("3. Local (GGUF via llama.cpp)"))
+                    print(i18n("4. Manual (Copy/Paste Prompt)"))
+                    choice = input(i18n("Choose (1-4): ")).strip()
+                    
+                    if choice == "1":
+                        ai_backend = "gemini"
+                    elif choice == "2":
+                        ai_backend = "g4f"
+                    elif choice == "3":
+                        ai_backend = "local"
+                        # Interactive model selection for local
+                        # List models
+                        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+                        if not os.path.exists(models_dir): os.makedirs(models_dir)
+                        models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
+                        
+                        if not models:
+                            print(i18n("\nNo .gguf models found in 'models' directory."))
+                            print(i18n("Please place a module file in: {}").format(models_dir))
+                            print(i18n("Falling back to Manual..."))
+                            ai_backend = "manual"
+                        else:
+                            print(i18n("\nAvailable Models:"))
+                            for idx, m in enumerate(models):
+                                print(f"{idx+1}. {m}")
+                            
+                            try:
+                                m_idx = int(input(i18n("Select Model (Number): "))) - 1
+                                if 0 <= m_idx < len(models):
+                                    args.ai_model_name = models[m_idx] # Set global arg
+                                else:
+                                    print(i18n("Invalid selection. Using first model."))
+                                    args.ai_model_name = models[0]
+                            except:
+                                 print(i18n("Invalid input. Using first model."))
+                                 args.ai_model_name = models[0]
+                                 
+                    else:
+                        ai_backend = "manual"
 
-        api_key = args.api_key
-        # Check config for API Key if using Gemini
-        if ai_backend == "gemini" and not api_key:
-            cfg_key = api_config.get("gemini", {}).get("api_key", "")
-            if cfg_key and cfg_key != "SUA_KEY_AQUI":
-                api_key = cfg_key
-        
-        if ai_backend == "gemini" and not api_key:
-             if args.skip_prompts:
-                 print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
-             else:
-                 print(i18n("Gemini API Key not found in api_config.json or arguments."))
-                 api_key = input(i18n("Enter your Gemini API Key: ")).strip()
-
+            api_key = args.api_key
+            # Check config for API Key if using Gemini
+            if ai_backend == "gemini" and not api_key:
+                cfg_key = api_config.get("gemini", {}).get("api_key", "")
+                if cfg_key and cfg_key != "SUA_KEY_AQUI":
+                    api_key = cfg_key
+            
+            if ai_backend == "gemini" and not api_key:
+                 if args.skip_prompts:
+                     print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
+                 else:
+                     print(i18n("Gemini API Key not found in api_config.json or arguments."))
+                     api_key = input(i18n("Enter your Gemini API Key: ")).strip()
     # Workflow & Face Config Inputs
     workflow_choice = args.workflow
     face_model = args.face_model
     face_mode = args.face_mode
+    if getattr(args, "pipeline_mode", "podcast") == "gaming" and args.orientation == "9:16":
+        args.orientation = "9:16_gaming_split"
+        face_mode = "none"
     if args.orientation == "9:16_gaming_split" or args.manual_crop:
         face_mode = "none"
 
@@ -728,7 +739,7 @@ def main():
             if not viral_segments:
                 # Checagem tardia para downloads novos que por acaso ja tenham json (Ex: URL repetida)
                 viral_segments_file_late = os.path.join(project_folder, "viral_segments.txt")
-                if os.path.exists(viral_segments_file_late):
+                if os.path.exists(viral_segments_file_late) and getattr(args, "pipeline_mode", "podcast") != "gaming":
                     print(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
                     if args.skip_prompts:
                         print(i18n("Skipping prompts enabled. Loading existing segments."))
@@ -746,7 +757,59 @@ def main():
                             print(i18n("Error loading existing JSON: {}.").format(e))
                     
                 if not viral_segments:
-                    if args.smart_clipping:
+                    if args.pipeline_mode == "gaming":
+                        print(i18n("Running Offline Multimodal Gaming Moment Detection Pipeline..."))
+                        from scripts import gaming_scorer, smart_clipping
+                        args.smart_remove_dead_air = False
+
+                        input_json_path = os.path.join(project_folder, "input.json")
+                        transcript_data = {}
+                        if os.path.exists(input_json_path):
+                            try:
+                                with open(input_json_path, "r", encoding="utf-8") as f:
+                                    transcript_data = json.load(f)
+                            except Exception:
+                                pass
+                        if not transcript_data:
+                            try:
+                                transcript_data = create_viral_segments.load_transcript(project_folder)
+                            except Exception:
+                                transcript_data = {}
+
+                        words = smart_clipping.extract_words_from_transcript(transcript_data)
+
+                        video_file = input_video
+                        if not video_file or not os.path.exists(video_file):
+                            cand = os.path.join(project_folder, "input.mp4")
+                            if os.path.exists(cand):
+                                video_file = cand
+
+                        video_duration = 0.0
+                        try:
+                            video_duration = transcribe_video.get_audio_duration(video_file) or 0.0
+                        except Exception:
+                            pass
+                        if not video_duration:
+                            try:
+                                video_duration = refine_segments.get_project_video_duration(project_folder) or 0.0
+                            except Exception:
+                                pass
+                        if not video_duration and words:
+                            video_duration = max(w.get("end", 0.0) for w in words)
+
+                        resolved_lang = transcript_data.get("language") or args.language
+                        viral_segments = gaming_scorer.run_gaming_clipping_pipeline(
+                            video_path=video_file,
+                            project_folder=project_folder,
+                            transcript_words=words,
+                            video_duration=video_duration,
+                            num_segments=num_segments,
+                            min_duration=args.min_duration,
+                            max_duration=args.max_duration,
+                            facecam_crop=args.gaming_facecam,
+                            language=resolved_lang
+                        )
+                    elif args.smart_clipping:
                         print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))
                         viral_segments = smart_clipping.run_smart_clipping_pipeline(
                             project_folder=project_folder,
@@ -817,7 +880,7 @@ def main():
                           # If alignment fails, it might crash later, but we tried. 
 
         # 3.6. Snap segment timing to sentence boundaries before cutting
-        if workflow_choice != "3" and viral_segments and "segments" in viral_segments:
+        if workflow_choice != "3" and getattr(args, "pipeline_mode", "podcast") != "gaming" and viral_segments and "segments" in viral_segments:
             try:
                 viral_segments = refine_segments.refine_to_sentence_boundaries(
                     viral_segments,
@@ -871,35 +934,73 @@ def main():
             print(i18n(f"Process completed! Check your results in: {project_folder}"), flush=True)
             sys.exit(0)
 
+        # Check if source video is already vertical (e.g. 9:16)
+        from scripts.gaming_split import is_vertical_video
+        video_to_probe = input_video
+        if not video_to_probe or not os.path.exists(video_to_probe):
+            cand = os.path.join(project_folder, "input.mp4")
+            if os.path.exists(cand):
+                video_to_probe = cand
+            else:
+                cuts_folder = os.path.join(project_folder, "cuts")
+                if os.path.exists(cuts_folder):
+                    c_files = [
+                        os.path.join(cuts_folder, f)
+                        for f in sorted(os.listdir(cuts_folder))
+                        if f.endswith(".mp4")
+                    ]
+                    if c_files:
+                        video_to_probe = c_files[0]
+
+        is_already_vertical = is_vertical_video(video_to_probe)
+
+        if is_already_vertical and getattr(args, "pipeline_mode", "podcast") == "gaming":
+            print(i18n("Source video is already vertical (portrait). Preserving original framing without gaming split..."))
+            args.orientation = "16:9"  # Signals preserve_original_scale
+            face_mode = "none"
+
         # 5. Edit Video / Preserve Original Framing
         if workflow_choice != "3":
-            if args.orientation == "9:16_gaming_split":
-                print(i18n("Gaming Split framing mode selected (30% facecam top / 70% gameplay bottom)..."))
-                face_mode = "none"
-                from scripts import gaming_split
+            if (is_already_vertical and getattr(args, "pipeline_mode", "podcast") == "gaming"):
+                print(i18n("Preserving original source framing..."), flush=True)
+                preserve_segments.preserve_original_scale(project_folder=project_folder)
+            elif args.orientation == "9:16_gaming_split":
                 cuts_folder = os.path.join(project_folder, "cuts")
-                final_folder = os.path.join(project_folder, "final")
-                os.makedirs(final_folder, exist_ok=True)
-                face_modes = {}
                 cut_files = [
                     f for f in sorted(os.listdir(cuts_folder))
                     if f.endswith(".mp4") and "input" not in f.lower()
                 ] if os.path.exists(cuts_folder) else []
-                for idx, c_file in enumerate(cut_files):
-                    c_path = os.path.join(cuts_folder, c_file)
-                    base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
-                    target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
-                    print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
-                    gaming_split.render_gaming_split_clip(
-                        input_path=c_path,
-                        output_path=target_out,
-                        facecam_box=args.gaming_facecam,
-                        gameplay_box=args.gaming_gameplay
-                    )
-                    face_modes[f"output{idx:03d}"] = "none"
-                modes_file = os.path.join(project_folder, "face_modes.json")
-                with open(modes_file, "w", encoding="utf-8") as f:
-                    json.dump(face_modes, f, indent=4)
+                if cut_files and is_vertical_video(os.path.join(cuts_folder, cut_files[0])):
+                    print(i18n("Source video is already vertical (portrait). Preserving original framing without gaming split..."))
+                    print(i18n("Preserving original source framing..."), flush=True)
+                    preserve_segments.preserve_original_scale(project_folder=project_folder)
+                else:
+                    print(i18n("Gaming Split framing mode selected (30% facecam top / 70% gameplay bottom)..."))
+                    face_mode = "none"
+                    from scripts import gaming_split
+                    cuts_folder = os.path.join(project_folder, "cuts")
+                    final_folder = os.path.join(project_folder, "final")
+                    os.makedirs(final_folder, exist_ok=True)
+                    face_modes = {}
+                    cut_files = [
+                        f for f in sorted(os.listdir(cuts_folder))
+                        if f.endswith(".mp4") and "input" not in f.lower()
+                    ] if os.path.exists(cuts_folder) else []
+                    for idx, c_file in enumerate(cut_files):
+                        c_path = os.path.join(cuts_folder, c_file)
+                        base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
+                        target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
+                        print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
+                        gaming_split.render_gaming_split_clip(
+                            input_path=c_path,
+                            output_path=target_out,
+                            facecam_box=args.gaming_facecam,
+                            gameplay_box=args.gaming_gameplay
+                        )
+                        face_modes[f"output{idx:03d}"] = "none"
+                    modes_file = os.path.join(project_folder, "face_modes.json")
+                    with open(modes_file, "w", encoding="utf-8") as f:
+                        json.dump(face_modes, f, indent=4)
             elif args.manual_crop:
                 print(i18n("Manual 9:16 crop framing mode selected..."))
                 face_mode = "none"

@@ -35,6 +35,7 @@ class JobRunRequest(BaseModel):
     post_roll: float = Field(default=0.75, description="Post-roll seconds")
     workflow: str = Field(default="1", description="1=Full, 2=Cut Only, 3=Subtitles Only")
     orientation: str = Field(default="9:16", description="Video orientation: 9:16, 16:9, 1:1, 9:16_gaming_split")
+    pipeline_mode: str = Field(default="podcast", description="Pipeline mode: podcast or gaming")
     gaming_facecam_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for facecam")
     gaming_gameplay_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for gameplay")
     manual_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for manual 9:16 vertical crop")
@@ -236,8 +237,24 @@ class JobRunRequest(BaseModel):
 
         # Workflow
         cmd.extend(["--workflow", str(self.workflow)])
-        if self.orientation:
-            cmd.extend(["--orientation", str(self.orientation)])
+        if self.pipeline_mode:
+            cmd.extend(["--pipeline-mode", str(self.pipeline_mode)])
+        # Auto-route orientation and face mode for gaming mode:
+        # If source video is already vertical (W < H), preserve framing with face_mode none.
+        # Otherwise for horizontal video, route default 9:16 to 9:16_gaming_split.
+        from scripts.gaming_split import is_vertical_video
+        source_is_vertical = bool(self.video_path and is_vertical_video(self.video_path))
+
+        orient = self.orientation
+        face_mode = self.face_mode
+        if self.pipeline_mode == "gaming":
+            if source_is_vertical:
+                orient = "16:9"  # preserve original framing
+                face_mode = "none"
+            elif orient == "9:16":
+                orient = "9:16_gaming_split"
+        if orient:
+            cmd.extend(["--orientation", str(orient)])
         if self.gaming_facecam_crop:
             cmd.extend(["--gaming-facecam", str(self.gaming_facecam_crop)])
         if self.gaming_gameplay_crop:
@@ -285,7 +302,7 @@ class JobRunRequest(BaseModel):
 
         # Face tracking
         cmd.extend(["--face-model", str(self.face_model)])
-        cmd.extend(["--face-mode", str(self.face_mode)])
+        cmd.extend(["--face-mode", str(face_mode)])
         cmd.extend(["--no-face-mode", str(self.no_face_mode)])
         if self.face_detect_interval:
             cmd.extend(["--face-detect-interval", str(self.face_detect_interval)])

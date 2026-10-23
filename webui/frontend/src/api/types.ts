@@ -20,6 +20,7 @@ export interface JobRunRequest {
   video_quality?: string;
   skip_youtube_subs?: boolean;
   translate_target?: string;
+  pipeline_mode?: 'podcast' | 'gaming';
 
   // Segmentation & Duration
   segments?: number;
