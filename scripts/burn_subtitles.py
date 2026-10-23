@@ -446,7 +446,6 @@ def burn_video_file(
                 validation,
             )
         except Exception as nvenc_error:
-            _NVENC_AVAILABLE = False
             if isinstance(
                 nvenc_error,
                 subprocess.CalledProcessError,
@@ -460,6 +459,10 @@ def burn_video_file(
                     nvenc_error
                 ).strip()
 
+            is_complex = bool(valid_broll or watermark_enabled or broll_items)
+            is_nvenc_err = any(kw in nvenc_detail.lower() for kw in ("nvenc", "cuda", "device"))
+            if not is_complex or is_nvenc_err:
+                _NVENC_AVAILABLE = False
             print(
                 "NVENC render failed. "
                 "Falling back to libx264."

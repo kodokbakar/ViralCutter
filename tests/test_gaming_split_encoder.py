@@ -24,6 +24,17 @@ def test_get_best_encoder_fallback_on_probe_failure():
         assert codec == "libx264"
         assert preset == "ultrafast"
 
+
+def test_get_best_encoder_nvenc_fails_checks_amf_and_qsv():
+    with patch("scripts.gaming_split._CACHED_ENCODER", None), \
+         patch("subprocess.run") as mock_run:
+        mock_encoders = MagicMock(stdout=" V....D h264_nvenc NVIDIA NVENC H.264 encoder\n V....D h264_amf AMD AMF H.264 encoder\n")
+        mock_nvenc_fail = subprocess.CalledProcessError(255, ["ffmpeg"])
+        mock_run.side_effect = [mock_encoders, mock_nvenc_fail]
+
+        codec, preset, extra_args = gaming_split.get_best_encoder()
+        assert codec == "h264_amf"
+        assert preset == "speed"
 def test_build_manual_crop_filter_defaults_to_bicubic():
     filt = gaming_split.build_manual_crop_filter(
         crop_box=gaming_split.DEFAULT_MANUAL_CROP_BOX,
@@ -140,4 +151,72 @@ def test_render_manual_crop_clip_audio_copy_fails_falls_back_to_aac(tmp_path):
         res = gaming_split.render_manual_crop_clip(str(in_video), str(out_video))
         assert res == str(out_video)
         # Confirm fallback to aac occurred
+        assert any("-c:a" in c and c[c.index("-c:a") + 1] == "aac" for c in commands_executed)
+
+def test_render_gaming_split_clip_uses_best_encoder(tmp_path):
+    in_video = tmp_path / "in.mp4"
+    in_video.write_text("fake video")
+    out_video = tmp_path / "out.mp4"
+
+    commands_executed = []
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        commands_executed.append(list(cmd))
+        return MagicMock(returncode=0)
+
+    with patch("scripts.gaming_split._CACHED_ENCODER", ("h264_nvenc", "p1", ["-b:v", "5M"])), \
+         patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080)), \
+         patch("subprocess.run", side_effect=fake_subprocess_run):
+
+        res = gaming_split.render_gaming_split_clip(str(in_video), str(out_video))
+        assert res == str(out_video)
+        assert len(commands_executed) == 1
+        cmd = commands_executed[0]
+        assert "-c:v" in cmd
+        assert cmd[cmd.index("-c:v") + 1] == "h264_nvenc"
+        assert "-preset" in cmd
+        assert cmd[cmd.index("-preset") + 1] == "p1"
+        assert "-b:v" in cmd
+        assert cmd[cmd.index("-b:v") + 1] == "5M"
+
+def test_render_gaming_split_clip_recovers_from_hardware_encoder_failure(tmp_path):
+    in_video = tmp_path / "in.mp4"
+    in_video.write_text("fake video")
+    out_video = tmp_path / "out.mp4"
+
+    commands_executed = []
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        commands_executed.append(list(cmd))
+        if "-c:v" in cmd:
+            idx = cmd.index("-c:v")
+            if cmd[idx + 1] == "h264_nvenc":
+                raise subprocess.CalledProcessError(255, cmd, stderr="NVENC failed")
+        return MagicMock(returncode=0)
+
+    with patch("scripts.gaming_split._CACHED_ENCODER", ("h264_nvenc", "p1", ["-b:v", "5M"])), \
+         patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080)), \
+         patch("subprocess.run", side_effect=fake_subprocess_run):
+
+        res = gaming_split.render_gaming_split_clip(str(in_video), str(out_video))
+        assert res == str(out_video)
+        assert gaming_split._CACHED_ENCODER[0] == "libx264"
+        assert any("-c:v" in c and c[c.index("-c:v") + 1] == "libx264" for c in commands_executed)
+
+def test_render_gaming_split_clip_audio_copy_fails_falls_back_to_aac(tmp_path):
+    in_video = tmp_path / "in.mp4"
+    in_video.write_text("fake video")
+    out_video = tmp_path / "out.mp4"
+
+    commands_executed = []
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        commands_executed.append(list(cmd))
+        if "-c:a" in cmd and cmd[cmd.index("-c:a") + 1] == "copy":
+            raise subprocess.CalledProcessError(1, cmd, stderr="Cannot copy audio")
+        return MagicMock(returncode=0)
+
+    with patch("scripts.gaming_split._CACHED_ENCODER", ("libx264", "ultrafast", ["-crf", "18"])), \
+         patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080)), \
+         patch("subprocess.run", side_effect=fake_subprocess_run):
+
+        res = gaming_split.render_gaming_split_clip(str(in_video), str(out_video))
+        assert res == str(out_video)
         assert any("-c:a" in c and c[c.index("-c:a") + 1] == "aac" for c in commands_executed)
