@@ -13,6 +13,7 @@ from scripts import (
     watermark,
 )
 
+_NVENC_AVAILABLE = None
 
 def _escape_filter_path(path):
     return (
@@ -40,7 +41,6 @@ def _build_subtitle_filter(
     )
 
 def _probe_duration(path):
-    # Prefer video stream duration to catch truncated/frozen video streams
     try:
         result_stream = subprocess.run(
             [
@@ -59,11 +59,37 @@ def _probe_duration(path):
             capture_output=True,
             text=True,
         )
-        val = result_stream.stdout.strip()
+        val = result_stream.stdout.strip() if result_stream.stdout else ""
         if val and val != "N/A":
             return float(val)
     except Exception:
         pass
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        val = result.stdout.strip() if result.stdout else ""
+        if val and val != "N/A":
+            return float(val)
+    except Exception:
+        pass
+
+    return 3.0
+
+
 def _probe_has_audio(path):
     try:
         cmd = [
@@ -79,34 +105,10 @@ def _probe_has_audio(path):
             path,
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return bool(res.stdout.strip())
+        val = res.stdout.strip() if res.stdout else ""
+        return bool(val)
     except Exception:
         return False
-
-
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            (
-                "default="
-                "noprint_wrappers=1:"
-                "nokey=1"
-            ),
-            path,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    return float(
-        result.stdout.strip()
-    )
 
 
 def _validate_render(
@@ -209,6 +211,7 @@ def burn_video_file(
     def run_ffmpeg(
         encoder,
         preset,
+        bypass_complex=False,
     ):
         command = [
             "ffmpeg",
@@ -221,49 +224,54 @@ def burn_video_file(
         ]
         input_count = 1
         watermark_in_idx = None
-        if watermark_enabled:
-            command.extend(["-i", watermark_asset])
-            watermark_in_idx = input_count
-            input_count += 1
-
         broll_in_indices = []
-        for b_item in valid_broll:
-            v_path = b_item["video_path"]
-            if str(v_path).lower().endswith(".webm"):
-                command.extend(["-c:v", "libvpx-vp9"])
-            command.extend(["-i", v_path])
-            broll_in_indices.append(input_count)
-            input_count += 1
-
         sfx_in_list = []
-        if enable_broll_sfx and valid_broll:
-            try:
-                from scripts import broll_sfx
-                for b_idx, b_item in enumerate(valid_broll):
-                    tpl_id = b_item.get("template_id", "stat_counter")
-                    sfx_path = broll_sfx.get_sfx_path_for_template(tpl_id)
-                    if sfx_path and os.path.exists(sfx_path):
-                        start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
-                        command.extend(["-i", sfx_path])
-                        sfx_in_list.append((input_count, start, b_idx))
-                        input_count += 1
-            except Exception as sfx_err:
-                print(f"[WARN] Failed to load B-roll SFX: {sfx_err}")
+
+        if not bypass_complex:
+            if watermark_enabled:
+                command.extend(["-i", watermark_asset])
+                watermark_in_idx = input_count
+                input_count += 1
+
+            for b_item in valid_broll:
+                v_path = b_item["video_path"]
+                if str(v_path).lower().endswith(".webm"):
+                    command.extend(["-c:v", "libvpx-vp9"])
+                command.extend(["-i", v_path])
+                broll_in_indices.append(input_count)
+                input_count += 1
+
+            if enable_broll_sfx and valid_broll:
+                try:
+                    from scripts import broll_sfx
+                    for b_idx, b_item in enumerate(valid_broll):
+                        tpl_id = b_item.get("template_id", "stat_counter")
+                        sfx_path = broll_sfx.get_sfx_path_for_template(tpl_id)
+                        if sfx_path and os.path.exists(sfx_path):
+                            start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
+                            command.extend(["-i", sfx_path])
+                            sfx_in_list.append((input_count, start, b_idx))
+                            input_count += 1
+                except Exception as sfx_err:
+                    print(f"[WARN] Failed to load B-roll SFX: {sfx_err}")
 
         has_main_audio = _probe_has_audio(video_path)
-        mix_audio = bool(sfx_in_list)
+        mix_audio = bool(sfx_in_list) and not bypass_complex
 
-        if valid_broll or watermark_enabled or mix_audio:
+        if (valid_broll or watermark_enabled or mix_audio) and not bypass_complex:
             filter_parts = []
             current_stream = "0:v"
             for b_idx, (broll_in_idx, b_item) in enumerate(zip(broll_in_indices, valid_broll)):
-                start = max(0.0, float(b_item.get("start_offset", b_item.get("start_time", 0.0))))
+                raw_start = b_item.get("start_offset")
+                if raw_start is None:
+                    raw_start = b_item.get("start_time", 0.0)
+                start = max(0.0, float(raw_start or 0.0))
                 dur = b_item.get("duration")
                 if dur is not None and float(dur) > 0:
                     duration = float(dur)
                 else:
                     try:
-                        duration = _probe_duration(b_item["video_path"])
+                        duration = float(_probe_duration(b_item["video_path"]) or 3.0)
                     except Exception:
                         duration = 3.0
                 end = start + duration
@@ -424,42 +432,44 @@ def burn_video_file(
             output_path,
         )
 
-    try:
-        validation = run_ffmpeg(
-            "h264_nvenc",
-            "p1",
-        )
+    global _NVENC_AVAILABLE
+    if _NVENC_AVAILABLE is not False:
+        try:
+            validation = run_ffmpeg(
+                "h264_nvenc",
+                "p1",
+            )
+            _NVENC_AVAILABLE = True
+            return (
+                True,
+                "NVENC Success",
+                validation,
+            )
+        except Exception as nvenc_error:
+            _NVENC_AVAILABLE = False
+            if isinstance(
+                nvenc_error,
+                subprocess.CalledProcessError,
+            ):
+                nvenc_detail = (
+                    nvenc_error.stderr
+                    or ""
+                ).strip()
+            else:
+                nvenc_detail = str(
+                    nvenc_error
+                ).strip()
 
-        return (
-            True,
-            "NVENC Success",
-            validation,
-        )
-
-    except Exception as nvenc_error:
-        if isinstance(
-            nvenc_error,
-            subprocess.CalledProcessError,
-        ):
-            nvenc_detail = (
-                nvenc_error.stderr
-                or ""
-            ).strip()
-        else:
-            nvenc_detail = str(
-                nvenc_error
-            ).strip()
-
-        print(
-            "NVENC render failed. "
-            "Falling back to libx264."
-            + (
-                f" Details: {nvenc_detail}"
-                if nvenc_detail
-                else ""
-            ),
-            flush=True,
-        )
+            print(
+                "NVENC render failed. "
+                "Falling back to libx264."
+                + (
+                    f" Details: {nvenc_detail}"
+                    if nvenc_detail
+                    else ""
+                ),
+                flush=True,
+            )
 
     try:
         validation = run_ffmpeg(
@@ -474,6 +484,18 @@ def burn_video_file(
         )
 
     except Exception as cpu_error:
+        if valid_broll or watermark_enabled or bool(broll_items):
+            print("[WARN] Complex filter render failed. Falling back to simple subtitle burn...", flush=True)
+            try:
+                validation = run_ffmpeg("libx264", "ultrafast", bypass_complex=True)
+                return (
+                    True,
+                    "CPU Fallback Success (Simple Subs)",
+                    validation,
+                )
+            except Exception as fallback_err:
+                pass
+
         if isinstance(
             cpu_error,
             subprocess.CalledProcessError,
