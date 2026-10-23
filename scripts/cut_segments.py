@@ -7,16 +7,14 @@ import json
 # Explicitly flush all standard output prints immediately
 print = functools.partial(print, flush=True)
 
+def check_nvenc_support():
+    try:
+        result = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
+        return "h264_nvenc" in result.stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
 def cut(segments, project_folder="tmp", skip_video=False):
-
-    def check_nvenc_support():
-        # ... (unchanged)
-        try:
-            result = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
-            return "h264_nvenc" in result.stdout
-        except subprocess.CalledProcessError:
-            return False
-
     def generate_segments(response, project_folder, skip_video):
         if not check_nvenc_support():
             print("NVENC is not supported on this system. Falling back to libx264.")
@@ -122,41 +120,50 @@ def cut(segments, project_folder="tmp", skip_video=False):
 
             # VIDEO GENERATION
             if not skip_video:
-                # Comando ffmpeg
-                command = [
-                    "ffmpeg",
-                    "-y",
-                    "-loglevel", "error", "-hide_banner",
-                    "-ss", start_time_str,
-                    "-i", input_file,
-                    "-t", duration_str,
-                    "-c:v", video_codec
-                ]
-
-                if video_codec == "h264_nvenc":
-                    command.extend([
-                        "-preset", "p1",
-                        "-b:v", "5M",
-                    ])
+                sub_slices = segment.get("segments_to_splice") or segment.get("sub_segments")
+                if sub_slices and isinstance(sub_slices, list) and len(sub_slices) > 1:
+                    from scripts.smart_clipping import splice_topic_segments
+                    try:
+                        splice_topic_segments(input_file, [(float(s), float(e)) for s, e in sub_slices], output_path)
+                        print(f"Generated spliced segment: {output_filename}", flush=True)
+                    except Exception as e:
+                        print(f"Error splicing segment {i+1}: {e}", flush=True)
                 else:
+                    # Comando ffmpeg
+                    command = [
+                        "ffmpeg",
+                        "-y",
+                        "-loglevel", "error", "-hide_banner",
+                        "-ss", start_time_str,
+                        "-i", input_file,
+                        "-t", duration_str,
+                        "-c:v", video_codec
+                    ]
+
+                    if video_codec == "h264_nvenc":
+                        command.extend([
+                            "-preset", "p1",
+                            "-b:v", "5M",
+                        ])
+                    else:
+                        command.extend([
+                            "-preset", "ultrafast",
+                            "-crf", "23"
+                        ])
+
                     command.extend([
-                        "-preset", "ultrafast",
-                        "-crf", "23"
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        output_path
                     ])
 
-                command.extend([
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    output_path
-                ])
-
-                try:
-                    subprocess.run(command, check=True, text=True)
-                    if os.path.exists(output_path):
-                        file_size = os.path.getsize(output_path)
-                        print(f"Generated segment: {output_filename}, Size: {file_size} bytes", flush=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"Error executing ffmpeg: {e}", flush=True)
+                    try:
+                        subprocess.run(command, check=True, text=True)
+                        if os.path.exists(output_path):
+                            file_size = os.path.getsize(output_path)
+                            print(f"Generated segment: {output_filename}, Size: {file_size} bytes", flush=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Error executing ffmpeg: {e}", flush=True)
             else:
                 print(f"Skipping video generation for {output_filename} (using existing). check json...", flush=True)
             
