@@ -151,7 +151,8 @@ def test_burn_video_file_with_broll_and_watermark():
 
 def test_main_cli_arg_enable_html_broll():
     import subprocess
-    res = subprocess.run(["python3", "main_improved.py", "--help"], capture_output=True, text=True, check=True)
+    import sys
+    res = subprocess.run([sys.executable, "main_improved.py", "--help"], capture_output=True, text=True, check=True)
     assert "--enable-html-broll" in res.stdout
     assert "--enable-broll-sfx" in res.stdout
     assert "--broll-sfx-volume" in res.stdout

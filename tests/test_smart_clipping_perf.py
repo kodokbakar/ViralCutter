@@ -63,3 +63,107 @@ def test_cut_segments_handles_segments_to_splice(tmp_path):
         mock_splice.assert_called_once()
         args, kwargs = mock_splice.call_args
         assert args[1] == [(0.0, 5.0), (10.0, 20.0)]
+
+def test_smart_clipping_calls_splice_when_render_clips_true(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+
+    mock_topics = [{
+        "title": "Topic 1",
+        "score": 90,
+        "rationale": "Great hook",
+        "segments": {
+            "hook": {"start_time": 0.0, "end_time": 5.0, "text": "Hook"},
+            "core": {"start_time": 10.0, "end_time": 20.0, "text": "Core"},
+            "payoff": {"start_time": 25.0, "end_time": 30.0, "text": "Payoff"}
+        }
+    }]
+
+    with patch("scripts.smart_clipping.extract_words_from_transcript", return_value=[]), \
+         patch("scripts.create_viral_segments.load_transcript", return_value=[]), \
+         patch("scripts.create_viral_segments.preprocess_transcript_for_ai", return_value="test text"), \
+         patch("scripts.smart_clipping.query_ai_backend", return_value="{}"), \
+         patch("scripts.smart_clipping.parse_narrative_topics", return_value=mock_topics), \
+         patch("scripts.smart_clipping.compute_audio_energy_score", return_value=80.0), \
+         patch("scripts.smart_clipping.splice_topic_segments") as mock_splice:
+
+        res = smart_clipping.run_smart_clipping_pipeline(
+            project_folder=project_folder,
+            render_clips=True
+        )
+
+        assert "segments" in res
+        mock_splice.assert_called_once()
+
+def test_cut_segments_skip_video_skips_splicing(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [{
+            "title": "Multi Slice Segment",
+            "score": 88,
+            "start_time": 0.0,
+            "duration": 15.0,
+            "segments_to_splice": [(0.0, 5.0), (10.0, 20.0)]
+        }]
+    }
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=False), \
+         patch("scripts.smart_clipping.splice_topic_segments") as mock_splice, \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=True)
+        mock_splice.assert_not_called()
+
+def test_cut_segments_single_slice_does_not_splice(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [{
+            "title": "Single Slice Segment",
+            "score": 88,
+            "start_time": 0.0,
+            "duration": 5.0,
+            "segments_to_splice": [(0.0, 5.0)]
+        }]
+    }
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=False), \
+         patch("scripts.smart_clipping.splice_topic_segments") as mock_splice, \
+         patch("subprocess.run") as mock_run, \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=False)
+        mock_splice.assert_not_called()
+        mock_run.assert_called_once()
+
+def test_cut_segments_sub_segments_fallback(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [{
+            "title": "Sub Segments Fallback",
+            "score": 85,
+            "start_time": 0.0,
+            "duration": 12.0,
+            "sub_segments": [(0.0, 4.0), (8.0, 16.0)]
+        }]
+    }
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=False), \
+         patch("scripts.smart_clipping.splice_topic_segments") as mock_splice, \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=False)
+        mock_splice.assert_called_once()
+        args, _ = mock_splice.call_args
+        assert args[1] == [(0.0, 4.0), (8.0, 16.0)]
