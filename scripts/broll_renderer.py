@@ -40,6 +40,12 @@ def render_broll_clip(
         "libvpx-vp9",
         "-pix_fmt",
         "yuva420p",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-row-mt",
+        "1",
         "-b:v",
         "2M",
         "-auto-alt-ref",
@@ -63,17 +69,25 @@ def render_broll_clip(
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
+                    "--disable-extensions",
+                    "--no-default-browser-check",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
                 ],
             )
-            context = browser.new_context(viewport={"width": 1080, "height": 1920})
+            context = browser.new_context(
+                viewport={"width": 1080, "height": 1920},
+                device_scale_factor=1,
+            )
             page = context.new_page()
-            page.goto(f"file://{os.path.abspath(temp_html_path)}")
+            page.goto(f"file://{os.path.abspath(temp_html_path)}", wait_until="domcontentloaded")
 
             denominator = max(1, total_frames - 1)
             for frame_idx in range(total_frames):
                 progress = frame_idx / denominator
                 page.evaluate(f"window.renderSeek({progress})")
-                frame_bytes = page.screenshot(type="png", omit_background=True)
+                frame_bytes = page.screenshot(type="png", omit_background=True, animations="disabled")
                 proc.stdin.write(frame_bytes)
 
             browser.close()
