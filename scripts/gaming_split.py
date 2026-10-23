@@ -1,7 +1,43 @@
 import os
 import re
 import subprocess
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
+
+_CACHED_ENCODER = None
+
+def get_best_encoder() -> Tuple[str, str, List[str]]:
+    """
+    Detects best available video encoder with hardware acceleration and caching.
+    Returns (codec_name, preset, extra_args).
+    """
+    global _CACHED_ENCODER
+    if _CACHED_ENCODER is not None:
+        return _CACHED_ENCODER
+
+    try:
+        res = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True)
+        out = res.stdout or ""
+
+        # 1. Try NVENC with quick 1-frame probe
+        if "h264_nvenc" in out:
+            probe = subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=d=0.1:s=64x64:r=1", "-c:v", "h264_nvenc", "-f", "null", "-"],
+                capture_output=True,
+                check=True
+            )
+            _CACHED_ENCODER = ("h264_nvenc", "p1", ["-b:v", "5M"])
+            return _CACHED_ENCODER
+        elif "h264_amf" in out:
+            _CACHED_ENCODER = ("h264_amf", "speed", ["-b:v", "5M"])
+            return _CACHED_ENCODER
+        elif "h264_qsv" in out:
+            _CACHED_ENCODER = ("h264_qsv", "veryfast", ["-b:v", "5M"])
+            return _CACHED_ENCODER
+    except Exception:
+        pass
+
+    _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
+    return _CACHED_ENCODER
 
 DEFAULT_FACECAM_BOX = "0.68,0.05,0.28,0.1493"
 DEFAULT_GAMEPLAY_BOX = "0.25,0.0,0.50,0.622"
@@ -68,7 +104,8 @@ def build_gaming_split_filter(
     facecam_box: str,
     gameplay_box: str,
     src_w: int,
-    src_h: int
+    src_h: int,
+    scale_flags: str = "bicubic"
 ) -> str:
     """
     Generates FFmpeg filter_complex string for vertical stacking:
@@ -81,8 +118,8 @@ def build_gaming_split_filter(
 
     return (
         f"[0:v]split=2[raw_cam][raw_game];"
-        f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:576:flags=lanczos[cam_top];"
-        f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1344:flags=lanczos[game_bottom];"
+        f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:576:flags={scale_flags}[cam_top];"
+        f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1344:flags={scale_flags}[game_bottom];"
         f"[cam_top][game_bottom]vstack=inputs=2[stacked_v]"
     )
 
@@ -161,13 +198,14 @@ def build_manual_crop_filter(
     src_w: int,
     src_h: int,
     target_w: int = 1080,
-    target_h: int = 1920
+    target_h: int = 1920,
+    scale_flags: str = "bicubic"
 ) -> str:
     """
     Generates FFmpeg filter string to crop and scale source video to 9:16 (1080x1920).
     """
     px_x, px_y, px_w, px_h = to_pixel_box(crop_box or DEFAULT_MANUAL_CROP_BOX, src_w, src_h)
-    return f"crop={px_w}:{px_h}:{px_x}:{px_y},scale={target_w}:{target_h}:flags=lanczos"
+    return f"crop={px_w}:{px_h}:{px_x}:{px_y},scale={target_w}:{target_h}:flags={scale_flags}"
 
 def render_manual_crop_clip(
     input_path: str,
@@ -184,23 +222,36 @@ def render_manual_crop_clip(
     src_w, src_h = probe_video_dimensions(input_path)
     vf = build_manual_crop_filter(crop_box, src_w, src_h)
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", input_path,
-        "-vf", vf,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
-        output_path
-    ]
+    codec, preset, extra_args = get_best_encoder()
 
+    def _build_cmd(c, p, extra, a_codec):
+        return [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", vf,
+            "-c:v", c,
+            "-preset", p,
+            *extra,
+            "-pix_fmt", "yuv420p",
+            "-c:a", a_codec,
+            output_path
+        ]
+
+    cmd = _build_cmd(codec, preset, extra_args, "copy")
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     except subprocess.CalledProcessError:
-        cmd_aac = list(cmd)
-        cmd_aac[cmd_aac.index("-c:a") + 1] = "aac"
+        global _CACHED_ENCODER
+        if codec != "libx264":
+            _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
+            codec, preset, extra_args = _CACHED_ENCODER
+            try:
+                cmd_cpu = _build_cmd(codec, preset, extra_args, "copy")
+                subprocess.run(cmd_cpu, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                return output_path
+            except subprocess.CalledProcessError:
+                pass
+        cmd_aac = _build_cmd(codec, preset, extra_args, "aac")
         subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
     return output_path

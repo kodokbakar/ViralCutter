@@ -26,7 +26,7 @@ def test_build_manual_crop_filter():
         src_h=1080
     )
     assert "crop=" in filt
-    assert "scale=1080:1920:flags=lanczos" in filt
+    assert "scale=1080:1920:flags=bicubic" in filt
 
 def test_manual_crop_cli_flag_in_help():
     import subprocess
