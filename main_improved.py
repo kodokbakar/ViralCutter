@@ -759,7 +759,7 @@ def main():
                 if not viral_segments:
                     if args.pipeline_mode == "gaming":
                         print(i18n("Running Offline Multimodal Gaming Moment Detection Pipeline..."))
-                        from scripts import gaming_scorer, smart_clipping
+                        from scripts import gaming_scorer
                         args.smart_remove_dead_air = False
 
                         input_json_path = os.path.join(project_folder, "input.json")
