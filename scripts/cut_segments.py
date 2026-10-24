@@ -119,12 +119,17 @@ def cut(segments, project_folder="tmp", skip_video=False):
             # print(f"Executing command: {' '.join(command)}")
 
             # VIDEO GENERATION
+            sub_slices = segment.get("segments_to_splice") or segment.get("sub_segments")
             if not skip_video:
-                sub_slices = segment.get("segments_to_splice") or segment.get("sub_segments")
                 if sub_slices and isinstance(sub_slices, list) and len(sub_slices) > 1:
                     from scripts.smart_clipping import splice_topic_segments
                     try:
-                        splice_topic_segments(input_file, [(float(s), float(e)) for s, e in sub_slices], output_path)
+                        splice_topic_segments(
+                            input_file,
+                            [(float(s), float(e)) for s, e in sub_slices],
+                            output_path,
+                            video_codec=video_codec,
+                        )
                         print(f"Generated spliced segment: {output_filename}", flush=True)
                     except Exception as e:
                         print(f"Error splicing segment {i+1}: {e}", flush=True)
@@ -181,7 +186,8 @@ def cut(segments, project_folder="tmp", skip_video=False):
                 start_time_seconds,
                 end_time_seconds,
                 hook_title=seg_hook_title,
-                title=segment.get("title")
+                title=segment.get("title"),
+                segments_to_splice=sub_slices,
             )
             # --------------------
 
