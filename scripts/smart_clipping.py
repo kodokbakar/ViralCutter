@@ -511,29 +511,50 @@ def extract_audio_for_transcription(video_path: str, output_wav: str) -> str:
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return output_wav
 
-def build_ffmpeg_cut_command(video_path: str, start: float, end: float, output_path: str) -> List[str]:
+def build_ffmpeg_cut_command(
+    video_path: str,
+    start: float,
+    end: float,
+    output_path: str,
+    video_codec: Optional[str] = None,
+    preset: Optional[str] = None,
+) -> List[str]:
     """
     Builds FFmpeg command to cut a segment accurately with re-encoding to avoid keyframe offset.
     """
-    return [
+    cmd = [
         "ffmpeg", "-y",
         "-ss", f"{float(start):.3f}",
         "-to", f"{float(end):.3f}",
         "-i", video_path,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
+    ]
+    if video_codec == "h264_nvenc":
+        cmd.extend([
+            "-c:v", "h264_nvenc",
+            "-preset", preset or "p1",
+            "-b:v", "5M",
+        ])
+    else:
+        cmd.extend([
+            "-c:v", video_codec or "libx264",
+            "-preset", preset or "fast",
+            "-crf", "18",
+        ])
+    cmd.extend([
         "-c:a", "aac",
         "-b:a", "192k",
         "-avoid_negative_ts", "make_zero",
         output_path
-    ]
+    ])
+    return cmd
 
 def splice_topic_segments(
     video_path: str,
     segments: List[Tuple[float, float]],
     output_path: str,
-    temp_dir: Optional[str] = None
+    temp_dir: Optional[str] = None,
+    video_codec: Optional[str] = None,
+    preset: Optional[str] = None,
 ) -> str:
     """
     Extracts sub-segments and splices them into one video file.
@@ -554,7 +575,9 @@ def splice_topic_segments(
 
     if len(valid_segs) == 1:
         s, e = valid_segs[0]
-        cmd = build_ffmpeg_cut_command(video_path, s, e, output_path)
+        cmd = build_ffmpeg_cut_command(
+            video_path, s, e, output_path, video_codec=video_codec, preset=preset
+        )
         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return output_path
 
@@ -568,7 +591,9 @@ def splice_topic_segments(
     try:
         for idx, (s, e) in enumerate(valid_segs):
             sub_path = os.path.join(temp_dir, f"subseg_{idx:03d}.mp4")
-            cmd = build_ffmpeg_cut_command(video_path, s, e, sub_path)
+            cmd = build_ffmpeg_cut_command(
+                video_path, s, e, sub_path, video_codec=video_codec, preset=preset
+            )
             subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             sub_files.append(sub_path)
 
