@@ -11,9 +11,7 @@
 ## 1. Project Profile (fill in per project)
 
 | Item | Value |
-
 |---|---|
-
 | Name | `ViralCutter` |
 | Purpose | Open-source AI tool to turn long videos into viral shorts (TikTok/Reels/Shorts) with dynamic captions, face tracking, and smart clipping. |
 | Language / framework | Python 3.10+ (FastAPI, WhisperX, PyTorch, OpenCV, MediaPipe) + TypeScript / React 19 (Vite, TailwindCSS) |
@@ -38,24 +36,15 @@ Never invent a command you have not seen in the repo or run successfully.
 ## 2. Team
 
 | Role | Agent file | Edits production code | Edits tests | Gate / verdict |
-
 |---|---|---|---|---|
-
 | Orchestrator | *(main omp session, not a file)* | No | No | Decides next step, escalates to the human |
-
-| Planner | [`planner.md`](http://planner.md) | No | No | — |
-
-| Researcher *(on demand)* | [`researcher.md`](http://researcher.md) | No | No | — |
-
-| Debugger | [`debugger.md`](http://debugger.md) | No | One regression test only | — |
-
-| Developer | [`developer.md`](http://developer.md) | \*\*Yes\*\* | Tests for its own change | — |
-
-| Tester | [`tester.md`](http://tester.md) | \*\*No\*\* | \*\*Yes\*\* (test paths only) | `PASS` / `FAIL` |
-
-| Reviewer | [`reviewer.md`](http://reviewer.md) | \*\*No\*\* | \*\*No\*\* | `APPROVE` / `REQUEST_CHANGES` / `ESCALATE` |
-
-| Integrator | [`integrator.md`](http://integrator.md) | Conflict resolution only | No | Integration checks result |
+| Planner | `planner.md` | No | No | — |
+| Researcher *(on demand)* | `researcher.md` | No | No | — |
+| Debugger | `debugger.md` | No | One regression test only | — |
+| Developer | `developer.md` | **Yes** | Tests for its own change | — |
+| Tester | `tester.md` | **No** | **Yes** (test paths only) | `PASS` / `FAIL` |
+| Reviewer | `reviewer.md` | **No** | **No** | `APPROVE` / `REQUEST_CHANGES` / `ESCALATE` |
+| Integrator | `integrator.md` | Conflict resolution only | No | Integration checks result |
 
 Only the orchestrator spawns agents. Subagents never spawn other agents.
 
@@ -108,15 +97,10 @@ Only the orchestrator spawns agents. Subagents never spawn other agents.
 \*\*Do this instead:\*\*
 
 | You want to… | Do this |
-
 |---|---|
-
 | Save work in progress | Commit it on the worktree branch (`wip: …`). Never stash. |
-
 | Undo your own change | Edit the file back by hand, or `git revert <sha>`. |
-
 | Abort a bad merge | `git merge --abort` |
-
 | Compare with another state | `git diff`, `git show <sha>:<path>` |
 
 If you believe you need a forbidden command, \*\*stop\*\* and return `NEEDS_DECISION`.
@@ -264,15 +248,10 @@ Severity: \*\*BLOCKER\*\* breaks correctness/security/data · \*\*MAJOR\*\* like
 ## 7. Loop Prevention and Escalation
 
 | Loop | Max rounds |
-
 |---|---|
-
 | Developer ↔ Reviewer | 3 |
-
 | Developer ↔ Tester | 3 |
-
 | Debugger attempts at root cause | 2 |
-
 | Total agent spawns per ID | 12 |
 
 The orchestrator must \*\*stop and escalate to the human\*\* when any of these happens:
