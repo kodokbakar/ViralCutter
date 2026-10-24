@@ -208,3 +208,33 @@ def test_complex_filter_non_nvenc_error_preserves_nvenc_availability(tmp_path):
         assert burn_subtitles._NVENC_AVAILABLE is True
         # Both clips attempted NVENC
         assert calls.count("h264_nvenc") == 2
+
+def test_complex_filter_nvenc_error_disables_nvenc_availability(tmp_path):
+    video_path = str(tmp_path / "in.mp4")
+    (tmp_path / "in.mp4").write_bytes(b"fake video")
+    sub_path = str(tmp_path / "in.ass")
+    (tmp_path / "in.ass").write_text("[Script Info]\n")
+    broll_webm = str(tmp_path / "broll.webm")
+    (tmp_path / "broll.webm").write_bytes(b"dummy webm")
+    out_1 = str(tmp_path / "out1.mp4")
+
+    burn_subtitles._NVENC_AVAILABLE = None
+
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        idx = len(cmd) - 1 - cmd[::-1].index("-c:v")
+        encoder = cmd[idx + 1]
+        if encoder == "h264_nvenc":
+            raise subprocess.CalledProcessError(1, cmd, stderr="NVENC encoder error: device out of memory")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    with patch("subprocess.run", side_effect=fake_subprocess_run), \
+         patch("scripts.burn_subtitles._validate_render", return_value=True):
+
+        ok1, msg1, val1 = burn_subtitles.burn_video_file(
+            video_path=video_path,
+            subtitle_path=sub_path,
+            output_path=out_1,
+            broll_items=[{"video_path": broll_webm}]
+        )
+        assert ok1 is True
+        assert burn_subtitles._NVENC_AVAILABLE is False
