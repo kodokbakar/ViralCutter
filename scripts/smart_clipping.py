@@ -607,6 +607,7 @@ def run_smart_clipping_pipeline(
     num_segments: int = 3,
     chunk_size_arg: Optional[Any] = None,
     prompt_file_arg: Optional[str] = None,
+    render_clips: bool = False,
 ) -> Dict[str, Any]:
     """
     End-to-end automated smart clipping pipeline:
@@ -756,13 +757,12 @@ def run_smart_clipping_pipeline(
         output_filename = f"{idx+1:03d}_{final_score}_{safe_title}.mp4"
         output_clip_path = os.path.join(clips_folder, output_filename)
 
-        if os.path.exists(input_video) and segments_to_splice:
+        if render_clips and os.path.exists(input_video) and segments_to_splice:
             print(f"[SMART-CLIPPING] Splicing topic {idx+1}/{len(topics)}: '{title}' ({len(segments_to_splice)} parts)...")
             try:
                 splice_topic_segments(input_video, segments_to_splice, output_clip_path)
             except Exception as e:
                 print(f"[SMART-CLIPPING] Error splicing clip {idx+1}: {e}")
-
         earliest_start = min(s for s, e in segments_to_splice) if segments_to_splice else 0.0
         latest_end = max(e for s, e in segments_to_splice) if segments_to_splice else min_duration
         total_duration = sum(e - s for s, e in segments_to_splice) if segments_to_splice else (latest_end - earliest_start)
@@ -800,6 +800,7 @@ def run_smart_clipping_pipeline(
             "payoff": payoff,
             "smart_clip_path": output_clip_path,
             "broll_items": final_broll,
+            "segments_to_splice": segments_to_splice,
         })
 
     return {"segments": viral_segments_list}
