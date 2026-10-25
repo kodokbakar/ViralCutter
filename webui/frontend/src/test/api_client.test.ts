@@ -330,6 +330,9 @@ describe('API Client Layer', () => {
         if (event === 'message' && this.onmessage && !called.has(this.onmessage)) {
           this.onmessage(ev);
         }
+        if (event === 'error' && this.onerror && !called.has(this.onerror)) {
+          this.onerror(ev);
+        }
       }
 
       close() {
@@ -419,6 +422,55 @@ describe('API Client Layer', () => {
       expect(errors).toEqual([mockError]);
 
       cleanup();
+    });
+
+    describe('log stream terminal state closure and listener dedup regression', () => {
+      it('closes EventSource connection when complete event is received', () => {
+        const messages: string[] = [];
+        const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+        const es = MockEventSource.instances[0];
+
+        es.emit('complete', JSON.stringify({ status: 'completed', output_dir: '/output/dir' }));
+        expect(messages).toEqual(['[System] Job COMPLETED successfully in /output/dir.']);
+        expect(es.closed).toBe(true);
+
+        cleanup();
+      });
+
+      it('closes EventSource connection when error event is received', () => {
+        const messages: string[] = [];
+        const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+        const es = MockEventSource.instances[0];
+
+        es.emit('error', JSON.stringify({ error: 'Process crashed' }));
+        expect(messages).toEqual(['[System Error] Process crashed']);
+        expect(es.closed).toBe(true);
+
+        cleanup();
+      });
+
+      it('prevents registering duplicate listeners for message events', () => {
+        const messages: string[] = [];
+        const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+        const es = MockEventSource.instances[0];
+
+        const hasOnMessage = typeof es.onmessage === 'function';
+        const addEventListenerCount = es.listeners['message']?.length ?? 0;
+        // Exactly one mechanism should listen for message events, not both
+        expect.soft(Number(hasOnMessage) + addEventListenerCount).toBe(1);
+
+        // Standard DOM event dispatch to registered handlers must not duplicate callbacks
+        const ev = { type: 'message', data: JSON.stringify({ message: 'Single log line' }) };
+        if (es.listeners['message']) {
+          es.listeners['message'].forEach((h) => h(ev));
+        }
+        if (es.onmessage) {
+          es.onmessage(ev);
+        }
+        expect(messages).toEqual(['Single log line']);
+
+        cleanup();
+      });
     });
   });
 });
