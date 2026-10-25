@@ -471,6 +471,34 @@ describe('API Client Layer', () => {
 
         cleanup();
       });
+
+      it('cleans up all listeners and closes EventSource without throwing on manual cleanup before terminal event', () => {
+        const messages: string[] = [];
+        const cleanup = jobsApi.streamLogs('job_xyz', (line) => messages.push(line));
+        const es = MockEventSource.instances[0];
+
+        expect(es.listeners['message']?.length).toBe(1);
+        expect(es.listeners['log']?.length).toBe(1);
+        expect(es.listeners['progress']?.length).toBe(1);
+        expect(es.listeners['complete']?.length).toBe(1);
+        expect(es.listeners['error']?.length).toBe(1);
+        expect(es.closed).toBe(false);
+
+        expect(() => cleanup()).not.toThrow();
+        expect(es.closed).toBe(true);
+
+        expect(es.listeners['message']?.length).toBe(0);
+        expect(es.listeners['log']?.length).toBe(0);
+        expect(es.listeners['progress']?.length).toBe(0);
+        expect(es.listeners['complete']?.length).toBe(0);
+        expect(es.listeners['error']?.length).toBe(0);
+
+        es.emit('log', JSON.stringify({ message: 'Late log message' }));
+        es.emit('complete', JSON.stringify({ status: 'completed' }));
+        expect(messages).toEqual([]);
+
+        expect(() => cleanup()).not.toThrow();
+      });
     });
   });
 });

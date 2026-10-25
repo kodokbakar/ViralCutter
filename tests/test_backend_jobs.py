@@ -242,6 +242,26 @@ async def test_job_event_generator_heartbeat_ping():
 
 
 @pytest.mark.anyio
+async def test_job_event_generator_stream_open_padding_and_ping_cadence():
+    req = JobRunRequest(url="https://youtube.com/watch?v=mock")
+    job = Job(job_id="test_padding_job", request=req)
+
+    gen = job.event_generator()
+    first_chunk = await anext(gen)
+    assert first_chunk.startswith(": stream-open ")
+    padding = first_chunk[len(": stream-open "):first_chunk.rfind("\n\n")]
+    assert len(padding.encode("utf-8")) >= 8192
+    assert padding.strip() == ""
+
+    start = time.perf_counter()
+    ping_chunk = await anext(gen)
+    elapsed = time.perf_counter() - start
+
+    assert ping_chunk == ": ping\n\n"
+    # Idle threshold is <= 0.5s; should yield ping in approx 0.5s and strictly under 0.85s (vs pre-fix 1.0s)
+    assert 0.45 <= elapsed <= 0.85
+
+@pytest.mark.anyio
 async def test_stream_job_logs_headers():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
