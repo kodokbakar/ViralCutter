@@ -207,7 +207,7 @@ class Job:
         cursor = 0
         last_activity = time.time()
         # Flush initial HTTP headers and bypass proxy/Cloudflare edge buffers immediately
-        yield f": stream-open {' ' * 2048}\n\n"
+        yield f": stream-open {' ' * 8192}\n\n"
         while True:
             events_to_yield = []
             with self.lock:
@@ -228,7 +228,7 @@ class Job:
                 break
 
             now = time.time()
-            if not events_to_yield and (now - last_activity) >= 1.0:
+            if not events_to_yield and (now - last_activity) >= 0.5:
                 yield ": ping\n\n"
                 last_activity = now
 

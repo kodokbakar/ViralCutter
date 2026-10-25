@@ -162,6 +162,7 @@ export const jobsApi = {
       } catch {
         onMessage('[System] Job COMPLETED.');
       }
+      eventSource.close();
     };
 
     const handleErrorEvent = (event: Event) => {
@@ -175,18 +176,17 @@ export const jobsApi = {
           onMessage(`[System Error] ${String(msgEvent.data)}`);
         }
       }
+      eventSource.close();
     };
 
-    eventSource.onmessage = handleMessage as (this: EventSource, ev: MessageEvent) => void;
     eventSource.addEventListener('message', handleMessage);
     eventSource.addEventListener('log', handleMessage);
     eventSource.addEventListener('progress', handleMessage);
     eventSource.addEventListener('complete', handleComplete);
+    eventSource.addEventListener('error', handleErrorEvent);
 
     eventSource.onerror = (e) => {
-      if ('data' in e && (e as MessageEvent).data) {
-        handleErrorEvent(e);
-      } else if (onError) {
+      if (onError) {
         onError(e);
       }
     };
@@ -196,6 +196,7 @@ export const jobsApi = {
       eventSource.removeEventListener('log', handleMessage);
       eventSource.removeEventListener('progress', handleMessage);
       eventSource.removeEventListener('complete', handleComplete);
+      eventSource.removeEventListener('error', handleErrorEvent);
       eventSource.close();
     };
   },
