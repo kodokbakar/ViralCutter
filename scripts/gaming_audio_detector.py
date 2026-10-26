@@ -79,9 +79,16 @@ def detect_audio_events(
     return events
 
 
-def extract_audio_rms_curve(video_path: str, chunk_sec: float = 0.1) -> Tuple[List[float], float, float]:
+def extract_audio_rms_curve(
+    video_path: str,
+    chunk_sec: float = 0.1,
+    vocal_bandpass: bool = True,
+    low_cut: int = 200,
+    high_cut: int = 3500,
+) -> Tuple[List[float], float, float]:
     """
     Extracts RMS amplitude per chunk_sec from video_path using FFmpeg.
+    When vocal_bandpass is True, applies bandpass filter to focus on human voice frequencies.
     Returns (rms_list, mean, std).
     """
     if not os.path.exists(video_path):
@@ -90,8 +97,10 @@ def extract_audio_rms_curve(video_path: str, chunk_sec: float = 0.1) -> Tuple[Li
     cmd = [
         "ffmpeg", "-nostdin", "-y", "-i", video_path,
         "-vn", "-ac", "1", "-ar", "16000",
-        "-f", "s16le", "-"
     ]
+    if vocal_bandpass:
+        cmd.extend(["-af", f"highpass=f={low_cut},lowpass=f={high_cut}"])
+    cmd.extend(["-f", "s16le", "-"])
     try:
         proc = subprocess.run(
             cmd,

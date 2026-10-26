@@ -439,3 +439,420 @@ def test_main_improved_auto_language_resolution(tmp_path, monkeypatch):
 
     # Language resolved from transcript_data should be "id" instead of "auto"
     assert captured_pipeline_kwargs.get("language") == "id"
+
+
+def test_main_improved_api_key_resolution_gemini_cli(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_api_key_cli"
+    project_dir.mkdir()
+
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "id",
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 30.0,
+                    "words": [{"word": "mantap", "start": 5.0, "end": 5.5}]
+                }
+            ]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--ai-backend", "gemini",
+        "--api-key", "secret_gemini_key_123",
+        "--workflow", "2",
+        "--skip-prompts",
+    ]
+
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 30.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 20.0,
+                    "duration": 20.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(gaming_scorer, "run_gaming_clipping_pipeline", mock_pipeline)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_improved.main()
+    assert exc_info.value.code == 0
+
+    assert captured_pipeline_kwargs.get("ai_backend") == "gemini"
+    assert captured_pipeline_kwargs.get("api_key") == "secret_gemini_key_123"
+
+
+def test_main_improved_api_key_resolution_from_config(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_api_key_cfg"
+    project_dir.mkdir()
+
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "id",
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 30.0,
+                    "words": [{"word": "mantap", "start": 5.0, "end": 5.5}]
+                }
+            ]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--ai-backend", "gemini",
+        "--workflow", "2",
+        "--skip-prompts",
+    ]
+
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 30.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+
+    config_content = json.dumps({"gemini": {"api_key": "config_gemini_key_789"}})
+    cfg_file = tmp_path / "api_config.json"
+    cfg_file.write_text(config_content, encoding="utf-8")
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: True if str(p).endswith("api_config.json") else real_exists(p))
+    original_open = open
+    def mock_open_config(file, *args, **kwargs):
+        if str(file).endswith("api_config.json"):
+            from io import StringIO
+            return StringIO(config_content)
+        return original_open(file, *args, **kwargs)
+    monkeypatch.setattr("builtins.open", mock_open_config)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 20.0,
+                    "duration": 20.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(gaming_scorer, "run_gaming_clipping_pipeline", mock_pipeline)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_improved.main()
+    assert exc_info.value.code == 0
+
+    assert captured_pipeline_kwargs.get("ai_backend") == "gemini"
+    assert captured_pipeline_kwargs.get("api_key") == "config_gemini_key_789"
+
+
+def test_main_improved_facecam_auto_detection_propagation(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_facecam_auto"
+    project_dir.mkdir()
+
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "id",
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 30.0,
+                    "words": [{"word": "mantap", "start": 5.0, "end": 5.5}]
+                }
+            ]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--gaming-facecam", "auto",
+        "--workflow", "1",
+        "--skip-prompts",
+    ]
+
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 30.0)
+
+    cuts_dir = project_dir / "cuts"
+    def mock_cut(*args, **kwargs):
+        cuts_dir.mkdir(parents=True, exist_ok=True)
+        (cuts_dir / "output000.mp4").write_bytes(b"dummy cut video")
+    monkeypatch.setattr("scripts.cut_segments.cut", mock_cut)
+
+    from scripts import gaming_facecam_detector, gaming_split
+    detected_box = "0.04,0.05,0.28,0.22"
+    monkeypatch.setattr(gaming_facecam_detector, "auto_detect_facecam_box", lambda *args, **kwargs: detected_box)
+    monkeypatch.setattr(gaming_split, "is_vertical_video", lambda *args, **kwargs: False)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 20.0,
+                    "duration": 20.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(gaming_scorer, "run_gaming_clipping_pipeline", mock_pipeline)
+
+    captured_render_kwargs = {}
+    def mock_render(**kwargs):
+        captured_render_kwargs.update(kwargs)
+        out_p = kwargs.get("output_path")
+        if out_p:
+            with open(out_p, "wb") as f:
+                f.write(b"processed")
+    monkeypatch.setattr(gaming_split, "render_gaming_split_clip", mock_render)
+
+    monkeypatch.setattr("scripts.adjust_subtitles.adjust", lambda *args, **kwargs: None)
+    monkeypatch.setattr("scripts.burn_subtitles.burn", lambda *args, **kwargs: None)
+
+    main_improved.main()
+
+    assert captured_pipeline_kwargs.get("facecam_crop") == detected_box
+    assert captured_render_kwargs.get("facecam_box") == detected_box
+
+
+def test_main_improved_api_key_resolution_ignores_placeholder(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_api_placeholder"
+    project_dir.mkdir()
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "en",
+            "segments": [{"start": 0.0, "end": 10.0, "words": []}]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--ai-backend", "gemini",
+        "--workflow", "2",
+        "--skip-prompts",
+    ]
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 10.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+
+    config_content = json.dumps({"gemini": {"api_key": "SUA_KEY_AQUI"}})
+    cfg_file = tmp_path / "api_config.json"
+    cfg_file.write_text(config_content, encoding="utf-8")
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: True if str(p).endswith("api_config.json") else real_exists(p))
+    original_open = open
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda file, *a, **kw: (
+            from_io_string(config_content) if str(file).endswith("api_config.json")
+            else original_open(file, *a, **kw)
+        )
+    )
+    from io import StringIO
+    def from_io_string(content):
+        return StringIO(content)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 5.0,
+                    "duration": 5.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(gaming_scorer, "run_gaming_clipping_pipeline", mock_pipeline)
+    with pytest.raises(SystemExit) as exc_info:
+        main_improved.main()
+    assert exc_info.value.code == 0
+    # Placeholder key must NOT be used
+    assert captured_pipeline_kwargs.get("api_key") != "SUA_KEY_AQUI"
+    assert captured_pipeline_kwargs.get("api_key") is None
+
+
+def test_main_improved_offline_backend_pipeline_execution(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_offline_backend"
+    project_dir.mkdir()
+    video_file = project_dir / "input.mp4"
+    video_file.write_bytes(b"dummy video")
+    transcript_file = project_dir / "input.json"
+    transcript_file.write_text(
+        json.dumps({
+            "language": "id",
+            "segments": [{"start": 0.0, "end": 10.0, "words": []}]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--ai-backend", "offline",
+        "--workflow", "2",
+        "--skip-prompts",
+    ]
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 10.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+
+    captured_pipeline_kwargs = {}
+    def mock_pipeline(**kwargs):
+        captured_pipeline_kwargs.update(kwargs)
+        return {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 5.0,
+                    "duration": 5.0,
+                    "score": 85,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    monkeypatch.setattr(gaming_scorer, "run_gaming_clipping_pipeline", mock_pipeline)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main_improved.main()
+    assert exc_info.value.code == 0
+    assert captured_pipeline_kwargs.get("ai_backend") == "offline"
+
+
+def test_main_improved_facecam_fallback_during_split_render(tmp_path, monkeypatch):
+    project_dir = tmp_path / "proj_facecam_fallback"
+    project_dir.mkdir()
+    cuts_dir = project_dir / "cuts"
+    cuts_dir.mkdir()
+    cut_file = cuts_dir / "output000.mp4"
+    cut_file.write_bytes(b"dummy cut")
+
+    # Create existing viral_segments.json so scoring is bypassed
+    segments_file = project_dir / "viral_segments.json"
+    segments_file.write_text(
+        json.dumps({
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 10.0,
+                    "duration": 10.0,
+                    "score": 80,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0}
+                }
+            ]
+        }),
+        encoding="utf-8"
+    )
+
+    test_argv = [
+        "main_improved.py",
+        "--project-path", str(project_dir),
+        "--pipeline-mode", "gaming",
+        "--workflow", "1",
+        "--skip-prompts",
+    ]
+    monkeypatch.setattr(sys, "argv", test_argv)
+    monkeypatch.setattr("scripts.transcribe_video.transcribe", lambda *args, **kwargs: ("dummy.srt", "dummy.tsv"))
+    monkeypatch.setattr("scripts.transcribe_video.get_audio_duration", lambda *args, **kwargs: 10.0)
+    monkeypatch.setattr("scripts.cut_segments.cut", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        gaming_scorer,
+        "run_gaming_clipping_pipeline",
+        lambda **kwargs: {
+            "segments": [
+                {
+                    "start_time": 0.0,
+                    "end_time": 10.0,
+                    "duration": 10.0,
+                    "score": 80,
+                    "title": "HOOK",
+                    "hook_title": "HOOK",
+                    "rubric": {"audio_dynamics": 8.0, "hook_strength": 8.0}
+                }
+            ]
+        }
+    )
+
+    from scripts import gaming_facecam_detector, gaming_split
+    detected_box = "0.7,0.0,1.0,0.4"
+    monkeypatch.setattr(gaming_facecam_detector, "auto_detect_facecam_box", lambda *args, **kwargs: detected_box)
+    monkeypatch.setattr(gaming_split, "is_vertical_video", lambda *args, **kwargs: False)
+
+    captured_render_kwargs = {}
+    def mock_render(**kwargs):
+        captured_render_kwargs.update(kwargs)
+        out_p = kwargs.get("output_path")
+        if out_p:
+            with open(out_p, "wb") as f:
+                f.write(b"processed")
+    monkeypatch.setattr(gaming_split, "render_gaming_split_clip", mock_render)
+    monkeypatch.setattr("scripts.adjust_subtitles.adjust", lambda *args, **kwargs: None)
+    monkeypatch.setattr("scripts.burn_subtitles.burn", lambda *args, **kwargs: None)
+
+    main_improved.main()
+
+    assert captured_render_kwargs.get("facecam_box") == detected_box

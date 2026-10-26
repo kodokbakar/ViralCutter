@@ -101,3 +101,67 @@ def test_render_gaming_split_clip_fallback_aac(mock_run, mock_probe, tmp_path):
     assert mock_run.call_count == 2
     second_cmd = mock_run.call_args_list[1][0][0]
     assert second_cmd[second_cmd.index("-c:a") + 1] == "aac"
+
+
+def test_parse_normalized_box_quadrant_presets():
+    tl_x, tl_y, tl_w, tl_h = parse_normalized_box("top-left")
+    assert tl_x == pytest.approx(0.04)
+    assert tl_y == pytest.approx(0.05)
+    assert tl_w == pytest.approx(0.28)
+    assert tl_h == pytest.approx(0.22)
+
+    tr_x, tr_y, tr_w, tr_h = parse_normalized_box("top-right")
+    assert tr_x == pytest.approx(0.68)
+    assert tr_y == pytest.approx(0.05)
+
+    bl_x, bl_y, bl_w, bl_h = parse_normalized_box("bottom-left")
+    assert bl_x == pytest.approx(0.04)
+    assert bl_y == pytest.approx(0.72)
+
+    br_x, br_y, br_w, br_h = parse_normalized_box("bottom-right")
+    assert br_x == pytest.approx(0.68)
+    assert br_y == pytest.approx(0.72)
+
+    auto_x, auto_y, auto_w, auto_h = parse_normalized_box("auto")
+    assert auto_x == pytest.approx(0.68)
+    assert auto_y == pytest.approx(0.05)
+
+
+def test_parse_normalized_box_center_and_invalid_fallbacks():
+    # "center" preset fallback to default box (since facecam is quadrant-based)
+    c_x, c_y, c_w, c_h = parse_normalized_box("center")
+    assert c_x == pytest.approx(0.68)
+    assert c_y == pytest.approx(0.05)
+    assert c_w == pytest.approx(0.28)
+    assert c_h == pytest.approx(0.22)
+
+    # Case insensitivity and whitespace handling
+    tl_x, tl_y, tl_w, tl_h = parse_normalized_box("   Top-Left   ")
+    assert (tl_x, tl_y, tl_w, tl_h) == (0.04, 0.05, 0.28, 0.22)
+
+    br_x, br_y, br_w, br_h = parse_normalized_box("BOTTOM-RIGHT")
+    assert (br_x, br_y, br_w, br_h) == (0.68, 0.72, 0.28, 0.22)
+
+    # Invalid strings and non-string inputs fall back to default
+    for invalid_val in ["unknown", "gibberish", "", None, "1,2", "1,2,3"]:
+        x, y, w, h = parse_normalized_box(invalid_val)
+        assert x == pytest.approx(0.68)
+        assert y == pytest.approx(0.05)
+        assert w == pytest.approx(0.28)
+        assert h == pytest.approx(0.22)
+
+    # Non-float string fallback (4 parts with non-numbers)
+    x, y, w, h = parse_normalized_box("a,b,c,d")
+    assert (x, y, w, h) == (0.0, 0.0, 0.5, 0.5)
+
+    # Out of bounds clamping: values exceeding 1.0 or below 0.0
+    x, y, w, h = parse_normalized_box("0.5,0.5,2.0,2.0")
+    assert x + w <= 1.0
+    assert y + h <= 1.0
+    assert w == 1.0
+    assert h == 1.0
+
+    # Minimum dimension clamping (min width/height = 0.05)
+    x, y, w, h = parse_normalized_box("0.1,0.1,0.01,0.01")
+    assert w >= 0.05
+    assert h >= 0.05

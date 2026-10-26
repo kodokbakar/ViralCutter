@@ -42,20 +42,24 @@ def get_best_encoder() -> Tuple[str, str, List[str]]:
     _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
     return _CACHED_ENCODER
 
-DEFAULT_FACECAM_BOX = "0.68,0.05,0.28,0.1493"
+from scripts.gaming_facecam_detector import FACECAM_QUADRANTS, DEFAULT_FACECAM_BOX
 DEFAULT_GAMEPLAY_BOX = "0.25,0.0,0.50,0.622"
 DEFAULT_MANUAL_CROP_BOX = "0.3418,0.0,0.3164,1.0"
 
 def parse_normalized_box(box_str: str) -> Tuple[float, float, float, float]:
     """
-    Parses 'x,y,w,h' string into clamped (x, y, w, h) floats in range [0.0, 1.0].
+    Parses 'x,y,w,h' string or quadrant preset into clamped (x, y, w, h) floats in range [0.0, 1.0].
     Enforces minimum width/height of 0.05 to avoid zero-dimension FFmpeg crashes.
     """
-    cleaned = str(box_str or "").strip()
+    cleaned = str(box_str or "").strip().lower()
+    if cleaned in FACECAM_QUADRANTS:
+        cleaned = FACECAM_QUADRANTS[cleaned]
+    elif cleaned == "auto":
+        cleaned = DEFAULT_FACECAM_BOX
+
     parts = [p.strip() for p in cleaned.split(",") if p.strip()]
     if len(parts) != 4:
         parts = [p.strip() for p in DEFAULT_FACECAM_BOX.split(",")]
-
     try:
         x, y, w, h = [float(p) for p in parts]
     except (ValueError, TypeError):
