@@ -227,3 +227,59 @@ def test_adjust_subtitles_face_mode_2_static_override(tmp_path):
     # Verifies the line 230 fix: current_alignment (5) and current_vertical_position (0) are written
     assert alignment_field == "5"
     assert margin_v_field == "0"
+
+
+def test_adjust_subtitles_podcast_various_alignments_no_regression(tmp_path):
+    # Verifies standard podcast modes (1 face, none, custom alignments) do NOT regress to mid-seam
+    for idx, (face_mode_val, req_align, req_margin) in enumerate([
+        ("1", 2, 210),
+        ("none", 2, 210),
+        (None, 8, 160),
+        ("auto", 2, 190),
+    ]):
+        in_json = tmp_path / f"podcast_{idx}.json"
+        out_ass = tmp_path / f"podcast_{idx}.ass"
+        in_json.write_text(json.dumps({
+            "segments": [{
+                "start": 0.0,
+                "end": 1.0,
+                "text": "Podcast speaker",
+                "words": [{"word": "Podcast", "start": 0.0, "end": 0.5}, {"word": "speaker", "start": 0.5, "end": 1.0}],
+            }]
+        }), encoding="utf-8")
+
+        f_modes = {f"output{idx:03d}": face_mode_val} if face_mode_val else {}
+        generate_ass_from_file(
+            input_path=str(in_json),
+            output_path=str(out_ass),
+            project_folder=str(tmp_path),
+            base_color="&H00FFFFFF",
+            base_size=24,
+            highlight_size=28,
+            highlight_color="&H0000FF00",
+            words_per_block=2,
+            gap_limit=0.2,
+            mode="highlight",
+            vertical_position=req_margin,
+            alignment=req_align,
+            font="Arial",
+            outline_color="&H00000000",
+            shadow_color="&H00000000",
+            bold=True,
+            italic=False,
+            underline=False,
+            strikeout=False,
+            border_style=1,
+            outline_thickness=2,
+            shadow_size=1,
+            uppercase=False,
+            face_modes=f_modes,
+            layout_mode="",
+        )
+
+        assert out_ass.exists()
+        content = out_ass.read_text(encoding="utf-8")
+        style_line = next(l for l in content.splitlines() if l.startswith("Style: Default"))
+        parts = style_line.split(",")
+        assert parts[-5] == str(req_align)
+        assert parts[-2] == str(req_margin)

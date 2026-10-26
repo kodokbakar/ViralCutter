@@ -530,3 +530,274 @@ def test_refine_gaming_candidates_with_llm_error_fallback():
         res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="fake-key")
         assert res[0]["title"] == "ORIGINAL TITLE"
         assert res[0]["score"] == 80
+
+def test_fuse_gaming_scores_zero_and_negative_scores():
+    # Audio event with score 0.0: has_audio is False, isolated audio penalty should NOT apply
+    audio_events = [{"timestamp": 10.0, "score": 0.0}]
+    fused = fuse_gaming_scores(audio_events, [], [])
+    assert len(fused) == 1
+    assert fused[0]["score"] == 0.0
+    assert fused[0]["isolated_audio"] is False
+    assert fused[0]["converged"] is False
+
+    # Audio event with negative score: treated as <= 0.0
+    audio_events_neg = [{"timestamp": 10.0, "score": -10.0}]
+    fused_neg = fuse_gaming_scores(audio_events_neg, [], [])
+    assert len(fused_neg) == 1
+    assert fused_neg[0]["score"] == 0.0
+    assert fused_neg[0]["isolated_audio"] is False
+
+    # Loud audio with zero-score keyword: kw does not count as active modality
+    audio_events_loud = [{"timestamp": 10.0, "score": 80.0}]
+    kw_zero = [{"timestamp": 10.0, "score": 0.0, "matched_words": []}]
+    fused_isolated = fuse_gaming_scores(audio_events_loud, kw_zero, [], isolated_audio_penalty=0.6)
+    assert len(fused_isolated) == 1
+    assert fused_isolated[0]["isolated_audio"] is True
+    assert fused_isolated[0]["converged"] is False
+
+
+def test_fuse_gaming_scores_nonfinite_values():
+    # NaN score safely falls back to 0.0 without propagating NaN
+    audio_nan = [{"timestamp": 15.0, "score": float("nan")}]
+    fused_nan = fuse_gaming_scores(audio_nan, [], [])
+    assert len(fused_nan) == 1
+    assert not math.isnan(fused_nan[0]["score"])
+    assert fused_nan[0]["score"] == 0.0
+
+    # Inf score safely falls back to 0.0
+    audio_inf = [{"timestamp": 15.0, "score": float("inf")}]
+    fused_inf = fuse_gaming_scores(audio_inf, [], [])
+    assert len(fused_inf) == 1
+    assert not math.isinf(fused_inf[0]["score"])
+    assert fused_inf[0]["score"] == 0.0
+
+    # NaN/Inf timestamp: event must be skipped completely
+    audio_invalid_ts = [
+        {"timestamp": float("nan"), "score": 90.0},
+        {"timestamp": float("inf"), "score": 90.0},
+        {"timestamp": float("-inf"), "score": 90.0},
+    ]
+    assert fuse_gaming_scores(audio_invalid_ts, [], []) == []
+
+
+def test_fuse_gaming_scores_missing_and_malformed_timestamps():
+    # Missing or invalid timestamp fields
+    bad_events = [
+        {"score": 80.0},  # missing timestamp
+        {"timestamp": None, "score": 80.0},
+        {"timestamp": "not_a_number", "score": 80.0},
+        {"timestamp": True, "score": 80.0},  # boolean timestamp
+        {"timestamp": False, "score": 80.0},
+        "not_even_a_dict",
+        None,
+    ]
+    assert fuse_gaming_scores(bad_events, [], []) == []
+    assert fuse_gaming_scores([], bad_events, []) == []
+    assert fuse_gaming_scores([], [], bad_events) == []
+
+
+def test_fuse_gaming_scores_convergence_boost_cap_and_combinations():
+    # Convergence boost cap: score must never exceed 100.0
+    audio = [{"timestamp": 20.0, "score": 95.0}]
+    kw = [{"timestamp": 20.0, "score": 95.0, "matched_words": ["epic"]}]
+    face = [{"timestamp": 20.0, "score": 95.0}]
+    # 95 * 0.5 + 95 * 0.3 + 95 * 0.2 = 95.0; 95.0 * 1.25 = 118.75 -> capped to 100.0
+    fused = fuse_gaming_scores(audio, kw, face, convergence_boost=1.25)
+    assert len(fused) == 1
+    assert fused[0]["converged"] is True
+    assert fused[0]["score"] == 100.0
+
+    # kw + face (no audio): 2 modalities converge, no isolated audio penalty
+    fused_kf = fuse_gaming_scores([], kw, face)
+    assert len(fused_kf) == 1
+    assert fused_kf[0]["converged"] is True
+    assert fused_kf[0]["isolated_audio"] is False
+
+    # Corrupt speech_events does not crash and handles safely
+    corrupt_speech = [None, 123, "text", {"start": "nan"}, {"start": 18.0, "end": "invalid"}]
+    fused_corrupt_speech = fuse_gaming_scores(audio, [], [], speech_events=corrupt_speech)
+    assert len(fused_corrupt_speech) == 1
+    assert fused_corrupt_speech[0]["isolated_audio"] is True
+
+    # Valid speech event at 20.0s suppresses isolated audio penalty
+    valid_speech = [{"start": 19.0, "end": 21.0}]
+    fused_valid_speech = fuse_gaming_scores(audio, [], [], speech_events=valid_speech)
+    assert len(fused_valid_speech) == 1
+    assert fused_valid_speech[0]["isolated_audio"] is False
+
+
+def test_refine_gaming_candidates_with_llm_markdown_wrapped():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 75, "title": "ORIGINAL TITLE"}]
+
+    # Markdown code fence with ```json
+    markdown_json = (
+        "```json\n"
+        "[\n"
+        "  {\n"
+        "    \"index\": 0,\n"
+        "    \"hook_title\": \"CLUTCH DEWA GILA!\",\n"
+        "    \"score\": 93,\n"
+        "    \"virality_explanation\": \"Epic 1v4 comeback clutch.\"\n"
+        "  }\n"
+        "]\n"
+        "```"
+    )
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=markdown_json):
+        refined = refine_gaming_candidates_with_llm(candidates, ai_backend="openai", api_key="test-key")
+        assert refined[0]["title"] == "CLUTCH DEWA GILA!"
+        assert refined[0]["score"] == 93
+        assert refined[0]["virality_explanation"] == "Epic 1v4 comeback clutch."
+
+    # Markdown code fence without language specifier
+    markdown_bare = (
+        "```\n"
+        "[\n"
+        "  {\n"
+        "    \"index\": 0,\n"
+        "    \"hook_title\": \"OUTPLAY LEVEL 999!\",\n"
+        "    \"score\": 89\n"
+        "  }\n"
+        "]\n"
+        "```"
+    )
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=markdown_bare):
+        refined = refine_gaming_candidates_with_llm(candidates, ai_backend="openai", api_key="test-key")
+        assert refined[0]["title"] == "OUTPLAY LEVEL 999!"
+        assert refined[0]["score"] == 89
+
+
+def test_refine_gaming_candidates_with_llm_error_cases():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 75, "title": "BASE TITLE"}]
+
+    # 1. Invalid JSON
+    with patch("scripts.smart_clipping.query_ai_backend", return_value="Invalid response { not json"):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+
+    # 2. Timeout exception
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=TimeoutError("Request timed out after 30s")):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+
+    # 3. Rate limit 429
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=RuntimeError("429 Too Many Requests: Quota exceeded")):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+
+    # 4. Empty and whitespace responses
+    for empty_resp in ["", "   ", "\n\n"]:
+        with patch("scripts.smart_clipping.query_ai_backend", return_value=empty_resp):
+            res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+            assert res[0]["title"] == "BASE TITLE"
+
+    # 5. Non-list JSON (e.g. error object returned as JSON)
+    with patch("scripts.smart_clipping.query_ai_backend", return_value='{"error": "rate_limited", "code": 429}'):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+
+    # 6. Empty topics / empty list
+    with patch("scripts.smart_clipping.query_ai_backend", return_value="[]"):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+
+    # 7. Malformed item indices and scores in JSON
+    bad_items = json.dumps([
+        {"index": 999, "hook_title": "OUT OF RANGE"},
+        {"index": "not_int", "hook_title": "BAD INDEX"},
+        {"index": 0, "score": 250},  # out of [0, 100] bounds
+    ])
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=bad_items):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="key")
+        assert res[0]["title"] == "BASE TITLE"
+        assert res[0]["score"] == 75  # score not corrupted
+
+
+def test_generate_gaming_windows_empty_and_corrupt_transcript():
+    peaks = [{"timestamp": 50.0, "score": 85.0}]
+
+    # None, empty list, non-iterable, and corrupt items
+    for bad_transcript in [
+        None,
+        [],
+        "corrupt_string_not_list",
+        [None, 123, "bad", {"start": "nan"}, {"start": 40.0, "end": 20.0}],  # reversed start > end
+    ]:
+        windows = generate_gaming_windows(
+            peaks=peaks,
+            video_duration=120.0,
+            min_duration=20.0,
+            max_duration=60.0,
+            pre_roll=18.0,
+            post_roll=10.0,
+            transcript_words=bad_transcript,
+        )
+        assert len(windows) == 1
+        win = windows[0]
+        assert win["start_time"] == pytest.approx(32.0, abs=0.1)
+        assert win["end_time"] == pytest.approx(60.0, abs=0.1)
+        assert win["duration"] == pytest.approx(28.0, abs=0.1)
+        assert win["start_time"] <= 50.0 <= win["end_time"]
+
+
+def test_generate_gaming_windows_duration_clamping_edge_cases():
+    peaks = [{"timestamp": 5.0, "score": 90.0}]
+
+    # 1. Video duration smaller than min_duration (10.0s < 20.0s)
+    windows_short = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=10.0,
+        min_duration=20.0,
+        max_duration=60.0,
+    )
+    assert len(windows_short) == 1
+    win_short = windows_short[0]
+    assert win_short["start_time"] == 0.0
+    assert win_short["end_time"] == 10.0
+    assert win_short["duration"] == 10.0
+
+    # 2. Peak at boundary start (ts=1.0s, video_duration=100.0s, min_duration=20.0s)
+    peaks_start = [{"timestamp": 1.0, "score": 90.0}]
+    windows_start = generate_gaming_windows(
+        peaks=peaks_start,
+        video_duration=100.0,
+        min_duration=20.0,
+        max_duration=60.0,
+    )
+    assert len(windows_start) == 1
+    win_st = windows_start[0]
+    assert win_st["start_time"] == 0.0
+    assert win_st["duration"] >= 20.0
+    assert win_st["start_time"] <= 1.0 <= win_st["end_time"]
+
+    # 3. Peak at boundary end (ts=99.0s, video_duration=100.0s, min_duration=20.0s)
+    peaks_end = [{"timestamp": 99.0, "score": 90.0}]
+    windows_end = generate_gaming_windows(
+        peaks=peaks_end,
+        video_duration=100.0,
+        min_duration=20.0,
+        max_duration=60.0,
+    )
+    assert len(windows_end) == 1
+    win_en = windows_end[0]
+    assert win_en["end_time"] == 100.0
+    assert win_en["duration"] >= 20.0
+    assert win_en["start_time"] <= 99.0 <= win_en["end_time"]
+
+    # 4. Total roll exceeds max_duration (clamped to max_duration)
+    peaks_mid = [{"timestamp": 100.0, "score": 90.0}]
+    windows_max = generate_gaming_windows(
+        peaks=peaks_mid,
+        video_duration=200.0,
+        min_duration=20.0,
+        max_duration=40.0,
+        pre_roll=50.0,
+        post_roll=50.0,
+    )
+    assert len(windows_max) == 1
+    win_max = windows_max[0]
+    assert win_max["duration"] <= 40.0
+    assert win_max["start_time"] <= 100.0 <= win_max["end_time"]
+
+    # 5. Invalid video duration <= 0
+    assert generate_gaming_windows(peaks, video_duration=0.0) == []
+    assert generate_gaming_windows(peaks, video_duration=-10.0) == []

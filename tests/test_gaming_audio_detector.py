@@ -123,3 +123,77 @@ def test_extract_audio_rms_curve_vocal_bandpass(tmp_path):
         called_cmd = mock_run.call_args[0][0]
         af_idx = called_cmd.index("-af")
         assert called_cmd[af_idx + 1] == "highpass=f=300,lowpass=f=3000"
+
+
+def test_extract_audio_rms_curve_ffmpeg_errors(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # Subprocess errors (non-zero exit code, exec failure, permission error, file not found)
+    for error in [
+        subprocess.CalledProcessError(1, ["ffmpeg"]),
+        FileNotFoundError("ffmpeg not found"),
+        PermissionError("permission denied"),
+        OSError("exec failed"),
+    ]:
+        with patch("subprocess.run", side_effect=error):
+            rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+            assert rms == []
+            assert mean == 0.0
+            assert std == 0.0
+
+
+def test_extract_audio_rms_curve_nonexistent_path():
+    rms, mean, std = extract_audio_rms_curve("/nonexistent/video/file_12345.mp4")
+    assert rms == []
+    assert mean == 0.0
+    assert std == 0.0
+
+
+def test_extract_audio_rms_curve_odd_byte_length_and_empty(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # Odd byte length (3201 bytes instead of 3200): must be trimmed cleanly without array error
+    raw_samples = array.array("h", [2000] * 1600).tobytes() + b"\x01"
+    assert len(raw_samples) % 2 != 0
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = raw_samples
+    with patch("subprocess.run", return_value=mock_proc):
+        rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        assert len(rms) == 1
+        assert rms[0] == pytest.approx(2000.0, abs=1.0)
+        assert mean == pytest.approx(2000.0, abs=1.0)
+        assert std == 0.0
+
+    # Empty stdout bytes
+    mock_proc.stdout = b""
+    with patch("subprocess.run", return_value=mock_proc):
+        rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        assert rms == []
+        assert mean == 0.0
+        assert std == 0.0
+
+    # None stdout
+    mock_proc.stdout = None
+    with patch("subprocess.run", return_value=mock_proc):
+        rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        assert rms == []
+        assert mean == 0.0
+        assert std == 0.0
+
+
+def test_extract_audio_rms_curve_custom_bandpass_frequencies(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [400] * 1600).tobytes()
+
+    # Custom low_cut and high_cut
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        extract_audio_rms_curve(str(dummy), vocal_bandpass=True, low_cut=100, high_cut=5000)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-af" in called_cmd
+        af_idx = called_cmd.index("-af")
+        assert called_cmd[af_idx + 1] == "highpass=f=100,lowpass=f=5000"

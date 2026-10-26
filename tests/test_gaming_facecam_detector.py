@@ -269,3 +269,72 @@ def test_auto_detect_facecam_quadrant_synthetic_top_left(tmp_path):
 
     assert quadrant == "top-left"
     assert box == FACECAM_QUADRANTS["top-left"]
+
+
+def test_auto_detect_facecam_quadrant_synthetic_bottom_right(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_br.mp4"
+    dummy_video.write_text("fake video")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1000,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 1000,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 100,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((1000, 1000, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    # Face located in bottom-right: cx = 850/1000 = 0.85, cy = 850/1000 = 0.85 (>=0.5, >=0.5)
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.return_value = [[800, 800, 100, 100]]
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True):
+        quadrant, box = auto_detect_facecam_quadrant(str(dummy_video))
+
+    assert quadrant == "bottom-right"
+    assert box == FACECAM_QUADRANTS["bottom-right"]
+
+
+def test_auto_detect_facecam_quadrant_no_faces_fallback(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_none.mp4"
+    dummy_video.write_text("fake video")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1000,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 1000,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 100,
+    }.get(prop, 0)
+
+    mock_cap.read.return_value = (True, np.zeros((1000, 1000, 3), dtype=np.uint8))
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    # No faces detected by cascade
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.return_value = []
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True):
+        quadrant, box = auto_detect_facecam_quadrant(str(dummy_video))
+
+    assert quadrant == "top-right"
+    assert box == FACECAM_QUADRANTS["top-right"]
