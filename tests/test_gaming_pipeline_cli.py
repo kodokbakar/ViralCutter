@@ -60,3 +60,12 @@ def test_main_improved_accepts_offline_ai_backend():
     assert result.returncode == 0
     assert "offline" in result.stdout
 
+
+def test_main_improved_rejects_invalid_ai_backend():
+    result = subprocess.run(
+        [sys.executable, "main_improved.py", "--ai-backend", "invalid_backend", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "invalid choice" in result.stderr

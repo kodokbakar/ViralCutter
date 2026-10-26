@@ -226,6 +226,9 @@ def test_generate_gaming_windows_tuple_and_set_keywords():
     assert len(windows) == 2
     assert "hook_title" in windows[0]
     assert "hook_title" in windows[1]
+    assert windows[0]["keywords"] == ["clutch", "gila"]
+    assert set(windows[1]["keywords"]) == {"clutch", "epic"}
+    assert isinstance(windows[1]["keywords"], list)
 
 
 @patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
@@ -270,6 +273,8 @@ def test_run_gaming_clipping_pipeline(mock_rms, mock_audio_ev, mock_kw, mock_fac
     assert len(saved_data["segments"]) == 2
     assert saved_data["segments"][0]["score"] > 0
     assert "hook_title" in saved_data["segments"][0]
+    assert saved_data["segments"][0]["keywords"] == ["gila"]
+    assert saved_data["segments"][1]["keywords"] == []
 
 
 def test_run_gaming_clipping_pipeline_missing_video(tmp_path):
