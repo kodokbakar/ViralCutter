@@ -98,3 +98,28 @@ def test_extract_audio_rms_curve_timeout(tmp_path):
         assert rms == []
         assert mean == 0.0
         assert std == 0.0
+
+
+def test_extract_audio_rms_curve_vocal_bandpass(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [500] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        extract_audio_rms_curve(str(dummy), vocal_bandpass=True)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-af" in called_cmd
+        af_idx = called_cmd.index("-af")
+        assert called_cmd[af_idx + 1] == "highpass=f=200,lowpass=f=3500"
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        extract_audio_rms_curve(str(dummy), vocal_bandpass=False)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-af" not in called_cmd
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        extract_audio_rms_curve(str(dummy), vocal_bandpass=True, low_cut=300, high_cut=3000)
+        called_cmd = mock_run.call_args[0][0]
+        af_idx = called_cmd.index("-af")
+        assert called_cmd[af_idx + 1] == "highpass=f=300,lowpass=f=3000"
