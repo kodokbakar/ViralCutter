@@ -202,6 +202,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
     # 2. Determine Style Overrides (Face Mode)
     # Determine static alignment (fallback)
+    MID_SEAM_VERTICAL_POSITION = 400
     key = base_name
     if idx is not None:
         key = f"output{str(idx).zfill(3)}"
@@ -209,11 +210,14 @@ def generate_ass_from_file(input_path, output_path, project_folder,
     current_alignment = alignment
     current_vertical_position = vertical_position
 
+    layout_mode = kwargs.get("layout_mode") or ""
     mode_face = face_modes.get(key)
-    if mode_face == "2" and not timeline_data: # Only use static if no timeline
+    if mode_face in ("gaming_split", "9:16_gaming_split") or layout_mode == "9:16_gaming_split":
+        current_alignment = 2
+        current_vertical_position = MID_SEAM_VERTICAL_POSITION
+    elif mode_face == "2" and not timeline_data: # Only use static if no timeline
         current_alignment = 5
         current_vertical_position = 0
-
     # 3. Load JSON
     try:
         with open(input_path, "r", encoding="utf-8") as file:
@@ -227,7 +231,7 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
     # 4. Generate Content
     header_styles = [
-        f"Style: Default,{ass_font_name},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},-2,-2,{vertical_position},1"
+        f"Style: Default,{ass_font_name},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{current_alignment},-2,-2,{current_vertical_position},1"
     ]
     if enable_hook_header:
         hook_style_cfg = HOOK_HEADER_STYLES.get(hook_header_style, HOOK_HEADER_STYLES["yellow_box"])
@@ -522,7 +526,8 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
                            hook_font_size=hook_font_size,
                            hook_margin_v=hook_margin_v,
                            hook_title=hook_title_arg,
-                           hook_duration=hook_duration)
+                           hook_duration=hook_duration,
+                           layout_mode=kwargs.get('layout_mode'))
 
             print(f"Processed file: {filename} -> {output_filename}")
 

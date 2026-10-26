@@ -1,8 +1,124 @@
 import os
 import math
 from typing import List, Dict, Tuple, Optional, Any
+FACECAM_QUADRANTS: Dict[str, str] = {
+    "top-right": "0.68,0.05,0.28,0.22",
+    "top-left": "0.04,0.05,0.28,0.22",
+    "bottom-left": "0.04,0.72,0.28,0.22",
+    "bottom-right": "0.68,0.72,0.28,0.22",
+}
+DEFAULT_FACECAM_BOX = FACECAM_QUADRANTS["top-right"]
 
 
+def auto_detect_facecam_quadrant(video_path: str, sample_frames: int = 5) -> Tuple[str, str]:
+    """
+    Detects which quadrant the streamer facecam is located in by sampling keyframes.
+    Returns (quadrant_name, normalized_box_string).
+    Falls back to ('top-right', FACECAM_QUADRANTS['top-right']) if no faces detected or error.
+    """
+    fallback = ("top-right", FACECAM_QUADRANTS["top-right"])
+    if not video_path or not os.path.exists(video_path):
+        return fallback
+
+    try:
+        import cv2
+    except ImportError:
+        return fallback
+
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return fallback
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        if total_frames <= 0 or width <= 0 or height <= 0:
+            cap.release()
+            return fallback
+
+        num_samples = max(1, sample_frames)
+        step = total_frames / (num_samples + 1)
+        frame_indices = [int((i + 1) * step) for i in range(num_samples)]
+
+        face_cascade = None
+        if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+            cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+            if os.path.exists(cascade_path):
+                try:
+                    face_cascade = cv2.CascadeClassifier(cascade_path)
+                except Exception:
+                    face_cascade = None
+
+        insight_app = None
+        if face_cascade is None:
+            try:
+                from scripts.face_detection_insightface import init_insightface
+                insight_app = init_insightface()
+            except Exception:
+                insight_app = None
+
+        votes: Dict[str, int] = {"top-right": 0, "top-left": 0, "bottom-left": 0, "bottom-right": 0}
+
+        for f_idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, min(f_idx, total_frames - 1))
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                continue
+
+            detected_centers = []
+            if face_cascade is not None:
+                try:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    det_faces = face_cascade.detectMultiScale(gray, 1.1, 3, minSize=(20, 20))
+                    for fx, fy, fw, fh in det_faces:
+                        cx = (fx + fw / 2.0) / width
+                        cy = (fy + fh / 2.0) / height
+                        detected_centers.append((cx, cy))
+                except Exception:
+                    pass
+
+            if not detected_centers and insight_app is not None:
+                try:
+                    faces = insight_app.get(frame)
+                    for f in faces:
+                        cx = ((f.bbox[0] + f.bbox[2]) / 2.0) / width
+                        cy = ((f.bbox[1] + f.bbox[3]) / 2.0) / height
+                        detected_centers.append((cx, cy))
+                except Exception:
+                    pass
+
+            for cx, cy in detected_centers:
+                if cx >= 0.5 and cy < 0.5:
+                    votes["top-right"] += 1
+                elif cx < 0.5 and cy < 0.5:
+                    votes["top-left"] += 1
+                elif cx < 0.5 and cy >= 0.5:
+                    votes["bottom-left"] += 1
+                else:
+                    votes["bottom-right"] += 1
+
+        cap.release()
+        max_votes = max(votes.values())
+        if max_votes > 0:
+            winner = max(votes, key=votes.get)
+            return winner, FACECAM_QUADRANTS[winner]
+
+        return fallback
+    except Exception:
+        try:
+            cap.release()
+        except Exception:
+            pass
+        return fallback
+
+
+def auto_detect_facecam_box(video_path: str, sample_sec: float = 5.0) -> str:
+    """
+    Returns normalized facecam crop box string for video_path by detecting face quadrant.
+    """
+    _quadrant, box_str = auto_detect_facecam_quadrant(video_path)
+    return box_str
 def _safe_float(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
     """Safely converts input to float, guarding against None, bool, NaN, and Inf."""
     if val is None or isinstance(val, bool):
@@ -127,8 +243,8 @@ def detect_facecam_reactions(
     except ImportError:
         return fallback_reactions
 
-    if facecam_box_str is None:
-        return fallback_reactions
+    if facecam_box_str is None or str(facecam_box_str).strip().lower() in ("auto", "none"):
+        facecam_box_str = auto_detect_facecam_box(video_path)
 
     try:
         from scripts.gaming_split import parse_normalized_box

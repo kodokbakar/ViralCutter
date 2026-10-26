@@ -101,3 +101,27 @@ def test_render_gaming_split_clip_fallback_aac(mock_run, mock_probe, tmp_path):
     assert mock_run.call_count == 2
     second_cmd = mock_run.call_args_list[1][0][0]
     assert second_cmd[second_cmd.index("-c:a") + 1] == "aac"
+
+
+def test_parse_normalized_box_quadrant_presets():
+    tl_x, tl_y, tl_w, tl_h = parse_normalized_box("top-left")
+    assert tl_x == pytest.approx(0.04)
+    assert tl_y == pytest.approx(0.05)
+    assert tl_w == pytest.approx(0.28)
+    assert tl_h == pytest.approx(0.22)
+
+    tr_x, tr_y, tr_w, tr_h = parse_normalized_box("top-right")
+    assert tr_x == pytest.approx(0.68)
+    assert tr_y == pytest.approx(0.05)
+
+    bl_x, bl_y, bl_w, bl_h = parse_normalized_box("bottom-left")
+    assert bl_x == pytest.approx(0.04)
+    assert bl_y == pytest.approx(0.72)
+
+    br_x, br_y, br_w, br_h = parse_normalized_box("bottom-right")
+    assert br_x == pytest.approx(0.68)
+    assert br_y == pytest.approx(0.72)
+
+    auto_x, auto_y, auto_w, auto_h = parse_normalized_box("auto")
+    assert auto_x == pytest.approx(0.68)
+    assert auto_y == pytest.approx(0.05)

@@ -33,6 +33,9 @@ from scripts import (
     organize_output,
     translate_json,
     smart_clipping,
+    gaming_scorer,
+    gaming_facecam_detector,
+    gaming_split,
 )
 from i18n.i18n import I18nAuto
 
@@ -173,8 +176,8 @@ def main():
     parser.add_argument(
         "--gaming-facecam",
         type=str,
-        default="0.68,0.05,0.28,0.1493",
-        help="Normalized x,y,w,h crop coordinates for facecam in 9:16 gaming split mode"
+        default="auto",
+        help="Normalized x,y,w,h crop coordinates or preset quadrant (top-right, top-left, bottom-left, bottom-right, auto) for facecam in 9:16 gaming split mode"
     )
     parser.add_argument(
         "--gaming-gameplay",
@@ -516,28 +519,32 @@ def main():
                  except ValueError:
                      print(i18n("Invalid number. Using previous values."))
 
-        if getattr(args, "pipeline_mode", "podcast") == "gaming":
+        # Load API Config
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+        api_config = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    api_config = json.load(f)
+            except:
+                pass
+
+        # Seleção do Backend de IA
+        ai_backend = args.ai_backend
+        
+        # Try to load backend from config if not in args
+        if not ai_backend and api_config.get("selected_api"):
+            ai_backend = api_config.get("selected_api")
+            print(i18n("Using AI Backend from config: {}").format(ai_backend))
+
+        is_gaming_pipeline = (getattr(args, "pipeline_mode", "podcast") == "gaming")
+        if is_gaming_pipeline and not ai_backend:
             ai_backend = "offline"
-        else:
-            # Load API Config
-            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-            api_config = {}
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        api_config = json.load(f)
-                except:
-                    pass
-
-            # Seleção do Backend de IA
-            ai_backend = args.ai_backend
-            
-            # Try to load backend from config if not in args
-            if not ai_backend and api_config.get("selected_api"):
-                ai_backend = api_config.get("selected_api")
-                print(i18n("Using AI Backend from config: {}").format(ai_backend))
-
-            if not ai_backend:
+        elif not ai_backend:
+            if args.skip_prompts:
+                print(i18n("No AI backend selected, defaulting to Manual."))
+                ai_backend = "manual"
+            else:
                 if args.skip_prompts:
                     print(i18n("No AI backend selected, defaulting to Manual."))
                     ai_backend = "manual"
@@ -798,6 +805,9 @@ def main():
                             video_duration = max(w.get("end", 0.0) for w in words)
 
                         resolved_lang = transcript_data.get("language") or args.language
+                        facecam_crop = args.gaming_facecam
+                        if facecam_crop == "auto" and video_file:
+                            facecam_crop = gaming_facecam_detector.auto_detect_facecam_box(video_file)
                         viral_segments = gaming_scorer.run_gaming_clipping_pipeline(
                             video_path=video_file,
                             project_folder=project_folder,
@@ -806,8 +816,12 @@ def main():
                             num_segments=num_segments,
                             min_duration=args.min_duration,
                             max_duration=args.max_duration,
-                            facecam_crop=args.gaming_facecam,
-                            language=resolved_lang
+                            facecam_crop=facecam_crop,
+                            language=resolved_lang,
+                            ai_backend=ai_backend,
+                            api_key=api_key,
+                            ai_model_name=getattr(args, "ai_model_name", None),
+                            base_url=getattr(args, "ai_base_url", None),
                         )
                     elif args.smart_clipping:
                         print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))
@@ -997,7 +1011,7 @@ def main():
                             facecam_box=args.gaming_facecam,
                             gameplay_box=args.gaming_gameplay
                         )
-                        face_modes[f"output{idx:03d}"] = "none"
+                        face_modes[f"output{idx:03d}"] = "gaming_split"
                     modes_file = os.path.join(project_folder, "face_modes.json")
                     with open(modes_file, "w", encoding="utf-8") as f:
                         json.dump(face_modes, f, indent=4)
@@ -1129,6 +1143,10 @@ def main():
             # -------------------------------
 
             sub_config = get_subtitle_config(args.subtitle_config)
+            if getattr(args, "orientation", None) == "9:16_gaming_split":
+                sub_config["layout_mode"] = "9:16_gaming_split"
+                if sub_config.get("vertical_position") == 210:
+                    sub_config["vertical_position"] = 400
             if "enable_hook_header" not in sub_config:
                 sub_config["enable_hook_header"] = args.enable_hook_header
             if "hook_header_style" not in sub_config:
