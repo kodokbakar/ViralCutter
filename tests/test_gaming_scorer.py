@@ -11,6 +11,7 @@ from scripts.gaming_scorer import (
     generate_gaming_windows,
     generate_gaming_hook_title,
     run_gaming_clipping_pipeline,
+    refine_gaming_candidates_with_llm,
 )
 
 
@@ -21,8 +22,9 @@ def test_fuse_gaming_scores():
 
     fused = fuse_gaming_scores(audio_events, keyword_events, face_events)
     assert len(fused) == 1
-    # 80*0.5 + 70*0.3 + 90*0.2 = 40 + 21 + 18 = 79.0
-    assert fused[0]["score"] == pytest.approx(79.0, abs=1.0)
+    # 80*0.5 + 70*0.3 + 90*0.2 = 79.0; with convergence boost (+15%): 79.0 * 1.15 = 90.9
+    assert fused[0]["score"] == pytest.approx(90.9, abs=1.0)
+    assert fused[0]["converged"] is True
     assert fused[0]["timestamp"] == 30.0
 
 
@@ -34,8 +36,9 @@ def test_fuse_gaming_scores_without_face():
 
     fused = fuse_gaming_scores(audio_events, keyword_events, face_events)
     assert len(fused) == 1
-    # 80*0.7 + 60*0.3 = 56 + 18 = 74.0
-    assert fused[0]["score"] == pytest.approx(74.0, abs=1.0)
+    # 80*0.7 + 60*0.3 = 74.0; with convergence boost (+15%): 74.0 * 1.15 = 85.1
+    assert fused[0]["score"] == pytest.approx(85.1, abs=1.0)
+    assert fused[0]["converged"] is True
     assert fused[0]["timestamp"] == 25.0
 
 def test_fuse_gaming_scores_with_numpy_or_tuples():
@@ -46,8 +49,8 @@ def test_fuse_gaming_scores_with_numpy_or_tuples():
 
     fused = fuse_gaming_scores(audio_events, keyword_events, face_events)
     assert len(fused) == 1
-    assert fused[0]["score"] == pytest.approx(79.0, abs=1.0)
-
+    assert fused[0]["score"] == pytest.approx(90.9, abs=1.0)
+    assert fused[0]["converged"] is True
 
 
 def test_fuse_gaming_scores_edge_cases():
@@ -389,3 +392,141 @@ def test_fuse_gaming_scores_preserves_standalone_keyword_peaks():
     kw_cand = next(c for c in fused if c["timestamp"] == 85.0)
     assert kw_cand["keyword_score"] == 95.0
     assert "epic" in kw_cand["keywords"]
+
+
+def test_fuse_gaming_scores_isolated_audio_penalty():
+    audio_events = [{"timestamp": 50.0, "score": 80.0}]
+    # Isolated loud audio spike without keyword or face reaction
+    fused = fuse_gaming_scores(audio_events, [], [], isolated_audio_penalty=0.5)
+    assert len(fused) == 1
+    # 80.0 * 0.70 = 56.0; penalized by 0.5 -> 28.0
+    assert fused[0]["score"] == pytest.approx(28.0, abs=0.5)
+    assert fused[0]["isolated_audio"] is True
+    assert fused[0]["converged"] is False
+
+
+def test_fuse_gaming_scores_speech_prevents_isolated_penalty():
+    audio_events = [{"timestamp": 50.0, "score": 80.0}]
+    # Audio spike without keyword, but speech occurs around 50.0s
+    speech_words = [{"word": "halo", "start": 49.0, "end": 51.0}]
+    fused = fuse_gaming_scores(audio_events, [], [], speech_events=speech_words, isolated_audio_penalty=0.5)
+    assert len(fused) == 1
+    # Should NOT be penalized as isolated audio junk
+    assert fused[0]["score"] == pytest.approx(56.0, abs=0.5)
+    assert fused[0]["isolated_audio"] is False
+
+
+def test_fuse_gaming_scores_converged_event():
+    audio_events = [{"timestamp": 35.0, "score": 80.0}]
+    keyword_events = [{"timestamp": 35.0, "score": 60.0, "matched_words": ["gila"]}]
+    face_events = [{"timestamp": 35.0, "score": 70.0}]
+    fused = fuse_gaming_scores(audio_events, keyword_events, face_events, convergence_boost=1.15)
+    assert len(fused) == 1
+    assert fused[0]["converged"] is True
+    assert fused[0]["isolated_audio"] is False
+    # (80*0.5 + 70*0.3 + 60*0.2) = 40 + 21 + 12 = 73.0; 73.0 * 1.15 = 83.95 -> 84.0
+    assert fused[0]["score"] == pytest.approx(84.0, abs=1.0)
+
+
+def test_generate_gaming_windows_adaptive_speech_boundary():
+    peaks = [{"timestamp": 40.0, "score": 90.0, "keywords": ["clutch"]}]
+    # Words: speech before peak with a natural pause at 24.0s (gap between 23.5 and 24.5 is 1.0s)
+    # Pre-roll 18.0s -> ideal start is 22.0s. Nearest pause is at word start 24.5s.
+    # Speech after peak ends at 48.0s with post-reaction pause (gap > 0.4s). Post-roll 10s -> ideal end 50.0s.
+    transcript_words = [
+        {"word": "awal", "start": 15.0, "end": 18.0},
+        {"word": "kalimat", "start": 18.2, "end": 23.5},
+        # 1.0s pause from 23.5 to 24.5
+        {"word": "ayo", "start": 24.5, "end": 26.0},
+        {"word": "rush", "start": 26.2, "end": 28.0},
+        {"word": "b", "start": 38.0, "end": 40.5},
+        {"word": "nice", "start": 41.0, "end": 43.0},
+        {"word": "clutch", "start": 43.5, "end": 48.0},
+        # 2.0s pause from 48.0 to 50.0
+        {"word": "lanjut", "start": 50.0, "end": 52.0},
+    ]
+
+    windows = generate_gaming_windows(
+        peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        transcript_words=transcript_words,
+    )
+    assert len(windows) == 1
+    seg = windows[0]
+    # Snapped start to natural speech pause at 24.5s
+    assert seg["start_time"] == pytest.approx(24.5, abs=0.5)
+    # Snapped end to reaction conclusion at 48.0s
+    assert seg["end_time"] == pytest.approx(48.0, abs=0.5)
+    assert seg["start_time"] <= 40.0 <= seg["end_time"]
+
+
+def test_generate_gaming_windows_adaptive_fallback_empty_transcript():
+    peaks = [{"timestamp": 40.0, "score": 90.0, "keywords": ["clutch"]}]
+    windows = generate_gaming_windows(
+        peaks,
+        video_duration=100.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        transcript_words=None,
+    )
+    assert len(windows) == 1
+    seg = windows[0]
+    assert seg["start_time"] == pytest.approx(22.0, abs=0.1)
+    assert seg["end_time"] == pytest.approx(50.0, abs=0.1)
+
+
+def test_refine_gaming_candidates_with_llm_offline():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "title": "CATALOG TITLE"}]
+    # Offline mode returns candidates untouched
+    res = refine_gaming_candidates_with_llm(candidates, ai_backend="offline")
+    assert res == candidates
+
+
+def test_refine_gaming_candidates_with_llm_mocked():
+    candidates = [
+        {
+            "start_time": 20.0,
+            "end_time": 50.0,
+            "score": 80,
+            "title": "CATALOG TITLE",
+            "rubric": {"hook_strength": 8.0, "verdict": "Old verdict"},
+        }
+    ]
+    words = [{"word": "clutch", "start": 30.0, "end": 31.0}]
+
+    mock_llm_json = json.dumps([
+        {
+            "index": 0,
+            "hook_title": "DETIK DETIK CLUTCH DEWA!",
+            "score": 95,
+            "virality_explanation": "Incredible outplay 1v3 round with shout.",
+        }
+    ])
+
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=mock_llm_json):
+        refined = refine_gaming_candidates_with_llm(
+            candidates=candidates,
+            transcript_words=words,
+            ai_backend="gemini",
+            api_key="fake-key",
+            language="id",
+        )
+        assert len(refined) == 1
+        assert refined[0]["title"] == "DETIK DETIK CLUTCH DEWA!"
+        assert refined[0]["score"] == 95
+        assert refined[0]["virality_explanation"] == "Incredible outplay 1v3 round with shout."
+        assert refined[0]["rubric"]["hook_strength"] == 9.5
+
+
+def test_refine_gaming_candidates_with_llm_error_fallback():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "title": "ORIGINAL TITLE"}]
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=RuntimeError("API Network Timeout")):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="fake-key")
+        assert res[0]["title"] == "ORIGINAL TITLE"
+        assert res[0]["score"] == 80
