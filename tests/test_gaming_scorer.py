@@ -150,7 +150,7 @@ def test_generate_gaming_windows():
     assert len(w["hook_title"].split()) >= 3
     assert "rubric" in w
     assert w["rubric"]["hook_strength"] <= 10.0
-
+    assert w.get("keywords") == ["clutch"]
 
 def test_generate_gaming_windows_boundary_clamping():
     # Peak at 5s, video duration 100s. Window must not start before 0.0 and duration >= 20.0
@@ -495,6 +495,7 @@ def test_refine_gaming_candidates_with_llm_mocked():
             "end_time": 50.0,
             "score": 80,
             "title": "CATALOG TITLE",
+            "keywords": ["clutch", "epic"],
             "rubric": {"hook_strength": 8.0, "verdict": "Old verdict"},
         }
     ]
@@ -509,7 +510,12 @@ def test_refine_gaming_candidates_with_llm_mocked():
         }
     ])
 
-    with patch("scripts.smart_clipping.query_ai_backend", return_value=mock_llm_json):
+    captured_prompt = []
+    def mock_query(prompt, **kwargs):
+        captured_prompt.append(prompt)
+        return mock_llm_json
+
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=mock_query):
         refined = refine_gaming_candidates_with_llm(
             candidates=candidates,
             transcript_words=words,
@@ -522,7 +528,10 @@ def test_refine_gaming_candidates_with_llm_mocked():
         assert refined[0]["score"] == 95
         assert refined[0]["virality_explanation"] == "Incredible outplay 1v3 round with shout."
         assert refined[0]["rubric"]["hook_strength"] == 9.5
-
+        assert refined[0]["keywords"] == ["clutch", "epic"]
+        assert len(captured_prompt) == 1
+        assert "clutch" in captured_prompt[0]
+        assert "epic" in captured_prompt[0]
 
 def test_refine_gaming_candidates_with_llm_error_fallback():
     candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "title": "ORIGINAL TITLE"}]

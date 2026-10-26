@@ -152,7 +152,7 @@ def main():
     parser.add_argument("--whisper-preset", default="custom", choices=["fast", "balanced", "accurate", "custom"], help="WhisperX transcription preset")
     parser.add_argument("--whisper-batch-size", type=int, help="WhisperX batch size override")
     parser.add_argument("--whisper-chunk-size", type=int, help="WhisperX chunk size override")
-    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local", "custom"], help="AI backend for viral analysis")
+    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local", "custom", "offline"], help="AI backend for viral analysis")
     parser.add_argument("--ai-base-url", help="Base URL for custom OpenAI-compatible API (e.g. 'http://localhost:11434/v1')")
     parser.add_argument("--api-key", help="API Key (required for Gemini or custom cloud AI)")
     
@@ -592,19 +592,19 @@ def main():
                     else:
                         ai_backend = "manual"
 
-            api_key = args.api_key
-            # Check config for API Key if using Gemini
-            if ai_backend == "gemini" and not api_key:
-                cfg_key = api_config.get("gemini", {}).get("api_key", "")
-                if cfg_key and cfg_key != "SUA_KEY_AQUI":
-                    api_key = cfg_key
-            
-            if ai_backend == "gemini" and not api_key:
-                 if args.skip_prompts:
-                     print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
-                 else:
-                     print(i18n("Gemini API Key not found in api_config.json or arguments."))
-                     api_key = input(i18n("Enter your Gemini API Key: ")).strip()
+        api_key = args.api_key
+        # Check config for API Key if using Gemini
+        if ai_backend == "gemini" and not api_key:
+            cfg_key = api_config.get("gemini", {}).get("api_key", "")
+            if cfg_key and cfg_key != "SUA_KEY_AQUI":
+                api_key = cfg_key
+        
+        if ai_backend == "gemini" and not api_key:
+            if args.skip_prompts:
+                print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
+            else:
+                print(i18n("Gemini API Key not found in api_config.json or arguments."))
+                api_key = input(i18n("Enter your Gemini API Key: ")).strip()
     # Workflow & Face Config Inputs
     workflow_choice = args.workflow
     face_model = args.face_model
@@ -806,8 +806,9 @@ def main():
 
                         resolved_lang = transcript_data.get("language") or args.language
                         facecam_crop = args.gaming_facecam
-                        if facecam_crop == "auto" and video_file:
+                        if (facecam_crop == "auto" or not facecam_crop) and video_file:
                             facecam_crop = gaming_facecam_detector.auto_detect_facecam_box(video_file)
+                            args.gaming_facecam = facecam_crop
                         viral_segments = gaming_scorer.run_gaming_clipping_pipeline(
                             video_path=video_file,
                             project_folder=project_folder,
@@ -1000,6 +1001,10 @@ def main():
                         f for f in sorted(os.listdir(cuts_folder))
                         if f.endswith(".mp4") and "input" not in f.lower()
                     ] if os.path.exists(cuts_folder) else []
+                    if getattr(args, "gaming_facecam", "auto") in ("auto", None, ""):
+                        source_vid = video_file if video_file and os.path.exists(video_file) else (os.path.join(cuts_folder, cut_files[0]) if cut_files else None)
+                        if source_vid:
+                            args.gaming_facecam = gaming_facecam_detector.auto_detect_facecam_box(source_vid)
                     for idx, c_file in enumerate(cut_files):
                         c_path = os.path.join(cuts_folder, c_file)
                         base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")

@@ -50,3 +50,13 @@ def test_job_manager_stage_for_line_gaming_detection():
     line2 = "Running Gaming Moment Detection..."
     assert stage_for_line(line1) == "AI segment selection"
     assert stage_for_line(line2) == "AI segment selection"
+
+def test_main_improved_accepts_offline_ai_backend():
+    result = subprocess.run(
+        [sys.executable, "main_improved.py", "--ai-backend", "offline", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "offline" in result.stdout
+

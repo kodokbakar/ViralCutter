@@ -387,6 +387,7 @@ def generate_gaming_windows(
             "score": int(round(score)),
             "title": hook,
             "hook_title": hook,
+            "keywords": kws,
             "virality_explanation": f"High-energy gaming climax at {round(ts, 1)}s with intense volume spike.",
             "rubric": {
                 "hook_strength": min(10.0, max(0.0, round(score / 10.0, 1))),
