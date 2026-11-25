@@ -1,6 +1,6 @@
 # [AGENTS.md](http://AGENTS.md) — Shared Context for the Agent Team
 
-&gt; Read by the orchestrator (the main `omp` session) and by every subagent.
+&gt; Read by the orchestrator (the main `omp` or `opencode` session) and by every subagent.
 
 &gt; Keep this file short and factual: commands, conventions, prohibitions.
 
@@ -37,14 +37,19 @@ Never invent a command you have not seen in the repo or run successfully.
 
 | Role | Agent file | Edits production code | Edits tests | Gate / verdict |
 |---|---|---|---|---|
-| Orchestrator | *(main omp session, not a file)* | No | No | Decides next step, escalates to the human |
-| Planner | `planner.md` | No | No | — |
-| Researcher *(on demand)* | `researcher.md` | No | No | — |
-| Debugger | `debugger.md` | No | One regression test only | — |
-| Developer | `developer.md` | **Yes** | Tests for its own change | — |
-| Tester | `tester.md` | **No** | **Yes** (test paths only) | `PASS` / `FAIL` |
-| Reviewer | `reviewer.md` | **No** | **No** | `APPROVE` / `REQUEST_CHANGES` / `ESCALATE` |
-| Integrator | `integrator.md` | Conflict resolution only | No | Integration checks result |
+| `orchestrator` | `orchestrator.md` | No | No | Decides next step, coordinates pipelines, escalates to human |
+| `architect` | `architect.md` | No | No | Architecture designs, API contracts, schema specs |
+| `planner` | `planner.md` | No | No | Technical scoping, step breakdown, acceptance criteria |
+| `debugger` | `debugger.md` | No | One regression test only | Isolation evidence + 1 failing test commit |
+| `developer` | `developer.md` | **Yes** | Tests for its own change | Writable in current worktree, minimal diff |
+| `tester` | `tester.md` | **No** | **Yes** (test paths only) | `PASS` / `FAIL` |
+| `reviewer` | `reviewer.md` | **No** | **No** | `APPROVE` / `REQUEST_CHANGES` |
+| `integrator` | `integrator.md` | Conflict resolution only | No | Merge verification; acts strictly after human approval |
+| `researcher` | `researcher.md` | No | No | Answers technical questions with citations |
+| `explorer` | `explorer.md` | No | No | Codebase exploration and dependency mapping |
+| `triage` | `triage.md` | No | No | Request and bug triage into verifiable criteria |
+| `analyst` | `analyst.md` | No | No | Requirements analysis and scope boundaries |
+| `docs-writer` | `docs-writer.md` | Docs only | No | Updates README, guides, docs after approval |
 
 Only the orchestrator spawns agents. Subagents never spawn other agents.
 
@@ -165,23 +170,34 @@ git worktree add -b fix/&lt;ID&gt; ../&lt;repo&gt;-wt/&lt;ID&gt; &lt;default-bra
 
 ---
 
-## 5. Pipeline
+## 5. Pipeline & Adaptive Workflow
 
-**Bug:** Planner *(skip for trivial fixes)* → Debugger → Developer → Tester → Reviewer → Integrator
+### 5.1 Adaptive Multi-Agent Workflow
+The orchestrator MUST select the smallest safe workflow based on task complexity, risk, and dependencies:
 
-**Feature:** Planner → Researcher *(if needed)* → Developer → Tester → Reviewer → Integrator
+- **Small:** `orchestrator` → `developer` → validation.
+  - Skip separate planning and review unless justified.
+  - Delegate diagnosis to `debugger` when root cause is unclear.
+  - Require relevant tests or verification evidence.
+- **Medium:** `orchestrator` → `planner` → `developer` → `tester` + `reviewer`.
+  - Use `researcher` or `architect` only when necessary.
+  - Allow parallel independent verification.
+  - Resolve blocking findings before completion.
+- **Large:** `orchestrator` → `planner` → parallel workers → `integration` → `tester` + `reviewer`.
+  - Analyze dependencies before parallel execution.
+  - Use isolated worktrees with explicit ownership.
+  - Add relevant specialists according to task type.
+  - Verify integrated behavior before completion.
 
-- Debugger ends with a committed **failing** regression test and a root cause.
-
-- Developer makes that test pass without touching its assertions.
-
+### 5.2 Dynamic Routing
+- Route bugs to `debugger` when root cause is unknown (ends with a committed failing regression test).
+- Route complex architecture, schemas, and API contracts to `architect`.
+- Route requirements analysis and scope boundaries to `analyst` or `triage`.
+- Route on-demand technical questions to `researcher` or `explorer`.
+- Route documentation updates to `docs-writer` (strictly after `APPROVE`).
+- Developer makes tests pass without touching assertions.
 - Tester and Reviewer are independent gates; neither trusts the developer's summary.
-
-- Researcher is called by the orchestrator only for a specific question, or when an agent returns
-
-  `NEEDS_DECISION` because of a knowledge gap.
-
-- The human approves the final merge into the default branch. Agents never push or merge into it.
+- The human approves the final merge into the default branch via `integrator`. Agents never push or merge into it autonomously.
 
 ---
 
@@ -247,7 +263,25 @@ Severity: **BLOCKER** breaks correctness/security/data · **MAJOR** likely bug o
 
 ---
 
-## 7. Loop Prevention and Escalation
+## 7. Reviewer Rubric & Anti-Nit-Drift Rule
+
+### 7.1 Findings Severity Rubric
+- **`BLOCKER`**: Breaks correctness, security, data integrity, or core processing/API contracts.
+- **`MAJOR`**: Likely bug, performance regression, or missing test for the change.
+- **`MINOR`**: Quality or maintainability improvement worth fixing, but not blocking.
+- **`NIT`**: Cosmetic, style, formatting, or naming preference.
+
+### 7.2 Anti-Nit-Drift Rule
+- **Only `BLOCKER` and `MAJOR` findings trigger `REQUEST_CHANGES` (or `CHANGES`).**
+- `MINOR` and `NIT` findings must **never** block an `APPROVE` verdict.
+- **After Round 1:** The reviewer raises only:
+  1. `BLOCKER`/`MAJOR` issues missed earlier.
+  2. Problems directly introduced by the latest fix.
+- **No Drift:** Never reopen resolved findings or introduce new nits in subsequent review rounds.
+
+---
+
+## 8. Loop Prevention and Escalation
 
 | Loop | Max rounds |
 |---|---|
@@ -268,13 +302,9 @@ The orchestrator must **stop and escalate to the human** when any of these happe
 
 Escalation message: what was tried per round, what is blocking, and 2–3 concrete options with a recommendation.
 
-Reviewer rule against endless loops: after round 1, raise only (a) BLOCKER/MAJOR issues missed earlier or
-
-(b) problems introduced by the latest fix. Do not reopen resolved findings or add new nits.
-
 ---
 
-## 8. Definition of Done
+## 9. Definition of Done
 
 - [ ] Acceptance criteria in the brief are met
 
@@ -292,35 +322,44 @@ Reviewer rule against endless loops: after round 1, raise only (a) BLOCKER/MAJOR
 
 ---
 
-## 9. Orchestrator Rules (main omp session)
+## 10. Orchestrator Rules (main orchestrator session)
 
 - Does not write product code. Plans, delegates, tracks rounds, and reports to the human.
 
 - Creates the worktree, writes briefs (§6.1), tracks round counters and spawn count (e.g. in the todo list).
 
-- Passes shared background through the task tool's `context`, and one self-contained brief per task item.
+- Passes shared background through context and one self-contained brief per task item.
 
-- Runs writers sequentially; parallelizes only read-only work.
+- Runs writers sequentially per worktree; parallelizes across independent worktrees.
 
 - Reads each report's STATUS before choosing the next step; never skips Tester or Reviewer.
 
 - Asks the human before: merging into the default branch, pushing, releasing, or any command from the
-
   "approval required" list in §3.2.
 
 ---
 
-## 10. omp Notes
+## 11. OpenCode V2 Parallel Execution Protocol
 
-- Agent files: project `.omp/agents/*.md` or user-level `~/.omp/agent/agents/*.md` (user-level applies to every project).
+- **Concurrency Cap:** Maksimal 3 pipeline paralel secara default. Jika human atau user meminta kapasitas lebih tinggi, batas pipeline dapat dinaikkan sesuai instruksi pengguna.
+- **Worktree Isolation & Move-Only Task:** Native subagent awalnya mewarisi direktori parent session. Membuat Git worktree tidak otomatis memindahkan working directory child session.
+  1. Setiap child pertama kali dipanggil dengan *move-only task* menggunakan `session_move` menuju direktori absolut worktree yang ditugaskan. Subagent tidak boleh mengedit file sebelum berpindah.
+  2. Tunggu hingga child idle, kemudian resume `sessionID` yang sama untuk memverifikasi direktori sesi, `git rev-parse --show-toplevel`, dan active branch.
+  3. Setelah verifikasi sukses, lanjutkan child session tersebut untuk eksekusi stage yang sebenarnya.
+- **Safer Fallback:** Jika rebinding gagal atau tidak dapat diverifikasi, jalankan top-level OpenCode session terpisah dari masing-masing worktree. Dilarang keras mengedit bersama di shared checkout sebagai fallback.
+- **Human Gate:** Integrasi/merge ke branch `main` dan penghapusan worktree **wajib persetujuan eksplisit dari manusia** via `integrator`. Pembersihan worktree tidak boleh dilakukan secara otomatis.
+- **Fail Independently:** Kegagalan atau review `CHANGES` pada satu item tidak memblokir pipeline item lain yang independen.
 
-  Project agents override user agents by exact name.
+---
 
-- Do **not** use the task tool's `isolated: true` branch mode for this workflow: its merge step stashes the parent
+## 12. Tier Model Provider (Provider: `9router/ag/gemini-3.8-flash-*`)
 
-  repo, which conflicts with §3.2. Prefer `task.isolation.mode = none` and the manual worktrees from §4.
-
-- Each subagent ends with the `yield` tool; put the §6.2 report in it.
-
-- If available in your version, `omp agents show <name>` prints the effective model, tools, and settings of an agent.
-
+- **High Tier (`9router/ag/gemini-3.8-flash-high`):**
+  - Digunakan untuk penalaran arsitektur, koordinasi, diagnosis bug mendalam, dan review kritis.
+  - Roles: `orchestrator`, `architect`, `planner`, `debugger`, `reviewer`.
+- **Medium Tier (`9router/ag/gemini-3.8-flash-medium`):**
+  - Digunakan untuk implementasi kode, penulisan test, eksekusi test suite, dan integrasi branch.
+  - Roles: `developer`, `tester`, `integrator`.
+- **Low Tier (`9router/ag/gemini-3.8-flash-low`):**
+  - Digunakan untuk pencarian informasi, analisis persyaratan, pemetaan codebase, klasifikasi ticket, dan update dokumentasi.
+  - Roles: `researcher`, `explorer`, `triage`, `analyst`, `docs-writer`.

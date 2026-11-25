@@ -1,0 +1,71 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "orchestrator",
+  "agent": {
+    "orchestrator": {
+      "mode": "primary",
+      "model": "9router/ag/gemini-3.8-flash-high",
+      "description": "Main orchestrator coordinating multi-agent issue pipelines"
+    },
+    "architect": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-high",
+      "description": "System architecture, API contracts, and implementation design"
+    },
+    "planner": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-high",
+      "description": "Turns requests into scoped, verifiable implementation plans"
+    },
+    "debugger": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-high",
+      "description": "Reproduces bugs, isolates root cause, and authors failing regression tests"
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-high",
+      "description": "Evidence-based code review against AGENTS.md rules"
+    },
+    "developer": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-medium",
+      "description": "Implements features and bug fixes in isolated worktrees"
+    },
+    "tester": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-medium",
+      "description": "Runs test suites, authors edge-case tests, and verifies worktree integrity"
+    },
+    "integrator": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-medium",
+      "description": "Merges approved branches into main after explicit human owner approval"
+    },
+    "researcher": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-low",
+      "description": "On-demand technical research answering questions with citations"
+    },
+    "explorer": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-low",
+      "description": "Fast codebase exploration, dependency mapping, and hook tracing"
+    },
+    "triage": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-low",
+      "description": "Triage incoming requests and bug reports into clear scopes"
+    },
+    "analyst": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-low",
+      "description": "Requirements analysis and scope boundaries formulation"
+    },
+    "docs-writer": {
+      "mode": "subagent",
+      "model": "9router/ag/gemini-3.8-flash-low",
+      "description": "Updates documentation, specs, and guides after change approval"
+    }
+  }
+}
