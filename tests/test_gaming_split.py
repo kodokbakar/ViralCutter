@@ -6,6 +6,8 @@ from scripts.gaming_split import (
     build_gaming_split_filter,
     render_gaming_split_clip,
     probe_video_dimensions,
+    escape_filter_path,
+    RenderResult,
 )
 
 def test_parse_normalized_box_valid():
@@ -270,3 +272,129 @@ def test_build_gaming_split_filter_killfeed_edge_cases():
         assert "[kf_boxed]" not in filt_none
         assert "drawbox=" not in filt_none
         assert filt_none.endswith("[stacked_v]")
+
+
+def test_escape_filter_path():
+    # Test colons, quotes, brackets, and backslashes
+    raw = "/path/to/my [clips]: 'test'/sub.ass"
+    escaped = escape_filter_path(raw)
+    assert r"\:" in escaped
+    assert r"\'" in escaped
+    assert r"\[" in escaped
+    assert r"\]" in escaped
+    assert "\\" not in escaped.replace(r"\:", "").replace(r"\'", "").replace(r"\[", "").replace(r"\]", "")
+
+    # Windows-style backslashes
+    win_path = r"C:\Users\tester\video.ass"
+    esc_win = escape_filter_path(win_path)
+    assert "\\Users" not in esc_win
+    assert r"\:" in esc_win
+
+
+def test_build_gaming_split_filter_with_subtitles(tmp_path):
+    sub_file = tmp_path / "test [sample]: 1.ass"
+    sub_file.write_text("[Script Info]")
+
+    filt = build_gaming_split_filter(
+        facecam_box="0.68,0.05,0.28,0.15",
+        gameplay_box="0.25,0.0,0.50,0.62",
+        src_w=1920,
+        src_h=1080,
+        layout="split_30_70",
+        subtitle_ass_path=str(sub_file),
+    )
+    assert ";[stacked_v]subtitles=filename=" in filt
+    assert ":fontsdir=" in filt
+    assert filt.endswith("[v_out]")
+    assert r"\[sample\]" in filt
+    assert r"\:" in filt
+
+
+@patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080))
+@patch("subprocess.run")
+def test_render_gaming_split_clip_single_pass_success(mock_run, mock_probe, tmp_path):
+    import subprocess
+    in_file = tmp_path / "in.mp4"
+    in_file.write_text("dummy")
+    out_file = tmp_path / "out.mp4"
+    sub_file = tmp_path / "sub.ass"
+    sub_file.write_text("subtitles")
+
+    mock_run.return_value = subprocess.CompletedProcess(["ffmpeg"], 0)
+
+    res = render_gaming_split_clip(
+        str(in_file),
+        str(out_file),
+        subtitle_ass_path=str(sub_file),
+    )
+    assert isinstance(res, RenderResult)
+    assert res == str(out_file)
+    assert res.subtitles_burned is True
+    assert mock_run.call_count == 1
+
+    cmd = mock_run.call_args[0][0]
+    assert "-filter_complex" in cmd
+    filt_idx = cmd.index("-filter_complex") + 1
+    assert "subtitles=" in cmd[filt_idx]
+    assert cmd[filt_idx].endswith("[v_out]")
+    map_idx = cmd.index("-map")
+    assert cmd[map_idx + 1] == "[v_out]"
+
+
+@patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080))
+@patch("subprocess.run")
+def test_render_gaming_split_clip_single_pass_fallback_on_failure(mock_run, mock_probe, tmp_path):
+    import subprocess
+    in_file = tmp_path / "in.mp4"
+    in_file.write_text("dummy")
+    out_file = tmp_path / "out.mp4"
+    sub_file = tmp_path / "sub.ass"
+    sub_file.write_text("subtitles")
+
+    # Single-pass with subtitles fails, fallback without subtitles succeeds
+    def fake_run(cmd, *args, **kwargs):
+        if "[v_out]" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr=b"subtitles filter failed")
+        return subprocess.CompletedProcess(cmd, 0)
+    mock_run.side_effect = fake_run
+
+    res = render_gaming_split_clip(
+        str(in_file),
+        str(out_file),
+        subtitle_ass_path=str(sub_file),
+    )
+    assert isinstance(res, RenderResult)
+    assert res == str(out_file)
+    assert res.subtitles_burned is False
+
+    # The last executed command should be without subtitles, mapping [stacked_v]
+    last_cmd = mock_run.call_args_list[-1][0][0]
+    filt_idx = last_cmd.index("-filter_complex") + 1
+    assert "subtitles=" not in last_cmd[filt_idx]
+    assert last_cmd[filt_idx].endswith("[stacked_v]")
+    map_idx = last_cmd.index("-map")
+    assert last_cmd[map_idx + 1] == "[stacked_v]"
+
+
+@patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080))
+@patch("subprocess.run")
+def test_render_gaming_split_clip_missing_sub_file_does_no_subs(mock_run, mock_probe, tmp_path):
+    import subprocess
+    in_file = tmp_path / "in.mp4"
+    in_file.write_text("dummy")
+    out_file = tmp_path / "out.mp4"
+
+    mock_run.return_value = subprocess.CompletedProcess(["ffmpeg"], 0)
+
+    res = render_gaming_split_clip(
+        str(in_file),
+        str(out_file),
+        subtitle_ass_path=str(tmp_path / "nonexistent.ass"),
+    )
+    assert isinstance(res, RenderResult)
+    assert res.subtitles_burned is False
+    assert mock_run.call_count == 1
+    cmd = mock_run.call_args[0][0]
+    filt_idx = cmd.index("-filter_complex") + 1
+    assert "subtitles=" not in cmd[filt_idx]
+    assert cmd[cmd.index("-map") + 1] == "[stacked_v]"

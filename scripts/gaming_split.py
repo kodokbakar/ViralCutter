@@ -48,6 +48,21 @@ DEFAULT_MANUAL_CROP_BOX = "0.3418,0.0,0.3164,1.0"
 DEFAULT_KILLFEED_BOX = "0.70,0.05,0.25,0.12"
 VALID_GAMING_LAYOUTS = ("split_30_70", "split_40_60", "floating_pip", "blurred_bg")
 
+class RenderResult(str):
+    subtitles_burned: bool
+
+    def __new__(cls, value: str, subtitles_burned: bool = False):
+        obj = super().__new__(cls, value)
+        obj.subtitles_burned = subtitles_burned
+        return obj
+
+def escape_filter_path(path: str) -> str:
+    """Escapes file path for FFmpeg filter arguments (subtitles filter)."""
+    p = os.path.abspath(str(path)).replace("\\", "/")
+    for ch in (':', "'", '[', ']'):
+        p = p.replace(ch, f"\\{ch}")
+    return p
+
 def parse_normalized_box(box_str: str) -> Tuple[float, float, float, float]:
     """
     Parses 'x,y,w,h' string or quadrant preset into clamped (x, y, w, h) floats in range [0.0, 1.0].
@@ -116,7 +131,8 @@ def build_gaming_split_filter(
     src_h: int,
     scale_flags: str = "bicubic",
     layout: str = "split_30_70",
-    killfeed_box: Optional[str] = None
+    killfeed_box: Optional[str] = None,
+    subtitle_ass_path: Optional[str] = None,
 ) -> str:
     """
     Generates FFmpeg filter_complex string for gaming layouts:
@@ -125,7 +141,7 @@ def build_gaming_split_filter(
     - floating_pip: 1080x1920 gameplay background with floating facecam PiP overlay
     - blurred_bg: blurred gameplay background with facecam top and gameplay center
     Optional killfeed_box overlay positioned at top-right (x=W-w-20:y=20) with white border.
-    Total: 1080x1920 (9:16), terminating strictly on pad [stacked_v].
+    Total: 1080x1920 (9:16), terminating strictly on pad [stacked_v] (or [v_out] if subtitles).
     """
     # Backward compatibility: swap if layout passed positionally into scale_flags
     if scale_flags in VALID_GAMING_LAYOUTS and layout == "split_30_70":
@@ -186,6 +202,12 @@ def build_gaming_split_filter(
             f"[base_v][kf_boxed]overlay=x=W-w-20:y=20[stacked_v]"
         )
 
+    if subtitle_ass_path:
+        escaped_ass = escape_filter_path(subtitle_ass_path)
+        from scripts import subtitle_fonts
+        escaped_fonts = escape_filter_path(subtitle_fonts.get_fonts_dir())
+        filt += f";[stacked_v]subtitles=filename='{escaped_ass}':fontsdir='{escaped_fonts}'[v_out]"
+
     return filt
 
 def probe_video_dimensions(video_path: str) -> Tuple[int, int]:
@@ -224,59 +246,83 @@ def render_gaming_split_clip(
     facecam_box: str = DEFAULT_FACECAM_BOX,
     gameplay_box: str = DEFAULT_GAMEPLAY_BOX,
     layout: str = "split_30_70",
-    killfeed_box: Optional[str] = None
-) -> str:
+    killfeed_box: Optional[str] = None,
+    subtitle_ass_path: Optional[str] = None,
+) -> RenderResult:
     """
     Renders input video into 1080x1920 gaming format via FFmpeg.
+    Supports single-pass subtitle burning if subtitle_ass_path is provided.
+    Falls back gracefully to rendering without subtitles if single-pass fails.
     """
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     src_w, src_h = probe_video_dimensions(input_path)
-    filter_complex = build_gaming_split_filter(
+
+    codec, preset, extra_args = get_best_encoder()
+
+    def _execute_ffmpeg(filter_str: str, map_pad: str):
+        nonlocal codec, preset, extra_args
+        def _build_cmd(c, p, extra, a_codec):
+            return [
+                "ffmpeg", "-y",
+                "-i", input_path,
+                "-filter_complex", filter_str,
+                "-map", map_pad,
+                "-map", "0:a?",
+                "-c:v", c,
+                "-preset", p,
+                *extra,
+                "-pix_fmt", "yuv420p",
+                "-c:a", a_codec,
+                output_path
+            ]
+
+        cmd = _build_cmd(codec, preset, extra_args, "copy")
+        try:
+            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        except subprocess.CalledProcessError:
+            global _CACHED_ENCODER
+            if codec != "libx264":
+                _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
+                codec, preset, extra_args = _CACHED_ENCODER
+                try:
+                    cmd_cpu = _build_cmd(codec, preset, extra_args, "copy")
+                    subprocess.run(cmd_cpu, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                    return
+                except subprocess.CalledProcessError:
+                    pass
+            cmd_aac = _build_cmd(codec, preset, extra_args, "aac")
+            subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+    if subtitle_ass_path and os.path.exists(subtitle_ass_path):
+        try:
+            filt_sub = build_gaming_split_filter(
+                facecam_box=facecam_box,
+                gameplay_box=gameplay_box,
+                src_w=src_w,
+                src_h=src_h,
+                layout=layout,
+                killfeed_box=killfeed_box,
+                subtitle_ass_path=subtitle_ass_path,
+            )
+            _execute_ffmpeg(filt_sub, "[v_out]")
+            return RenderResult(output_path, subtitles_burned=True)
+        except Exception:
+            pass
+
+    filt_no_sub = build_gaming_split_filter(
         facecam_box=facecam_box,
         gameplay_box=gameplay_box,
         src_w=src_w,
         src_h=src_h,
         layout=layout,
-        killfeed_box=killfeed_box
+        killfeed_box=killfeed_box,
+        subtitle_ass_path=None,
     )
-
-    codec, preset, extra_args = get_best_encoder()
-
-    def _build_cmd(c, p, extra, a_codec):
-        return [
-            "ffmpeg", "-y",
-            "-i", input_path,
-            "-filter_complex", filter_complex,
-            "-map", "[stacked_v]",
-            "-map", "0:a?",
-            "-c:v", c,
-            "-preset", p,
-            *extra,
-            "-pix_fmt", "yuv420p",
-            "-c:a", a_codec,
-            output_path
-        ]
-
-    cmd = _build_cmd(codec, preset, extra_args, "copy")
-    try:
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    except subprocess.CalledProcessError:
-        global _CACHED_ENCODER
-        if codec != "libx264":
-            _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
-            codec, preset, extra_args = _CACHED_ENCODER
-            try:
-                cmd_cpu = _build_cmd(codec, preset, extra_args, "copy")
-                subprocess.run(cmd_cpu, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                return output_path
-            except subprocess.CalledProcessError:
-                pass
-        cmd_aac = _build_cmd(codec, preset, extra_args, "aac")
-        subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    return output_path
+    _execute_ffmpeg(filt_no_sub, "[stacked_v]")
+    return RenderResult(output_path, subtitles_burned=False)
 
 def build_manual_crop_filter(
     crop_box: str,

@@ -541,6 +541,7 @@ def burn(
     enable_html_broll=False,
     enable_broll_sfx=True,
     broll_sfx_volume=0.35,
+    skip_clips=None,
     **kwargs,
 ):
     project_folder_abs = (
@@ -686,11 +687,22 @@ def burn(
         )
 
     rendered_count = 0
+    skipped_count = 0
+    skip_set = {str(c) for c in skip_clips} if skip_clips else set()
 
     for video_file in video_files:
         video_name = os.path.splitext(
             video_file
         )[0]
+        clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', video_name)
+
+        if skip_set and (video_file in skip_set or video_name in skip_set or clean_clip_name in skip_set):
+            print(
+                f"Skipping subtitle burn for {video_name} (already burned in single-pass).",
+                flush=True,
+            )
+            skipped_count += 1
+            continue
 
         subtitle_file = os.path.join(
             subs_folder,
@@ -716,6 +728,13 @@ def burn(
                 subtitle_file = (
                     processed_candidate
                 )
+            else:
+                clean_candidate = os.path.join(
+                    subs_folder,
+                    f"{clean_clip_name}.ass",
+                )
+                if os.path.exists(clean_candidate):
+                    subtitle_file = clean_candidate
 
         if not os.path.exists(
             subtitle_file
@@ -732,7 +751,6 @@ def burn(
             videos_folder,
             video_file,
         )
-        clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', video_name)
         output_file = os.path.join(
             output_folder,
             f"{clean_clip_name}.mp4",
@@ -868,7 +886,7 @@ def burn(
             flush=True,
         )
 
-    if rendered_count == 0:
+    if rendered_count == 0 and skipped_count == 0:
         raise FileNotFoundError(
             "No videos were rendered because "
             "matching ASS subtitle files were "
