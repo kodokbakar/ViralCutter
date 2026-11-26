@@ -134,8 +134,21 @@ def cut(segments, project_folder="tmp", skip_video=False):
                     except Exception as e:
                         print(f"Error splicing segment {i+1}: {e}", flush=True)
                 else:
-                    # Comando ffmpeg
-                    command = [
+                    # Single continuous cut: attempt stream copy first for fast lossless extraction
+                    copy_command = [
+                        "ffmpeg",
+                        "-y",
+                        "-loglevel", "error", "-hide_banner",
+                        "-ss", start_time_str,
+                        "-i", input_file,
+                        "-t", duration_str,
+                        "-c:v", "copy",
+                        "-c:a", "copy",
+                        "-avoid_negative_ts", "make_zero",
+                        output_path
+                    ]
+
+                    reencode_command = [
                         "ffmpeg",
                         "-y",
                         "-loglevel", "error", "-hide_banner",
@@ -146,29 +159,53 @@ def cut(segments, project_folder="tmp", skip_video=False):
                     ]
 
                     if video_codec == "h264_nvenc":
-                        command.extend([
+                        reencode_command.extend([
                             "-preset", "p1",
                             "-b:v", "5M",
                         ])
                     else:
-                        command.extend([
+                        reencode_command.extend([
                             "-preset", "ultrafast",
                             "-crf", "23"
                         ])
 
-                    command.extend([
+                    reencode_command.extend([
                         "-c:a", "aac",
                         "-b:a", "128k",
                         output_path
                     ])
 
+                    copy_success = False
                     try:
-                        subprocess.run(command, check=True, text=True)
+                        res = subprocess.run(copy_command, check=True, text=True, capture_output=True)
+                        if isinstance(getattr(res, "returncode", None), int) and res.returncode != 0:
+                            raise subprocess.CalledProcessError(
+                                res.returncode, copy_command, output=getattr(res, "stdout", ""), stderr=getattr(res, "stderr", "")
+                            )
                         if os.path.exists(output_path):
-                            file_size = os.path.getsize(output_path)
-                            print(f"Generated segment: {output_filename}, Size: {file_size} bytes", flush=True)
-                    except subprocess.CalledProcessError as e:
-                        print(f"Error executing ffmpeg: {e}", flush=True)
+                            if os.path.getsize(output_path) == 0:
+                                os.remove(output_path)
+                                raise subprocess.CalledProcessError(1, copy_command, stderr="Empty output file created by stream copy")
+                            else:
+                                file_size = os.path.getsize(output_path)
+                                print(f"Generated segment: {output_filename}, Size: {file_size} bytes (stream copy)", flush=True)
+                        copy_success = True
+                    except (subprocess.CalledProcessError, subprocess.SubprocessError, Exception) as e:
+                        print(f"Stream copy failed for segment {i+1} ({e}), falling back to re-encoding...", flush=True)
+                        if os.path.exists(output_path):
+                            try:
+                                os.remove(output_path)
+                            except OSError:
+                                pass
+
+                    if not copy_success:
+                        try:
+                            subprocess.run(reencode_command, check=True, text=True)
+                            if os.path.exists(output_path):
+                                file_size = os.path.getsize(output_path)
+                                print(f"Generated segment: {output_filename}, Size: {file_size} bytes", flush=True)
+                        except subprocess.CalledProcessError as e:
+                            print(f"Error executing ffmpeg: {e}", flush=True)
             else:
                 print(f"Skipping video generation for {output_filename} (using existing). check json...", flush=True)
             

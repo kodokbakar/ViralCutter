@@ -383,7 +383,7 @@ def test_cut_segments_standard_non_spliced_path(tmp_path):
     assert ffmpeg_cmd[0] == "ffmpeg"
     assert "-ss" in ffmpeg_cmd
     assert "-c:v" in ffmpeg_cmd
-    assert ffmpeg_cmd[ffmpeg_cmd.index("-c:v") + 1] == "libx264"
+    assert ffmpeg_cmd[ffmpeg_cmd.index("-c:v") + 1] == "copy"
 
     subs_file = tmp_path / "subs" / "001_88_Standard_Clip_processed.json"
     assert subs_file.exists()
