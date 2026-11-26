@@ -7,6 +7,7 @@
 export type JobInputSource = 'youtube' | 'upload' | 'gdrive' | 'existing';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type VideoOrientation = '9:16' | '16:9' | '1:1' | '9:16_gaming_split';
+export type GamingLayout = 'split_30_70' | 'split_40_60' | 'floating_pip' | 'blurred_bg';
 
 export interface JobRunRequest {
   input_source?: JobInputSource;
@@ -35,6 +36,8 @@ export interface JobRunRequest {
   orientation?: VideoOrientation;
   gaming_facecam_crop?: string;
   gaming_gameplay_crop?: string;
+  gaming_layout?: GamingLayout | string;
+  gaming_killfeed_crop?: string;
   manual_crop?: string;
 
   // Whisper & Audio

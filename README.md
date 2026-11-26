@@ -35,6 +35,15 @@ Esqueça assinaturas caras e limites de minutos. O ViralCutter oferece poder ili
     -   **Auto-Crop 9:16**: Transforma horizontal em vertical mantendo o foco.
     -   **Split Screen Inteligente**: Detecta 2 pessoas conversando e divide a tela automaticamente.
     -   **Active Speaker (Experimental)**: A câmera corta para quem está falando.
+-   🎮 **Modo Gaming & Multi-Layouts (9:16)**:
+    -   **Multi-Layout Engine**: `split_30_70` (Padrão), `split_40_60`, `floating_pip`, `blurred_bg` (selecionável via WebUI ou `--gaming-layout`).
+    -   **Secondary Killfeed / HUD Overlay**: Recorte e sobreposição dedicada de killfeed ou minimapa (`--gaming-killfeed "x,y,w,h"`).
+    -   **Legendas Dinâmicas para Gaming**: Tags ASS animadas com efeito pop em gritos e picos de RMS (`POP_TAG`), com alinhamento vertical adaptativo por layout para evitar sobreposições.
+    -   **Detecção de Clutch com Janela de Silêncio**: Expansão inteligente da janela inicial durante silêncios que antecedem momentos clutch ($Z < -0.2$ por $\ge 5.0$s), preservando a tensão pré-clímax.
+    -   *Exemplo CLI*:
+        ```bash
+        python main_improved.py --url "<URL>" --pipeline-mode gaming --orientation 9:16_gaming_split --gaming-layout split_30_70 --gaming-killfeed "0.70,0.05,0.26,0.13"
+        ```
 -   🌍 **Tradução de Vídeo**: Gere legendas traduzidas automaticamente (ex: Vídeo em Inglês -> Legenda em Português).
 -   💾 **Qualidade & Controle**: Escolha a resolução (até 4K/Best), formate a saída e salve configurações de processamento.
 -   ⚡ **Performance**: Transcrição com "slicing" (processa 1x, corta N vezes) e suporte a instalação ultra-rápida via `uv`.

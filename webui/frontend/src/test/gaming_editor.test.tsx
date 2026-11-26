@@ -124,6 +124,70 @@ describe('GamingCropEditor Component', () => {
 
     unmount();
   });
+
+  it('renders layout selector buttons and triggers onLayoutChange', () => {
+    const onLayoutChange = vi.fn();
+    const { container, unmount } = renderComponent(
+      <GamingCropEditor
+        facecamCrop="0.68,0.05,0.28,0.15"
+        gameplayCrop="0.25,0.0,0.50,0.62"
+        layout="split_30_70"
+        onLayoutChange={onLayoutChange}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(container.textContent).toContain('30/70 Split');
+    expect(container.textContent).toContain('40/60 Split');
+    expect(container.textContent).toContain('Floating PiP');
+    expect(container.textContent).toContain('Blurred BG');
+
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const pipBtn = buttons.find((b) => b.textContent?.includes('Floating PiP'));
+    expect(pipBtn).toBeTruthy();
+
+    act(() => {
+      pipBtn?.click();
+    });
+
+    expect(onLayoutChange).toHaveBeenCalledWith('floating_pip');
+
+    const blurredBtn = buttons.find((b) => b.textContent?.includes('Blurred BG'));
+    expect(blurredBtn).toBeTruthy();
+    act(() => {
+      blurredBtn?.click();
+    });
+    expect(onLayoutChange).toHaveBeenCalledWith('blurred_bg');
+
+    unmount();
+  });
+
+  it('toggles killfeed overlay checkbox and notifies onKillfeedChange', () => {
+    const onKillfeedChange = vi.fn();
+    const { container, unmount } = renderComponent(
+      <GamingCropEditor
+        facecamCrop="0.68,0.05,0.28,0.15"
+        gameplayCrop="0.25,0.0,0.50,0.62"
+        killfeedCrop=""
+        onKillfeedChange={onKillfeedChange}
+        onChange={vi.fn()}
+      />
+    );
+
+    const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    expect(checkbox.checked).toBe(false);
+
+    act(() => {
+      checkbox.click();
+    });
+
+    expect(onKillfeedChange).toHaveBeenCalled();
+    const firstCallArg = onKillfeedChange.mock.calls[0][0];
+    expect(firstCallArg).toContain('0.7000,0.0500,0.2600,0.1300');
+
+    unmount();
+  });
 });
 
 describe('GeneratorTab Gaming Split Integration', () => {
@@ -192,6 +256,52 @@ describe('GeneratorTab Gaming Split Integration', () => {
     expect(payload.orientation).toBe('9:16_gaming_split');
     expect(payload.gaming_facecam_crop).toBe('0.6800,0.0500,0.2800,0.1493');
     expect(payload.gaming_gameplay_crop).toBe('0.2500,0.0000,0.5000,0.6220');
+    expect(payload.gaming_layout).toBe('split_30_70');
+
+    unmount();
+  });
+
+  it('attaches gaming_layout and gaming_killfeed_crop when selected in GamingCropEditor', async () => {
+    const runMock = vi.spyOn(jobsApi, 'run').mockResolvedValue({
+      job_id: 'job_gaming_split_456',
+      status: 'started',
+    });
+
+    const { container, unmount } = renderComponent(
+      <GeneratorTab defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+    );
+
+    const orientationSelect = container.querySelector('#orientation-select') as HTMLSelectElement;
+    act(() => {
+      orientationSelect.value = '9:16_gaming_split';
+      orientationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    // Click Floating PiP layout button
+    const buttons = Array.from(container.querySelectorAll('button'));
+    const pipBtn = buttons.find((b) => b.textContent?.includes('Floating PiP'));
+    expect(pipBtn).toBeTruthy();
+    act(() => {
+      pipBtn?.click();
+    });
+
+    // Check Killfeed Box
+    const killfeedCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(killfeedCheckbox).toBeTruthy();
+    act(() => {
+      killfeedCheckbox.click();
+    });
+
+    const form = container.querySelector('form');
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(runMock).toHaveBeenCalled();
+    const payload = runMock.mock.calls[0][0];
+    expect(payload.orientation).toBe('9:16_gaming_split');
+    expect(payload.gaming_layout).toBe('floating_pip');
+    expect(payload.gaming_killfeed_crop).toBe('0.7000,0.0500,0.2600,0.1300');
 
     unmount();
   });

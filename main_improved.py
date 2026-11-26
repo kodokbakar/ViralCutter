@@ -186,6 +186,19 @@ def main():
         help="Normalized x,y,w,h crop coordinates for gameplay in 9:16 gaming split mode"
     )
     parser.add_argument(
+        "--gaming-layout",
+        type=str,
+        default="split_30_70",
+        choices=["split_30_70", "split_40_60", "floating_pip", "blurred_bg"],
+        help="Gaming layout preset: split_30_70, split_40_60, floating_pip, blurred_bg"
+    )
+    parser.add_argument(
+        "--gaming-killfeed",
+        type=str,
+        default=None,
+        help="Normalized x,y,w,h crop coordinates for killfeed overlay in gaming split mode"
+    )
+    parser.add_argument(
         "--manual-crop",
         type=str,
         default=None,
@@ -1014,9 +1027,11 @@ def main():
                             input_path=c_path,
                             output_path=target_out,
                             facecam_box=args.gaming_facecam,
-                            gameplay_box=args.gaming_gameplay
+                            gameplay_box=args.gaming_gameplay,
+                            layout=getattr(args, "gaming_layout", "split_30_70") or "split_30_70",
+                            killfeed_box=getattr(args, "gaming_killfeed", None)
                         )
-                        face_modes[f"output{idx:03d}"] = "gaming_split"
+                        face_modes[f"output{idx:03d}"] = getattr(args, "gaming_layout", "split_30_70") or "gaming_split"
                     modes_file = os.path.join(project_folder, "face_modes.json")
                     with open(modes_file, "w", encoding="utf-8") as f:
                         json.dump(face_modes, f, indent=4)
@@ -1149,9 +1164,16 @@ def main():
 
             sub_config = get_subtitle_config(args.subtitle_config)
             if getattr(args, "orientation", None) == "9:16_gaming_split":
-                sub_config["layout_mode"] = "9:16_gaming_split"
+                layout_val = getattr(args, "gaming_layout", "split_30_70") or "9:16_gaming_split"
+                sub_config["layout_mode"] = layout_val
                 if sub_config.get("vertical_position") == 210:
-                    sub_config["vertical_position"] = 400
+                    layout_v_pos = {
+                        "split_30_70": 400,
+                        "split_40_60": 350,
+                        "floating_pip": 120,
+                        "blurred_bg": 180,
+                    }
+                    sub_config["vertical_position"] = layout_v_pos.get(layout_val, 400)
             if "enable_hook_header" not in sub_config:
                 sub_config["enable_hook_header"] = args.enable_hook_header
             if "hook_header_style" not in sub_config:

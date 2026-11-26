@@ -22,7 +22,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
-import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig, VideoMetadata } from '../api/types';
+import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig, VideoMetadata, GamingLayout } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
 import VerticalCropEditor from './VerticalCropEditor';
 import { RubricInspectorModal } from './RubricInspectorModal';
@@ -191,6 +191,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [orientation, setOrientation] = useState<VideoOrientation>('9:16');
   const [gamingFacecamCrop, setGamingFacecamCrop] = useState<string>('0.68,0.05,0.28,0.1493');
   const [gamingGameplayCrop, setGamingGameplayCrop] = useState<string>('0.25,0.0,0.50,0.622');
+  const [gamingLayout, setGamingLayout] = usePersistedState<GamingLayout>('gaming_layout', 'split_30_70');
+  const [gamingKillfeedCrop, setGamingKillfeedCrop] = useState<string>('');
   const [framingMode, setFramingMode] = useState<'face_tracking' | 'manual_crop'>('face_tracking');
   const [manualCropBox, setManualCropBox] = useState<string>('0.3418,0.0,0.3164,1.0');
   const [sampleFrames, setSampleFrames] = useState<SampleFrameItem[]>([]);
@@ -838,6 +840,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       orientation: effectiveOrientation,
       gaming_facecam_crop: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource ? gamingFacecamCrop : undefined,
       gaming_gameplay_crop: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource ? gamingGameplayCrop : undefined,
+      gaming_layout: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource ? gamingLayout : undefined,
+      gaming_killfeed_crop: effectiveOrientation === '9:16_gaming_split' && !isVerticalSource && gamingKillfeedCrop ? gamingKillfeedCrop : undefined,
       manual_crop:
         orientation === '9:16' && framingMode === 'manual_crop'
           ? manualCropBox
@@ -1188,6 +1192,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   isLoadingSamples={isLoadingSampleFrames}
                   facecamCrop={gamingFacecamCrop}
                   gameplayCrop={gamingGameplayCrop}
+                  layout={gamingLayout}
+                  onLayoutChange={setGamingLayout}
+                  killfeedCrop={gamingKillfeedCrop}
+                  onKillfeedChange={setGamingKillfeedCrop}
                   onChange={(cam, game) => {
                     setGamingFacecamCrop(cam);
                     setGamingGameplayCrop(game);

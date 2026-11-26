@@ -812,6 +812,111 @@ def test_generate_gaming_windows_duration_clamping_edge_cases():
     assert win_max["duration"] <= 40.0
     assert win_max["start_time"] <= 100.0 <= win_max["end_time"]
 
+
+def test_generate_gaming_windows_clutch_silence_buildup():
+    # Peak at 50.0s. Silence from 20.0s to 27.0s (7 seconds >= 5.0s, z = -0.5)
+    # Default pre-roll (18s) would start at 32.0s, but silence buildup expands start to 20.0s
+    peaks = [{"timestamp": 50.0, "score": 92.0, "keywords": ["clutch"]}]
+    sr = 10.0
+    total_samples = int(120.0 * sr)
+    z_scores = [0.0] * total_samples
+    # Set silence run Z = -0.5 from 20.0s to 27.0s (indices 200 to 270)
+    for i in range(200, 270):
+        z_scores[i] = -0.5
+
+    windows = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        audio_zscores=z_scores,
+        sample_rate_hz=sr,
+    )
+    assert len(windows) == 1
+    w = windows[0]
+    # start_time should be expanded to include silence buildup (around 20.0s)
+    assert w["start_time"] == pytest.approx(20.0, abs=0.5)
+    assert w["end_time"] == pytest.approx(60.0, abs=0.5)
+    assert w["duration"] == pytest.approx(40.0, abs=1.0)
+
+
     # 5. Invalid video duration <= 0
     assert generate_gaming_windows(peaks, video_duration=0.0) == []
     assert generate_gaming_windows(peaks, video_duration=-10.0) == []
+
+
+def test_generate_gaming_windows_flat_zero_audio_and_rms_edge_cases():
+    from scripts.gaming_audio_detector import detect_audio_events, compute_audio_zscores
+
+    # 1. detect_audio_events with flat zero and flat nonzero RMS curves
+    assert detect_audio_events([]) == []
+    assert detect_audio_events([0.0] * 200) == []
+    assert detect_audio_events([0.5] * 200) == []
+
+    # 2. compute_audio_zscores with zero std
+    assert compute_audio_zscores([0.0] * 5, 0.0, 0.0) == [0.0] * 5
+    assert compute_audio_zscores([0.5] * 5, 0.5, 0.0) == [0.0] * 5
+
+    # 3. generate_gaming_windows with flat zero zscores: no silence buildup triggered
+    peaks = [{"timestamp": 50.0, "score": 85.0}]
+    sr = 10.0
+    flat_zscores = [0.0] * int(120.0 * sr)
+    windows = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        audio_zscores=flat_zscores,
+        sample_rate_hz=sr,
+    )
+    assert len(windows) == 1
+    # Without silence buildup, start should remain around default pre_roll (50 - 18 = 32.0s)
+    assert windows[0]["start_time"] == pytest.approx(32.0, abs=0.5)
+    assert windows[0]["end_time"] == pytest.approx(60.0, abs=0.5)
+
+
+def test_generate_gaming_windows_silence_buildup_boundary_and_clamp():
+    peaks = [{"timestamp": 70.0, "score": 90.0}]
+    sr = 10.0
+    total_samples = int(120.0 * sr)
+
+    # 1. Silence duration shorter than 5.0 seconds (e.g. 4.0 seconds) -> should NOT trigger buildup
+    short_silence = [0.0] * total_samples
+    for i in range(500, 540):  # 40 samples = 4.0s (from 50.0s to 54.0s)
+        short_silence[i] = -0.6
+    win_short = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        audio_zscores=short_silence,
+        sample_rate_hz=sr,
+    )
+    assert len(win_short) == 1
+    # Start time is untouched by short silence
+    assert win_short[0]["start_time"] == pytest.approx(52.0, abs=0.5)
+
+    # 2. Silence buildup starting very early, exceeding max_duration (e.g. 60s)
+    long_silence = [0.0] * total_samples
+    for i in range(50, 600):  # from 5.0s to 60.0s (55s silence)
+        long_silence[i] = -0.5
+    win_clamped = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=40.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        audio_zscores=long_silence,
+        sample_rate_hz=sr,
+    )
+    assert len(win_clamped) == 1
+    # Must be clamped so (end_time - start_time) <= max_duration (40.0s)
+    assert win_clamped[0]["duration"] <= 40.0
+    assert win_clamped[0]["start_time"] <= 70.0 <= win_clamped[0]["end_time"]

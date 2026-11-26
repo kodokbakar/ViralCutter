@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Gamepad2, RotateCcw, Film, Upload, Loader2 } from 'lucide-react';
-import type { SampleFrameItem } from '../api/types';
+import { Gamepad2, RotateCcw, Film, Upload, Loader2, Layers, Crosshair } from 'lucide-react';
+import type { SampleFrameItem, GamingLayout } from '../api/types';
 
 export interface GamingCropEditorProps {
   imageSrc?: string;
@@ -11,6 +11,10 @@ export interface GamingCropEditorProps {
   isLoadingSamples?: boolean;
   facecamCrop: string;
   gameplayCrop: string;
+  layout?: GamingLayout;
+  onLayoutChange?: (layout: GamingLayout) => void;
+  killfeedCrop?: string;
+  onKillfeedChange?: (killfeedCrop: string) => void;
   onChange: (facecamCrop: string, gameplayCrop: string) => void;
 }
 
@@ -23,6 +27,21 @@ export interface BoxRect {
 
 export const AR_FACECAM = 1080 / 576; // ~1.875
 export const AR_GAMEPLAY = 1080 / 1344; // ~0.80357
+export const AR_KILLFEED = 2.0;
+
+export const GAMING_LAYOUT_AR: Record<GamingLayout, { arFacecam: number; arGameplay: number }> = {
+  split_30_70: { arFacecam: 1080 / 576, arGameplay: 1080 / 1344 },
+  split_40_60: { arFacecam: 1080 / 768, arGameplay: 1080 / 1152 },
+  floating_pip: { arFacecam: 360 / 270, arGameplay: 1080 / 1920 },
+  blurred_bg: { arFacecam: 1080 / 576, arGameplay: 1080 / 608 },
+};
+
+export const GAMING_LAYOUT_LABELS: Record<GamingLayout, string> = {
+  split_30_70: '30/70 Split',
+  split_40_60: '40/60 Split',
+  floating_pip: 'Floating PiP',
+  blurred_bg: 'Blurred BG',
+};
 
 export function parseBox(str: string, defaultVal: BoxRect): BoxRect {
   try {
@@ -82,8 +101,15 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
   isLoadingSamples,
   facecamCrop,
   gameplayCrop,
+  layout = 'split_30_70',
+  onLayoutChange,
+  killfeedCrop,
+  onKillfeedChange,
   onChange,
 }) => {
+  const currentLayout: GamingLayout = layout || 'split_30_70';
+  const arConfig = GAMING_LAYOUT_AR[currentLayout] || GAMING_LAYOUT_AR.split_30_70;
+
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -97,15 +123,22 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       setSelectedFrameIdx(activeSampleIndex);
     }
   }, [activeSampleIndex]);
+
   const [facecam, setFacecam] = useState<BoxRect>(() =>
     parseBox(facecamCrop, { x: 0.68, y: 0.05, w: 0.28, h: 0.1493 })
   );
   const [gameplay, setGameplay] = useState<BoxRect>(() =>
     parseBox(gameplayCrop, { x: 0.25, y: 0.0, w: 0.5, h: 0.622 })
   );
+  const [killfeed, setKillfeed] = useState<BoxRect>(() =>
+    parseBox(killfeedCrop || '', { x: 0.70, y: 0.05, w: 0.26, h: 0.13 })
+  );
+  const [killfeedEnabled, setKillfeedEnabled] = useState<boolean>(() =>
+    Boolean(killfeedCrop && killfeedCrop.trim() && killfeedCrop.trim().toLowerCase() !== 'none')
+  );
 
   const [activeDrag, setActiveDrag] = useState<{
-    target: 'facecam' | 'gameplay';
+    target: 'facecam' | 'gameplay' | 'killfeed';
     type: 'move' | HandleType;
     startX: number;
     startY: number;
@@ -136,6 +169,38 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       lastEmittedRef.current = `${formatBox(parsedFc)}|${formatBox(parsedGp)}`;
     }
   }, [facecamCrop, gameplayCrop]);
+
+  useEffect(() => {
+    if (killfeedCrop !== undefined) {
+      const enabled = Boolean(killfeedCrop && killfeedCrop.trim() && killfeedCrop.trim().toLowerCase() !== 'none');
+      setKillfeedEnabled(enabled);
+      if (enabled) {
+        setKillfeed(parseBox(killfeedCrop, { x: 0.70, y: 0.05, w: 0.26, h: 0.13 }));
+      }
+    }
+  }, [killfeedCrop]);
+
+  const handleToggleKillfeed = (enabled: boolean) => {
+    setKillfeedEnabled(enabled);
+    if (enabled) {
+      onKillfeedChange?.(formatBox(killfeed));
+    } else {
+      onKillfeedChange?.('');
+    }
+  };
+
+  const handleSelectLayout = (newLayout: GamingLayout) => {
+    onLayoutChange?.(newLayout);
+    const newAr = GAMING_LAYOUT_AR[newLayout] || GAMING_LAYOUT_AR.split_30_70;
+    setFacecam((prev) => {
+      const newH = Math.min(1 - prev.y, Number((prev.w / newAr.arFacecam).toFixed(4)));
+      return { ...prev, h: newH };
+    });
+    setGameplay((prev) => {
+      const newH = Math.min(1 - prev.y, Number((prev.w / newAr.arGameplay).toFixed(4)));
+      return { ...prev, h: newH };
+    });
+  };
 
   // Draw 16:9 Source Canvas
   const drawSource = useCallback(() => {
@@ -178,7 +243,7 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       // Label banner
       const labelY = by >= 22 ? by - 20 : by + 2;
       ctx.fillStyle = color;
-      ctx.fillRect(bx, labelY, Math.min(bw, 120), 18);
+      ctx.fillRect(bx, labelY, Math.min(bw, 130), 18);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 11px sans-serif';
       ctx.fillText(label, bx + 6, labelY + 13);
@@ -199,9 +264,27 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       });
     };
 
-    renderBox(gameplay, '#10b981', 'Gameplay (70%)');
-    renderBox(facecam, '#3b82f6', 'Facecam (30%)');
-  }, [facecam, gameplay]);
+    const gameLabel =
+      currentLayout === 'split_40_60'
+        ? 'Gameplay (60%)'
+        : currentLayout === 'floating_pip'
+        ? 'Gameplay (Full)'
+        : currentLayout === 'blurred_bg'
+        ? 'Gameplay (Center)'
+        : 'Gameplay (70%)';
+    const camLabel =
+      currentLayout === 'split_40_60'
+        ? 'Facecam (40%)'
+        : currentLayout === 'floating_pip'
+        ? 'Facecam (PiP)'
+        : 'Facecam (30%)';
+
+    renderBox(gameplay, '#10b981', gameLabel);
+    renderBox(facecam, '#3b82f6', camLabel);
+    if (killfeedEnabled) {
+      renderBox(killfeed, '#f59e0b', 'Killfeed Overlay');
+    }
+  }, [facecam, gameplay, killfeed, killfeedEnabled, currentLayout]);
 
   // Draw 9:16 Split Preview Canvas
   const drawPreview = useCallback(() => {
@@ -214,24 +297,76 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
 
     const targetW = canvas.width;
     const targetH = canvas.height;
-    const camH = targetH * 0.3;
-    const gameH = targetH * 0.7;
+    let camH = targetH * 0.3;
+    let gameH = targetH * 0.7;
+    if (currentLayout === 'split_40_60') {
+      camH = targetH * 0.4;
+      gameH = targetH * 0.6;
+    }
 
     const img = imageRef.current;
     if (img && img.naturalWidth && img.naturalHeight) {
-      // Top 30% from facecam
       const fx = facecam.x * img.naturalWidth;
       const fy = facecam.y * img.naturalHeight;
       const fw = facecam.w * img.naturalWidth;
       const fh = facecam.h * img.naturalHeight;
-      ctx.drawImage(img, fx, fy, fw, fh, 0, 0, targetW, camH);
 
-      // Bottom 70% from gameplay
       const gx = gameplay.x * img.naturalWidth;
       const gy = gameplay.y * img.naturalHeight;
       const gw = gameplay.w * img.naturalWidth;
       const gh = gameplay.h * img.naturalHeight;
-      ctx.drawImage(img, gx, gy, gw, gh, 0, camH, targetW, gameH);
+
+      if (currentLayout === 'floating_pip') {
+        // Full gameplay background
+        ctx.drawImage(img, gx, gy, gw, gh, 0, 0, targetW, targetH);
+        // Floating facecam PiP top-left
+        const pipW = targetW * 0.36;
+        const pipH = pipW / (360 / 270);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.strokeRect(10, 12, pipW, pipH);
+        ctx.drawImage(img, fx, fy, fw, fh, 10, 12, pipW, pipH);
+      } else if (currentLayout === 'blurred_bg') {
+        // Blurred background simulated with gameplay frame
+        ctx.save();
+        ctx.filter = 'blur(4px)';
+        ctx.drawImage(img, gx, gy, gw, gh, 0, 0, targetW, targetH);
+        ctx.restore();
+        // Facecam top (30%)
+        ctx.drawImage(img, fx, fy, fw, fh, 0, 0, targetW, targetH * 0.3);
+        // Gameplay middle (32%)
+        const midY = targetH * 0.33;
+        const midH = targetH * 0.32;
+        ctx.drawImage(img, gx, gy, gw, gh, 0, midY, targetW, midH);
+      } else {
+        // split_30_70 or split_40_60
+        ctx.drawImage(img, fx, fy, fw, fh, 0, 0, targetW, camH);
+        ctx.drawImage(img, gx, gy, gw, gh, 0, camH, targetW, gameH);
+
+        // Divider line
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#09090b';
+        ctx.beginPath();
+        ctx.moveTo(0, camH);
+        ctx.lineTo(targetW, camH);
+        ctx.stroke();
+      }
+
+      // Draw killfeed overlay if enabled
+      if (killfeedEnabled) {
+        const kx = killfeed.x * img.naturalWidth;
+        const ky = killfeed.y * img.naturalHeight;
+        const kw = killfeed.w * img.naturalWidth;
+        const kh = killfeed.h * img.naturalHeight;
+        const kfW = targetW * 0.34;
+        const kfH = Math.max(16, kfW * (killfeed.h / Math.max(0.01, killfeed.w)));
+        const kfX = targetW - kfW - 6;
+        const kfY = 6;
+        ctx.drawImage(img, kx, ky, kw, kh, kfX, kfY, kfW, kfH);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#ffffff';
+        ctx.strokeRect(kfX, kfY, kfW, kfH);
+      }
     } else {
       ctx.fillStyle = '#2563eb30';
       ctx.fillRect(0, 0, targetW, camH);
@@ -240,21 +375,23 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
 
       ctx.fillStyle = '#93c5fd';
       ctx.font = '10px sans-serif';
-      ctx.fillText('Facecam 30%', 10, camH / 2 + 3);
+      ctx.fillText(`Facecam (${GAMING_LAYOUT_LABELS[currentLayout]})`, 10, camH / 2 + 3);
 
       ctx.fillStyle = '#6ee7b7';
       ctx.font = '10px sans-serif';
-      ctx.fillText('Gameplay 70%', 10, camH + gameH / 2 + 3);
-    }
+      ctx.fillText('Gameplay', 10, camH + gameH / 2 + 3);
 
-    // Divider line
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#09090b';
-    ctx.beginPath();
-    ctx.moveTo(0, camH);
-    ctx.lineTo(targetW, camH);
-    ctx.stroke();
-  }, [facecam, gameplay]);
+      if (killfeedEnabled) {
+        ctx.fillStyle = '#f59e0b40';
+        ctx.fillRect(targetW - 60, 6, 54, 20);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.strokeRect(targetW - 60, 6, 54, 20);
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = '8px sans-serif';
+        ctx.fillText('Killfeed', targetW - 55, 18);
+      }
+    }
+  }, [facecam, gameplay, killfeed, killfeedEnabled, currentLayout]);
 
   // Determine active frame source
   const activeSampleFrame =
@@ -308,14 +445,22 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
         const updated: BoxRect = { ...b, x: nextX, y: nextY };
         if (activeDrag.target === 'facecam') {
           setFacecam(updated);
-        } else {
+        } else if (activeDrag.target === 'gameplay') {
           setGameplay(updated);
+        } else if (activeDrag.target === 'killfeed') {
+          setKillfeed(updated);
+          onKillfeedChange?.(formatBox(updated));
         }
         return;
       }
 
       // Corner resize with aspect ratio lock
-      const ar = activeDrag.target === 'facecam' ? AR_FACECAM : AR_GAMEPLAY;
+      const ar =
+        activeDrag.target === 'facecam'
+          ? arConfig.arFacecam
+          : activeDrag.target === 'gameplay'
+          ? arConfig.arGameplay
+          : AR_KILLFEED;
       const minW = 0.08;
       let x = b.x;
       let y = b.y;
@@ -401,11 +546,14 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
 
       if (activeDrag.target === 'facecam') {
         setFacecam(updated);
-      } else {
+      } else if (activeDrag.target === 'gameplay') {
         setGameplay(updated);
+      } else if (activeDrag.target === 'killfeed') {
+        setKillfeed(updated);
+        onKillfeedChange?.(formatBox(updated));
       }
     },
-    [activeDrag]
+    [activeDrag, arConfig, onKillfeedChange]
   );
 
   // Global mousemove/mouseup listener while dragging
@@ -450,15 +598,17 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
     const mx = (e.clientX - rect.left) / rect.width;
     const my = (e.clientY - rect.top) / rect.height;
 
+    const kfHandle = killfeedEnabled ? getHandleAt(mx, my, killfeed, canvas.width, canvas.height) : null;
     const fcHandle = getHandleAt(mx, my, facecam, canvas.width, canvas.height);
     const gpHandle = getHandleAt(mx, my, gameplay, canvas.width, canvas.height);
-    const handle = fcHandle || gpHandle;
+    const handle = kfHandle || fcHandle || gpHandle;
 
     if (handle === 'nw' || handle === 'se') {
       canvas.style.cursor = 'nwse-resize';
     } else if (handle === 'ne' || handle === 'sw') {
       canvas.style.cursor = 'nesw-resize';
     } else if (
+      (killfeedEnabled && mx >= killfeed.x && mx <= killfeed.x + killfeed.w && my >= killfeed.y && my <= killfeed.y + killfeed.h) ||
       (mx >= facecam.x && mx <= facecam.x + facecam.w && my >= facecam.y && my <= facecam.y + facecam.h) ||
       (mx >= gameplay.x && mx <= gameplay.x + gameplay.w && my >= gameplay.y && my <= gameplay.y + gameplay.h)
     ) {
@@ -474,6 +624,21 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) / rect.width;
     const my = (e.clientY - rect.top) / rect.height;
+
+    // Check Killfeed handles first if enabled
+    if (killfeedEnabled) {
+      const kfHandle = getHandleAt(mx, my, killfeed, canvas.width, canvas.height);
+      if (kfHandle) {
+        setActiveDrag({
+          target: 'killfeed',
+          type: kfHandle,
+          startX: mx,
+          startY: my,
+          startBox: { ...killfeed },
+        });
+        return;
+      }
+    }
 
     // Check Facecam handles first (Facecam is on top)
     const fcHandle = getHandleAt(mx, my, facecam, canvas.width, canvas.height);
@@ -497,6 +662,18 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
         startX: mx,
         startY: my,
         startBox: { ...gameplay },
+      });
+      return;
+    }
+
+    // Check inside Killfeed box (move)
+    if (killfeedEnabled && mx >= killfeed.x && mx <= killfeed.x + killfeed.w && my >= killfeed.y && my <= killfeed.y + killfeed.h) {
+      setActiveDrag({
+        target: 'killfeed',
+        type: 'move',
+        startX: mx,
+        startY: my,
+        startBox: { ...killfeed },
       });
       return;
     }
@@ -525,10 +702,11 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
       return;
     }
   };
+
   // Presets
   const applyPreset = (camPos: 'top-right' | 'top-left' | 'bottom-left') => {
     const w = 0.28;
-    const h = Number((w / AR_FACECAM).toFixed(4));
+    const h = Number((w / arConfig.arFacecam).toFixed(4));
     let x = 0.68;
     let y = 0.05;
 
@@ -544,8 +722,18 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
   };
 
   const resetDefaults = () => {
-    setFacecam({ x: 0.68, y: 0.05, w: 0.28, h: 0.1493 });
-    setGameplay({ x: 0.25, y: 0.0, w: 0.5, h: 0.622 });
+    const defaultCamAr = arConfig.arFacecam;
+    const defaultGameAr = arConfig.arGameplay;
+    const fcW = 0.28;
+    const fcH = Number((fcW / defaultCamAr).toFixed(4));
+    const gpW = 0.50;
+    const gpH = Number((gpW / defaultGameAr).toFixed(4));
+    setFacecam({ x: 0.68, y: 0.05, w: fcW, h: Math.min(1.0 - 0.05, fcH) });
+    setGameplay({ x: 0.25, y: 0.0, w: gpW, h: Math.min(1.0, gpH) });
+    setKillfeed({ x: 0.70, y: 0.05, w: 0.26, h: 0.13 });
+    if (killfeedEnabled) {
+      onKillfeedChange?.('0.7000,0.0500,0.2600,0.1300');
+    }
   };
 
   return (
@@ -594,6 +782,41 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
             <RotateCcw className="h-3 w-3" />
             <span>Reset</span>
           </button>
+        </div>
+      </div>
+
+      {/* Gaming Layout & Killfeed Selector Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-zinc-950/60 rounded-lg border border-zinc-800/80">
+        <div className="flex items-center space-x-1.5 overflow-x-auto">
+          <Layers className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+          <span className="text-[11px] font-medium text-zinc-400">Layout:</span>
+          {(['split_30_70', 'split_40_60', 'floating_pip', 'blurred_bg'] as GamingLayout[]).map((lay) => (
+            <button
+              key={lay}
+              type="button"
+              onClick={() => handleSelectLayout(lay)}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition-all ${
+                currentLayout === lay
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+              }`}
+            >
+              {GAMING_LAYOUT_LABELS[lay]}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <label className="flex items-center space-x-1.5 cursor-pointer text-[11px] text-zinc-300 select-none">
+            <input
+              type="checkbox"
+              checked={killfeedEnabled}
+              onChange={(e) => handleToggleKillfeed(e.target.checked)}
+              className="rounded bg-zinc-800 border-zinc-700 text-amber-500 focus:ring-0 focus:ring-offset-0"
+            />
+            <Crosshair className="h-3.5 w-3.5 text-amber-400" />
+            <span>Killfeed Box</span>
+          </label>
         </div>
       </div>
       {/* 3 Source Sample Frames Selector Toolbar */}
@@ -700,12 +923,18 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
             <div className="flex items-center space-x-3 text-[10px] text-zinc-500">
               <span className="flex items-center space-x-1">
                 <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
-                <span>Facecam (1.875)</span>
+                <span>Facecam ({arConfig.arFacecam.toFixed(2)})</span>
               </span>
               <span className="flex items-center space-x-1">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-                <span>Gameplay (0.804)</span>
+                <span>Gameplay ({arConfig.arGameplay.toFixed(2)})</span>
               </span>
+              {killfeedEnabled && (
+                <span className="flex items-center space-x-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                  <span>Killfeed</span>
+                </span>
+              )}
             </div>
           </div>
           <canvas
@@ -722,7 +951,7 @@ export const GamingCropEditor: React.FC<GamingCropEditorProps> = ({
         {/* 9:16 Live Stacked Preview */}
         <div className="md:col-span-4 flex flex-col space-y-1.5">
           <span className="text-[11px] font-medium text-zinc-400">
-            Live 9:16 Preview (30% Cam / 70% Game)
+            Live 9:16 Preview ({GAMING_LAYOUT_LABELS[currentLayout] || currentLayout})
           </span>
           <canvas
             ref={previewCanvasRef}
