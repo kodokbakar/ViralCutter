@@ -294,3 +294,36 @@ def test_render_gaming_split_clip_single_pass_with_encoder(tmp_path):
         assert cmd[cmd.index("-c:v") + 1] == "h264_nvenc"
         assert "[v_out]" in cmd
 
+
+
+def test_render_gaming_split_clip_single_pass_nvenc_failure_retries_libx264(tmp_path):
+    import subprocess
+    in_video = tmp_path / "in.mp4"
+    in_video.write_text("fake video")
+    out_video = tmp_path / "out.mp4"
+    sub_file = tmp_path / "subs.ass"
+    sub_file.write_text("subs")
+
+    commands_executed = []
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        commands_executed.append(list(cmd))
+        if "h264_nvenc" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr=b"NVENC init failed")
+        return MagicMock(returncode=0)
+
+    with patch("scripts.gaming_split._CACHED_ENCODER", ("h264_nvenc", "p1", ["-b:v", "5M"])),          patch("scripts.gaming_split.probe_video_dimensions", return_value=(1920, 1080)),          patch("subprocess.run", side_effect=fake_subprocess_run):
+
+        res = gaming_split.render_gaming_split_clip(
+            str(in_video),
+            str(out_video),
+            subtitle_ass_path=str(sub_file),
+        )
+        assert res == str(out_video)
+        assert res.subtitles_burned is True
+        assert len(commands_executed) == 2
+        # First attempt: h264_nvenc with subtitles [v_out]
+        assert commands_executed[0][commands_executed[0].index("-c:v") + 1] == "h264_nvenc"
+        assert "[v_out]" in commands_executed[0]
+        # Second attempt: libx264 fallback with subtitles [v_out]
+        assert commands_executed[1][commands_executed[1].index("-c:v") + 1] == "libx264"
+        assert "[v_out]" in commands_executed[1]
