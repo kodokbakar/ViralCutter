@@ -1,9 +1,18 @@
 import os
 import sys
 import functools
+import threading
+import concurrent.futures
 
-# Explicitly flush all standard output prints immediately
-print = functools.partial(print, flush=True)
+# Explicitly flush all standard output prints immediately with thread safety
+_print_lock = threading.Lock()
+_raw_print = functools.partial(print, flush=True)
+
+def _safe_print(*args, **kwargs):
+    with _print_lock:
+        _raw_print(*args, **kwargs)
+
+print = _safe_print
 
 # Suppress unnecessary logs before importing heavy libs
 os.environ["ORT_LOGGING_LEVEL"] = "3" 
@@ -155,7 +164,7 @@ def extract_cached_audio(video_path, project_folder):
         print(f"[AUDIO CACHE] Notice: Falling back to direct video processing ({e})", flush=True)
     return None
 
-def main():
+def build_parser():
     # Configuração de Argumentos via Linha de Comando (CLI)
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
     parser.add_argument("--url", help="YouTube Video URL")
@@ -227,6 +236,12 @@ def main():
         type=str,
         default=None,
         help="Normalized x,y,w,h crop coordinates for manual 9:16 vertical crop"
+    )
+    parser.add_argument(
+        "--max-render-workers",
+        type=int,
+        default=None,
+        help="Maximum concurrent worker threads for clip layout rendering and subtitle burning (defaults to VIRALCUTTER_MAX_RENDER_WORKERS or safe cap)"
     )
     parser.add_argument("--face-model", choices=["insightface", "mediapipe"], default="insightface", help="Face detection model")
     parser.add_argument("--face-mode", choices=["auto", "1", "2", "none"], default="auto", help="Face tracking mode: auto, 1, 2, none")
@@ -405,7 +420,15 @@ def main():
         help="Volume multiplier for B-roll sound effects (0.0 to 1.0, default: 0.35)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def parse_arguments(argv=None):
+    return build_parser().parse_args(argv)
+
+
+def main():
+    args = parse_arguments()
     
     # Workflow Logic
     workflow_choice = args.workflow
@@ -1086,7 +1109,13 @@ def main():
                         except Exception as e:
                             print(f"Pre-adjust subtitles skipped: {e}")
 
-                    for idx, c_file in enumerate(cut_files):
+                    render_workers = getattr(args, "max_render_workers", None)
+                    if render_workers is None or render_workers < 1:
+                        render_workers = gaming_split.get_max_render_workers()
+                    pool_workers = min(render_workers, len(cut_files)) if cut_files else 1
+
+                    def _render_gaming_task(task_args):
+                        idx, c_file = task_args
                         c_path = os.path.join(cuts_folder, c_file)
                         base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
                         clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', base_name)
@@ -1114,16 +1143,25 @@ def main():
                             killfeed_box=getattr(args, "gaming_killfeed", None),
                             subtitle_ass_path=sub_ass_path,
                         )
-                        if getattr(render_res, "subtitles_burned", False) is True:
-                            subtitled_gaming_clips.add(base_name)
-                            subtitled_gaming_clips.add(f"{base_name}_processed")
-                            subtitled_gaming_clips.add(clean_clip_name)
-                            if os.path.exists(target_out):
-                                burned_folder = os.path.join(project_folder, "burned_sub")
-                                os.makedirs(burned_folder, exist_ok=True)
-                                shutil.copy2(target_out, os.path.join(burned_folder, f"{clean_clip_name}.mp4"))
+                        return idx, base_name, clean_clip_name, target_out, render_res
 
-                        face_modes[f"output{idx:03d}"] = getattr(args, "gaming_layout", "split_30_70") or "gaming_split"
+                    if cut_files:
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=pool_workers) as executor:
+                            futures = [executor.submit(_render_gaming_task, (idx, c_file)) for idx, c_file in enumerate(cut_files)]
+                            for f in concurrent.futures.as_completed(futures):
+                                idx, base_name, clean_clip_name, target_out, render_res = f.result()
+                                if getattr(render_res, "subtitles_burned", False) is True:
+                                    subtitled_gaming_clips.add(base_name)
+                                    subtitled_gaming_clips.add(f"{base_name}_processed")
+                                    subtitled_gaming_clips.add(clean_clip_name)
+                                    if os.path.exists(target_out):
+                                        burned_folder = os.path.join(project_folder, "burned_sub")
+                                        os.makedirs(burned_folder, exist_ok=True)
+                                        shutil.copy2(target_out, os.path.join(burned_folder, f"{clean_clip_name}.mp4"))
+
+                                face_modes[f"output{idx:03d}"] = getattr(args, "gaming_layout", "split_30_70") or "gaming_split"
+
+                    face_modes = dict(sorted(face_modes.items()))
                     modes_file = os.path.join(project_folder, "face_modes.json")
                     with open(modes_file, "w", encoding="utf-8") as f:
                         json.dump(face_modes, f, indent=4)
@@ -1139,7 +1177,14 @@ def main():
                     f for f in sorted(os.listdir(cuts_folder))
                     if f.endswith(".mp4") and "input" not in f.lower()
                 ] if os.path.exists(cuts_folder) else []
-                for idx, c_file in enumerate(cut_files):
+
+                render_workers = getattr(args, "max_render_workers", None)
+                if render_workers is None or render_workers < 1:
+                    render_workers = gaming_split.get_max_render_workers()
+                pool_workers = min(render_workers, len(cut_files)) if cut_files else 1
+
+                def _render_manual_crop_task(task_args):
+                    idx, c_file = task_args
                     c_path = os.path.join(cuts_folder, c_file)
                     base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
                     target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
@@ -1149,7 +1194,16 @@ def main():
                         output_path=target_out,
                         crop_box=args.manual_crop
                     )
-                    face_modes[f"output{idx:03d}"] = "none"
+                    return idx
+
+                if cut_files:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=pool_workers) as executor:
+                        futures = [executor.submit(_render_manual_crop_task, (idx, c_file)) for idx, c_file in enumerate(cut_files)]
+                        for f in concurrent.futures.as_completed(futures):
+                            idx = f.result()
+                            face_modes[f"output{idx:03d}"] = "none"
+
+                face_modes = dict(sorted(face_modes.items()))
                 modes_file = os.path.join(project_folder, "face_modes.json")
                 with open(modes_file, "w", encoding="utf-8") as f:
                     json.dump(face_modes, f, indent=4)
@@ -1307,6 +1361,7 @@ def main():
                     enable_broll_sfx=getattr(args, "enable_broll_sfx", True),
                     broll_sfx_volume=getattr(args, "broll_sfx_volume", 0.35),
                     skip_clips=subtitled_gaming_clips,
+                    max_workers=getattr(args, "max_render_workers", None),
                 )
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))

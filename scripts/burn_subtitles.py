@@ -4,9 +4,20 @@ import json
 import os
 import shlex
 import subprocess
+import threading
+import concurrent.futures
 
-# Explicitly flush all standard output prints immediately
-print = functools.partial(print, flush=True)
+from scripts.gaming_split import get_max_render_workers
+
+# Explicitly flush all standard output prints immediately with thread safety
+_print_lock = threading.Lock()
+_raw_print = functools.partial(print, flush=True)
+
+def _safe_print(*args, **kwargs):
+    with _print_lock:
+        _raw_print(*args, **kwargs)
+
+print = _safe_print
 
 from scripts import (
     subtitle_fonts,
@@ -542,6 +553,7 @@ def burn(
     enable_broll_sfx=True,
     broll_sfx_volume=0.35,
     skip_clips=None,
+    max_workers=None,
     **kwargs,
 ):
     project_folder_abs = (
@@ -686,14 +698,12 @@ def burn(
             f"{videos_folder}"
         )
 
-    rendered_count = 0
     skipped_count = 0
     skip_set = {str(c) for c in skip_clips} if skip_clips else set()
 
+    render_tasks = []
     for video_file in video_files:
-        video_name = os.path.splitext(
-            video_file
-        )[0]
+        video_name = os.path.splitext(video_file)[0]
         clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', video_name)
 
         if skip_set and (video_file in skip_set or video_name in skip_set or clean_clip_name in skip_set):
@@ -709,25 +719,13 @@ def burn(
             f"{video_name}.ass",
         )
 
-        if not os.path.exists(
-            subtitle_file
-        ):
-            processed_candidate = (
-                os.path.join(
-                    subs_folder,
-                    (
-                        f"{video_name}"
-                        "_processed.ass"
-                    ),
-                )
+        if not os.path.exists(subtitle_file):
+            processed_candidate = os.path.join(
+                subs_folder,
+                f"{video_name}_processed.ass",
             )
-
-            if os.path.exists(
-                processed_candidate
-            ):
-                subtitle_file = (
-                    processed_candidate
-                )
+            if os.path.exists(processed_candidate):
+                subtitle_file = processed_candidate
             else:
                 clean_candidate = os.path.join(
                     subs_folder,
@@ -736,44 +734,50 @@ def burn(
                 if os.path.exists(clean_candidate):
                     subtitle_file = clean_candidate
 
-        if not os.path.exists(
-            subtitle_file
-        ):
+        if not os.path.exists(subtitle_file):
             print(
-                "Subtitle not found for "
-                f"{video_name}: "
-                f"{subtitle_file}",
+                f"Subtitle not found for {video_name}: {subtitle_file}",
                 flush=True,
             )
             continue
 
-        input_file = os.path.join(
-            videos_folder,
-            video_file,
+        task_idx = len(render_tasks)
+        render_tasks.append((task_idx, video_file, video_name, clean_clip_name, subtitle_file))
+
+    if not render_tasks and skipped_count == 0:
+        raise FileNotFoundError(
+            "No videos were rendered because "
+            "matching ASS subtitle files were "
+            "not found."
         )
-        output_file = os.path.join(
-            output_folder,
-            f"{clean_clip_name}.mp4",
-        )
+
+    rendered_count = 0
+    rendered_lock = threading.Lock()
+
+    def _render_single_task(task_info):
+        clip_idx, video_file, video_name, clean_clip_name, subtitle_file = task_info
+        input_file = os.path.join(videos_folder, video_file)
+        output_file = os.path.join(output_folder, f"{clean_clip_name}.mp4")
+
         clip_brolls = []
         if broll_items is not None:
             if isinstance(broll_items, dict):
                 clip_brolls = (
                     broll_items.get(video_name)
                     or broll_items.get(clean_clip_name)
-                    or broll_items.get(rendered_count)
-                    or broll_items.get(str(rendered_count))
+                    or broll_items.get(clip_idx)
+                    or broll_items.get(str(clip_idx))
                     or []
                 )
             elif isinstance(broll_items, list):
                 if broll_items and isinstance(broll_items[0], list):
-                    clip_brolls = broll_items[rendered_count] if rendered_count < len(broll_items) else []
+                    clip_brolls = broll_items[clip_idx] if clip_idx < len(broll_items) else []
                 else:
-                    clip_brolls = broll_items if (len(video_files) == 1 or rendered_count == 0) else []
+                    clip_brolls = broll_items if (len(video_files) == 1 or clip_idx == 0) else []
         elif enable_html_broll and segments_data:
             seg = None
-            if rendered_count < len(segments_data):
-                seg = segments_data[rendered_count]
+            if clip_idx < len(segments_data):
+                seg = segments_data[clip_idx]
             if not seg:
                 for s in segments_data:
                     title = s.get("title", "")
@@ -843,27 +847,14 @@ def burn(
         elif clip_brolls:
             rendered_clip_brolls = [b for b in clip_brolls if isinstance(b, dict) and b.get("video_path") and os.path.exists(b["video_path"])]
 
-
         if watermark_enabled:
-            action = (
-                "Applying watermark "
-                "before subtitles"
-            )
+            action = "Applying watermark before subtitles"
         else:
-            action = (
-                "Burning subtitles"
-            )
+            action = "Burning subtitles"
 
-        print(
-            f"{action}: {video_name}...",
-            flush=True,
-        )
+        print(f"{action}: {video_name}...")
 
-        (
-            success,
-            message,
-            validation,
-        ) = burn_video_file(
+        success, message, validation = burn_video_file(
             input_file,
             subtitle_file,
             output_file,
@@ -876,15 +867,23 @@ def burn(
         if not success:
             raise RuntimeError(message)
 
-        rendered_count += 1
+        nonlocal rendered_count
+        with rendered_lock:
+            rendered_count += 1
 
         print(
-            "Done: "
-            f"{output_file} "
-            f"({validation['size']} bytes, "
-            f"{validation['duration']:.2f}s)",
-            flush=True,
+            f"Done: {output_file} ({validation['size']} bytes, {validation['duration']:.2f}s)"
         )
+        return output_file
+
+    if render_tasks:
+        if max_workers is None or max_workers < 1:
+            max_workers = get_max_render_workers()
+        pool_workers = min(max_workers, len(render_tasks))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=pool_workers) as executor:
+            futures = [executor.submit(_render_single_task, task) for task in render_tasks]
+            for f in concurrent.futures.as_completed(futures):
+                f.result()
 
     if rendered_count == 0 and skipped_count == 0:
         raise FileNotFoundError(
