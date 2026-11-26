@@ -35,6 +35,15 @@ Forget expensive subscriptions and minute limits. ViralCutter offers unlimited p
     -   **Auto-Crop 9:16**: Transforms horizontal to vertical while keeping the focus.
     -   **Smart Split Screen**: Detects 2 people talking and automatically splits the screen.
     -   **Active Speaker (Experimental)**: The camera cuts to whoever is speaking.
+-   🎮 **Gaming Mode & Multi-Layouts (9:16)**:
+    -   **Multi-Layout Engine**: `split_30_70` (Default), `split_40_60`, `floating_pip`, `blurred_bg` (selectable via WebUI or `--gaming-layout`).
+    -   **Secondary Killfeed / HUD Overlay**: Dedicated crop and overlay box for killfeed or minimap HUD (`--gaming-killfeed "x,y,w,h"`).
+    -   **Dynamic Subtitles for Gaming**: Animated ASS pop tags on shout keywords and RMS audio spikes (`POP_TAG`), with layout-aware vertical margins to avoid HUD/facecam overlaps.
+    -   **Silence-Aware Clutch Buildup**: Dynamic expansion of pre-climax window during clutch silences ($Z < -0.2$ for $\ge 5.0$s), keeping build-up tension intact.
+    -   *CLI Example*:
+        ```bash
+        python main_improved.py --url "<URL>" --pipeline-mode gaming --orientation 9:16_gaming_split --gaming-layout split_30_70 --gaming-killfeed "0.70,0.05,0.26,0.13"
+        ```
 -   🌍 **Video Translation**: Automatically generate translated subtitles (e.g., English Video -> Portuguese Subtitles).
 -   💾 **Quality & Control**: Choose resolution (up to 4K/Best), format output, and save processing configurations.
 -   ⚡ **Performance**: Transcription with "slicing" (process 1x, cut N times) and ultra-fast installation via `uv`.
