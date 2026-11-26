@@ -403,3 +403,98 @@ def test_adjust_subtitles_shout_and_spike_pop_tag(tmp_path):
     assert POP_TAG in dialogue_lines[2]
     assert f"{POP_TAG}anjir" in dialogue_lines[2]
 
+
+
+def test_is_shout_or_spike_word_edge_cases():
+    from scripts.adjust_subtitles import is_shout_or_spike_word
+
+    # 1. Non-dict or empty inputs
+    assert is_shout_or_spike_word(None) is False
+    assert is_shout_or_spike_word("text") is False
+    assert is_shout_or_spike_word(123) is False
+    assert is_shout_or_spike_word([]) is False
+    assert is_shout_or_spike_word({}) is False
+
+    # 2. Missing or None z-score keys
+    assert is_shout_or_spike_word({"word": "halo", "z_score": None}) is False
+    assert is_shout_or_spike_word({"word": "halo", "zscore": None}) is False
+    assert is_shout_or_spike_word({"word": "halo", "audio_zscore": None}) is False
+    assert is_shout_or_spike_word({"word": "halo", "audio_z": None}) is False
+
+    # 3. Invalid or non-numeric z-score values
+    assert is_shout_or_spike_word({"word": "halo", "z_score": "not_a_number"}) is False
+    assert is_shout_or_spike_word({"word": "halo", "z_score": []}) is False
+
+    # 4. Values below 2.0 threshold
+    assert is_shout_or_spike_word({"word": "halo", "z_score": 1.99}) is False
+    assert is_shout_or_spike_word({"word": "halo", "audio_z": 0.0}) is False
+    assert is_shout_or_spike_word({"word": "halo", "zscore": -1.5}) is False
+
+    # 5. Values meeting or exceeding 2.0 threshold
+    assert is_shout_or_spike_word({"word": "halo", "z_score": 2.0}) is True
+    assert is_shout_or_spike_word({"word": "halo", "zscore": 3.5}) is True
+    assert is_shout_or_spike_word({"word": "halo", "audio_zscore": "2.1"}) is True
+
+    # 6. Explicit shout / spike flags
+    assert is_shout_or_spike_word({"word": "halo", "is_shout": True}) is True
+    assert is_shout_or_spike_word({"word": "halo", "shout": True}) is True
+    assert is_shout_or_spike_word({"word": "halo", "is_spike": True}) is True
+    assert is_shout_or_spike_word({"word": "halo", "spike": True}) is True
+
+
+def test_adjust_subtitles_missing_or_invalid_zscore_no_pop_tag(tmp_path):
+    from scripts.adjust_subtitles import POP_TAG
+
+    in_json = tmp_path / "sub_missing_z.json"
+    out_ass = tmp_path / "sub_missing_z.ass"
+
+    in_json.write_text(json.dumps({
+        "segments": [{
+            "start": 0.0,
+            "end": 3.0,
+            "text": "kata satu dua tiga",
+            "words": [
+                {"word": "kata", "start": 0.0, "end": 0.8, "z_score": None},
+                {"word": "satu", "start": 0.8, "end": 1.5, "zscore": "invalid_val"},
+                {"word": "dua", "start": 1.5, "end": 2.2, "audio_zscore": 1.8},
+                {"word": "tiga", "start": 2.2, "end": 3.0},
+            ]
+        }]
+    }), encoding="utf-8")
+
+    generate_ass_from_file(
+        input_path=str(in_json),
+        output_path=str(out_ass),
+        project_folder=str(tmp_path),
+        base_color="&H00FFFFFF",
+        base_size=24,
+        highlight_size=28,
+        highlight_color="&H0000FF00",
+        words_per_block=4,
+        gap_limit=0.2,
+        mode="highlight",
+        vertical_position=400,
+        alignment=2,
+        font="Arial",
+        outline_color="&H00000000",
+        shadow_color="&H00000000",
+        bold=True,
+        italic=False,
+        underline=False,
+        strikeout=False,
+        border_style=1,
+        outline_thickness=2,
+        shadow_size=1,
+        uppercase=False,
+        face_modes={},
+        layout_mode="split_30_70",
+        enable_hook_header=False,
+    )
+
+    assert out_ass.exists()
+    content = out_ass.read_text(encoding="utf-8")
+    dialogue_lines = [l for l in content.splitlines() if ",Default," in l]
+    assert len(dialogue_lines) == 4
+    # None of the dialogue lines should contain POP_TAG
+    for line in dialogue_lines:
+        assert POP_TAG not in line

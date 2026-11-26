@@ -226,3 +226,47 @@ def test_build_gaming_split_all_layouts_and_killfeed():
     assert "[stacked_v]" in f_kf
     assert "[kf_boxed]" in f_kf
     assert "overlay=x=W-w-20:y=20" in f_kf
+
+
+def test_build_gaming_split_filter_floating_pip_empty_or_none_facecam():
+    # When facecam is empty or None in floating_pip layout, it falls back to DEFAULT_FACECAM_BOX safely
+    for empty_cam in ["", None, "none"]:
+        filt = build_gaming_split_filter(
+            facecam_box=empty_cam,
+            gameplay_box="0.25,0.0,0.50,0.62",
+            src_w=1920,
+            src_h=1080,
+            layout="floating_pip",
+        )
+        assert "[stacked_v]" in filt
+        assert "overlay=x=40:y=60" in filt
+        assert "scale=360:270" in filt
+        assert "scale=1080:1920" in filt
+
+
+def test_build_gaming_split_filter_killfeed_edge_cases():
+    # 1. Killfeed coordinates completely out of bounds (should clamp within src dimensions)
+    filt_oob = build_gaming_split_filter(
+        facecam_box="0.68,0.05,0.28,0.15",
+        gameplay_box="0.25,0.0,0.50,0.62",
+        src_w=1920,
+        src_h=1080,
+        layout="split_30_70",
+        killfeed_box="1.5,2.0,3.0,4.0",
+    )
+    assert "[kf_boxed]" in filt_oob
+    assert "overlay=x=W-w-20:y=20[stacked_v]" in filt_oob
+
+    # 2. Killfeed empty, whitespace, None, or none string disables overlay completely
+    for empty_kf in ["", "   ", None, "none", "NONE"]:
+        filt_none = build_gaming_split_filter(
+            facecam_box="0.68,0.05,0.28,0.15",
+            gameplay_box="0.25,0.0,0.50,0.62",
+            src_w=1920,
+            src_h=1080,
+            layout="split_30_70",
+            killfeed_box=empty_kf,
+        )
+        assert "[kf_boxed]" not in filt_none
+        assert "drawbox=" not in filt_none
+        assert filt_none.endswith("[stacked_v]")
