@@ -589,6 +589,7 @@ def run_gaming_clipping_pipeline(
     ai_model_name: Optional[str] = None,
     base_url: Optional[str] = None,
     rms_values: Optional[List[float]] = None,
+    audio_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Runs the full offline gaming clipping detection pipeline."""
     video_str = str(video_path) if video_path else None
@@ -596,8 +597,24 @@ def run_gaming_clipping_pipeline(
 
     # 1. Audio spike detection
     audio_events = []
-    if rms_values is None and video_str and os.path.exists(video_str):
-        rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(video_str)
+    if rms_values is None:
+        target_audio = str(audio_path) if audio_path else None
+        if not target_audio and proj_str:
+            cand = os.path.join(proj_str, "audio_16k.wav")
+            if os.path.exists(cand) and os.path.getsize(cand) > 1000:
+                target_audio = cand
+        if not target_audio and video_str and video_str.lower().endswith(".wav"):
+            target_audio = video_str
+
+        eval_path = target_audio if (target_audio and os.path.exists(target_audio)) else video_str
+        if eval_path and os.path.exists(eval_path):
+            try:
+                rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(
+                    video_str or eval_path,
+                    audio_path=target_audio if (target_audio and os.path.exists(target_audio)) else None,
+                )
+            except TypeError:
+                rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(eval_path)
     if rms_values:
         audio_events = gaming_audio_detector.detect_audio_events(rms_values, sample_rate_hz=10.0)
 

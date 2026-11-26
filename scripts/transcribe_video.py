@@ -280,14 +280,18 @@ def transcribe(
     batch_size=None,
     chunk_size=None,
     preset_name="custom",
+    audio_path=None,
 ):
     start_time = time.time()
 
     log_step(i18n(f"Iniciando transcrição de {input_file}..."))
     log_step(f"Python: {sys.executable}")
-    log_step(f"Torch: {torch.__version__}")
-    log_step(f"CUDA available: {torch.cuda.is_available()}")
-    log_step(f"CUDA version: {torch.version.cuda}")
+    torch_ver = getattr(torch, "__version__", "not installed") if torch else "not installed"
+    cuda_avail = bool(torch.cuda.is_available()) if (torch and hasattr(torch, "cuda")) else False
+    cuda_ver = getattr(getattr(torch, "version", None), "cuda", "none") if torch else "none"
+    log_step(f"Torch: {torch_ver}")
+    log_step(f"CUDA available: {cuda_avail}")
+    log_step(f"CUDA version: {cuda_ver}")
 
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input video not found: {input_file}")
@@ -318,7 +322,7 @@ def transcribe(
         return srt_file, tsv_file
 
     # Device Setup
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if (torch and hasattr(torch, "cuda") and torch.cuda.is_available()) else "cpu"
     compute_type = os.environ.get("VIRALCUTTER_WHISPER_COMPUTE_TYPE")
     if not compute_type:
         compute_type = "float16" if device == "cuda" else "int8"
@@ -356,9 +360,17 @@ def transcribe(
             log_gpu_state("after whisperx import")
         
         # 1. Carregar Áudio (sempre necessário)
-        log_step(f"Loading audio: {input_file}")
+        target_audio = audio_path
+        if not target_audio and output_folder:
+            cand = os.path.join(output_folder, "audio_16k.wav")
+            if os.path.exists(cand) and os.path.getsize(cand) > 1000:
+                target_audio = cand
+        if not target_audio or not os.path.exists(target_audio):
+            target_audio = input_file
+
+        log_step(f"Loading audio: {target_audio}")
         audio_load_start = time.time()
-        audio = whisperx.load_audio(input_file)
+        audio = whisperx.load_audio(target_audio)
         log_step(f"Audio loaded in {time.time() - audio_load_start:.2f}s")
         
         # 2. Verificar se existem legendas baixadas para Alignment Only

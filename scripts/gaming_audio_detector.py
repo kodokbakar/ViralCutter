@@ -93,46 +93,73 @@ def detect_audio_events(
 
 def extract_audio_rms_curve(
     video_path: str,
-    chunk_sec: float = 0.1,
+    chunk_sec: Any = 0.1,
     vocal_bandpass: bool = True,
     low_cut: int = 200,
     high_cut: int = 3500,
+    audio_path: Optional[str] = None,
+    **kwargs,
 ) -> Tuple[List[float], float, float]:
     """
-    Extracts RMS amplitude per chunk_sec from video_path using FFmpeg.
+    Extracts RMS amplitude per chunk_sec from video_path or pre-extracted audio_path.
+    If audio_path is provided or input is already a WAV file, processes audio directly without re-demuxing video.
     When vocal_bandpass is True, applies bandpass filter to focus on human voice frequencies.
     Returns (rms_list, mean, std).
     """
-    if not os.path.exists(video_path):
+    # Positional backward compatibility: 2nd argument could be audio_path string
+    if isinstance(chunk_sec, (str, os.PathLike)) and audio_path is None:
+        audio_path = str(chunk_sec)
+        chunk_sec = kwargs.get("chunk_sec", 0.1)
+
+    target_audio = audio_path if (audio_path and os.path.exists(audio_path)) else video_path
+    if not target_audio or not os.path.exists(target_audio):
         return [], 0.0, 0.0
 
-    cmd = [
-        "ffmpeg", "-nostdin", "-y", "-i", video_path,
-        "-vn", "-ac", "1", "-ar", "16000",
-    ]
-    if vocal_bandpass:
-        cmd.extend(["-af", f"highpass=f={low_cut},lowpass=f={high_cut}"])
-    cmd.extend(["-f", "s16le", "-"])
-    try:
-        proc = subprocess.run(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=120,
-            check=False,
-        )
-        raw_bytes = proc.stdout
-        if not raw_bytes:
+    raw_bytes = None
+    target_str = str(target_audio)
+
+    # Fast path: read 16kHz mono PCM directly from WAV if no bandpass filtering required
+    if target_str.lower().endswith(".wav") and not vocal_bandpass:
+        try:
+            import wave
+            with wave.open(target_str, "rb") as wf:
+                if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000:
+                    raw_bytes = wf.readframes(wf.getnframes())
+        except Exception:
+            raw_bytes = None
+
+    if raw_bytes is None:
+        cmd = [
+            "ffmpeg", "-nostdin", "-y", "-i", target_str,
+            "-vn", "-ac", "1", "-ar", "16000",
+        ]
+        if vocal_bandpass:
+            cmd.extend(["-af", f"highpass=f={low_cut},lowpass=f={high_cut}"])
+        cmd.extend(["-f", "s16le", "-"])
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=120,
+                check=False,
+            )
+            raw_bytes = proc.stdout
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception):
             return [], 0.0, 0.0
 
+    if not raw_bytes:
+        return [], 0.0, 0.0
+
+    try:
         if len(raw_bytes) % 2 != 0:
             raw_bytes = raw_bytes[:len(raw_bytes) - (len(raw_bytes) % 2)]
         if not raw_bytes:
             return [], 0.0, 0.0
 
         sample_rate = 16000
-        samples_per_chunk = max(1, int(sample_rate * chunk_sec))
+        samples_per_chunk = max(1, int(sample_rate * float(chunk_sec)))
 
         if _HAS_NUMPY:
             try:
