@@ -316,3 +316,131 @@ def test_cut_segments_real_stream_copy_e2e(tmp_path):
     assert out_file.exists()
     assert out_file.stat().st_size > 0
 
+
+
+def test_cut_segments_stream_copy_fallback_with_nvenc(tmp_path):
+    import subprocess
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [{
+            "title": "NVENC Fallback Clip",
+            "score": 88,
+            "start_time": 4.0,
+            "duration": 12.0
+        }]
+    }
+
+    calls = []
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        if len(calls) == 1:
+            raise subprocess.CalledProcessError(1, cmd, stderr="NVENC stream copy failure")
+        return MagicMock(returncode=0)
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=True), \
+         patch("subprocess.run", side_effect=fake_run), \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=False)
+
+        assert len(calls) == 2
+        # First call is stream copy
+        first_cmd = calls[0]
+        assert first_cmd[first_cmd.index("-c:v") + 1] == "copy"
+        # Fallback uses h264_nvenc with preset p1 and 5M bitrate
+        second_cmd = calls[1]
+        assert second_cmd[second_cmd.index("-c:v") + 1] == "h264_nvenc"
+        assert "-preset" in second_cmd
+        assert second_cmd[second_cmd.index("-preset") + 1] == "p1"
+        assert "-b:v" in second_cmd
+        assert second_cmd[second_cmd.index("-b:v") + 1] == "5M"
+
+
+def test_cut_segments_stream_copy_unexpected_exception_cleanup_and_fallback(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [{
+            "title": "Exception Fallback Clip",
+            "score": 82,
+            "start_time": 1.0,
+            "duration": 5.0
+        }]
+    }
+
+    out_file = cuts_dir / "001_82_Exception_Fallback_Clip_original_scale.mp4"
+
+    calls = []
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        if len(calls) == 1:
+            # Leave partial file before raising generic exception
+            out_file.write_bytes(b"partial corrupted stream copy")
+            raise RuntimeError("Unexpected stream copy crash")
+        else:
+            out_file.write_bytes(b"valid re-encoded content")
+            return MagicMock(returncode=0)
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=False), \
+         patch("subprocess.run", side_effect=fake_run), \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=False)
+
+        assert len(calls) == 2
+        assert calls[0][calls[0].index("-c:v") + 1] == "copy"
+        assert calls[1][calls[1].index("-c:v") + 1] == "libx264"
+        assert out_file.exists()
+        assert out_file.read_bytes() == b"valid re-encoded content"
+
+
+def test_cut_segments_mixed_multi_splice_and_continuous_stream_copy(tmp_path):
+    project_folder = str(tmp_path)
+    (tmp_path / "input.mp4").write_bytes(b"fake video content")
+    cuts_dir = tmp_path / "cuts"
+    cuts_dir.mkdir()
+
+    segments_data = {
+        "segments": [
+            {
+                "title": "Spliced Clip",
+                "score": 92,
+                "start_time": 0.0,
+                "duration": 10.0,
+                "segments_to_splice": [(0.0, 4.0), (6.0, 10.0)]
+            },
+            {
+                "title": "Continuous Clip",
+                "score": 86,
+                "start_time": 15.0,
+                "duration": 8.0,
+            }
+        ]
+    }
+
+    with patch("scripts.cut_segments.check_nvenc_support", return_value=False), \
+         patch("scripts.smart_clipping.splice_topic_segments") as mock_splice, \
+         patch("subprocess.run") as mock_run, \
+         patch("scripts.cut_json.cut_json_transcript"):
+
+        cut_segments.cut(segments_data, project_folder=project_folder, skip_video=False)
+
+        # First segment: multi-slice -> calls splice_topic_segments
+        mock_splice.assert_called_once()
+        splice_args, _ = mock_splice.call_args
+        assert splice_args[1] == [(0.0, 4.0), (6.0, 10.0)]
+
+        # Second segment: continuous -> calls stream copy via subprocess.run
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "ffmpeg"
+        assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "copy"
+        assert "-c:a" in cmd and cmd[cmd.index("-c:a") + 1] == "copy"
+        assert cmd[cmd.index("-ss") + 1] == "15.000"
