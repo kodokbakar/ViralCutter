@@ -42,6 +42,21 @@ def get_best_encoder() -> Tuple[str, str, List[str]]:
     _CACHED_ENCODER = ("libx264", "ultrafast", ["-crf", "18"])
     return _CACHED_ENCODER
 
+def get_max_render_workers(default_cap: int = 3) -> int:
+    """
+    Computes maximum worker threads for layout rendering and subtitle burning.
+    Uses VIRALCUTTER_MAX_RENDER_WORKERS environment variable if set (clamped to >= 1).
+    Otherwise computes min(default_cap, max(1, (os.cpu_count() or 2) // 2)).
+    """
+    env_workers = os.getenv("VIRALCUTTER_MAX_RENDER_WORKERS")
+    if env_workers is not None:
+        try:
+            return max(1, int(str(env_workers).strip()))
+        except (ValueError, TypeError):
+            pass
+    cpu_workers = max(1, (os.cpu_count() or 2) // 2)
+    return max(1, min(default_cap, cpu_workers))
+
 from scripts.gaming_facecam_detector import FACECAM_QUADRANTS, DEFAULT_FACECAM_BOX
 DEFAULT_GAMEPLAY_BOX = "0.25,0.0,0.50,0.622"
 DEFAULT_MANUAL_CROP_BOX = "0.3418,0.0,0.3164,1.0"
