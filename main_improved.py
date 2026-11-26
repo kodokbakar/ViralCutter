@@ -131,6 +131,29 @@ def interactive_input_int(prompt_text):
         except ValueError:
             print(i18n("\nError: The value you entered is not an integer. Please try again."))
 
+
+def extract_cached_audio(video_path, project_folder):
+    """
+    Extracts 16kHz mono WAV once into project_folder as audio_16k.wav.
+    Returns path to cached audio file, or None if extraction fails.
+    """
+    if not project_folder:
+        return None
+    cached_wav = os.path.join(project_folder, "audio_16k.wav")
+    if os.path.exists(cached_wav) and os.path.getsize(cached_wav) > 1000:
+        return cached_wav
+
+    if not video_path or not os.path.exists(video_path):
+        return None
+
+    try:
+        smart_clipping.extract_audio_for_transcription(video_path, cached_wav)
+        if os.path.exists(cached_wav) and os.path.getsize(cached_wav) > 0:
+            return cached_wav
+    except Exception as e:
+        print(f"[AUDIO CACHE] Notice: Falling back to direct video processing ({e})", flush=True)
+    return None
+
 def main():
     # Configuração de Argumentos via Linha de Comando (CLI)
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
@@ -735,6 +758,13 @@ def main():
             )
 
         # 2. Transcribe
+        target_video_for_audio = input_video
+        if (not target_video_for_audio or not os.path.exists(target_video_for_audio)) and project_folder:
+            cand = os.path.join(project_folder, "input.mp4")
+            if os.path.exists(cand):
+                target_video_for_audio = cand
+        cached_audio = extract_cached_audio(target_video_for_audio, project_folder)
+
         if workflow_choice == "3":
             print(i18n("Workflow 3: Skipping Transcribe."))
             # We assume transcription exists (SRT/JSON) or we won't need it for 'adjust_subtitles' if it uses 'subs/*.json' which are created by 'cut_segments'
@@ -751,6 +781,7 @@ def main():
                 batch_size=args.whisper_batch_size,
                 chunk_size=args.whisper_chunk_size,
                 preset_name=args.whisper_preset,
+                audio_path=cached_audio,
             )
  
         # 3. Create Viral Segments
@@ -836,6 +867,7 @@ def main():
                             api_key=api_key,
                             ai_model_name=getattr(args, "ai_model_name", None),
                             base_url=getattr(args, "ai_base_url", None),
+                            audio_path=cached_audio,
                         )
                     elif args.smart_clipping:
                         print(i18n("Running Automated Smart-Clipping (Mode: {})...").format(args.smart_clipping_mode))

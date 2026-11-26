@@ -404,3 +404,389 @@ def test_compute_audio_zscores_edge_cases_and_nan_guards():
         z_py = compute_audio_zscores(extreme_vals, mean, std)
 
     assert z_np == pytest.approx(z_py, rel=1e-3, abs=1e-4)
+
+
+def _create_test_wav(path, duration_sec=0.2, sample_rate=16000, value=1500):
+    import wave
+    n_samples = int(duration_sec * sample_rate)
+    raw = array.array("h", [value] * n_samples).tobytes()
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(raw)
+
+
+def test_extract_audio_rms_curve_audio_path_kwarg(tmp_path):
+    video_file = tmp_path / "stream.mp4"
+    video_file.write_text("fake video")
+    audio_file = tmp_path / "audio_16k.wav"
+    audio_file.write_text("fake audio")
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [1200] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms, mean, std = extract_audio_rms_curve(
+            str(video_file),
+            audio_path=str(audio_file),
+            vocal_bandpass=True,
+        )
+        assert len(rms) == 1
+        assert rms[0] == pytest.approx(1200.0, abs=1.0)
+        # Verify FFmpeg was passed the audio_file, NOT video_file
+        cmd = mock_run.call_args[0][0]
+        i_idx = cmd.index("-i")
+        assert cmd[i_idx + 1] == str(audio_file)
+        assert str(video_file) not in cmd
+
+
+def test_extract_audio_rms_curve_audio_path_positional(tmp_path):
+    video_file = tmp_path / "stream.mp4"
+    video_file.write_text("fake video")
+    audio_file = tmp_path / "audio_16k.wav"
+    audio_file.write_text("fake audio")
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [800] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms, mean, std = extract_audio_rms_curve(
+            str(video_file),
+            str(audio_file),
+            vocal_bandpass=True,
+        )
+        assert len(rms) == 1
+        assert rms[0] == pytest.approx(800.0, abs=1.0)
+        cmd = mock_run.call_args[0][0]
+        i_idx = cmd.index("-i")
+        assert cmd[i_idx + 1] == str(audio_file)
+
+
+def test_extract_audio_rms_curve_wav_input_direct(tmp_path):
+    audio_file = tmp_path / "stream.wav"
+    audio_file.write_text("fake wav")
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [2500] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms, mean, std = extract_audio_rms_curve(str(audio_file), vocal_bandpass=True)
+        assert len(rms) == 1
+        assert rms[0] == pytest.approx(2500.0, abs=1.0)
+        cmd = mock_run.call_args[0][0]
+        i_idx = cmd.index("-i")
+        assert cmd[i_idx + 1] == str(audio_file)
+
+
+def test_extract_audio_rms_curve_direct_wav_fast_path(tmp_path):
+    wav_path = tmp_path / "fast_audio.wav"
+    _create_test_wav(wav_path, duration_sec=0.2, sample_rate=16000, value=2000)
+
+    # When vocal_bandpass is False and input is valid 16kHz mono WAV,
+    # it must read directly from wave file without calling subprocess.run
+    with patch("subprocess.run", side_effect=AssertionError("subprocess.run should not be called")):
+        rms, mean, std = extract_audio_rms_curve(str(wav_path), vocal_bandpass=False)
+        assert len(rms) == 2  # 0.2s at 0.1s chunk = 2 chunks
+        assert rms[0] == pytest.approx(2000.0, abs=1.0)
+        assert rms[1] == pytest.approx(2000.0, abs=1.0)
+        assert mean == pytest.approx(2000.0, abs=1.0)
+
+
+def test_main_improved_extract_cached_audio_lifecycle(tmp_path):
+    import main_improved
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+    video_file = proj_dir / "input.mp4"
+    video_file.write_text("dummy video")
+
+    target_wav = proj_dir / "audio_16k.wav"
+    calls = []
+
+    def mock_extract(v_path, out_wav):
+        calls.append((v_path, out_wav))
+        _create_test_wav(out_wav, duration_sec=0.3, sample_rate=16000, value=1500)
+        return out_wav
+
+    with patch("scripts.smart_clipping.extract_audio_for_transcription", side_effect=mock_extract):
+        # First call: extracts audio once
+        res1 = main_improved.extract_cached_audio(str(video_file), str(proj_dir))
+        assert res1 == str(target_wav)
+        assert len(calls) == 1
+        assert target_wav.exists()
+
+        # Second call: reuses cached WAV without running extraction again
+        res2 = main_improved.extract_cached_audio(str(video_file), str(proj_dir))
+        assert res2 == str(target_wav)
+        assert len(calls) == 1  # No additional extraction call!
+
+
+def test_main_improved_extract_cached_audio_fallback_on_error(tmp_path):
+    import main_improved
+    proj_dir = tmp_path / "proj_err"
+    proj_dir.mkdir()
+    video_file = proj_dir / "corrupt.mp4"
+    video_file.write_text("corrupt data")
+
+    with patch("scripts.smart_clipping.extract_audio_for_transcription", side_effect=subprocess.CalledProcessError(1, "ffmpeg")):
+        # If extraction fails, must return None cleanly without crashing
+        res = main_improved.extract_cached_audio(str(video_file), str(proj_dir))
+        assert res is None
+
+
+def test_audio_cache_reuse_across_whisper_and_gaming_pipeline(tmp_path):
+    import main_improved
+    from scripts import transcribe_video, gaming_scorer
+
+    proj_dir = tmp_path / "unified_proj"
+    proj_dir.mkdir()
+    video_file = proj_dir / "input.mp4"
+    video_file.write_text("video frames")
+
+    cached_wav = proj_dir / "audio_16k.wav"
+    _create_test_wav(cached_wav, duration_sec=1.0, sample_rate=16000, value=3000)
+
+    # 1. Verify transcribe loads audio from cached_wav
+    loaded_audio_paths = []
+    fake_whisperx = MagicMock()
+    fake_whisperx.load_audio.side_effect = lambda p: loaded_audio_paths.append(str(p)) or [0.1] * 16000
+    fake_whisperx.load_model.return_value = MagicMock(transcribe=lambda *a, **k: {"segments": [], "language": "en"})
+    fake_whisperx.load_align_model.return_value = (MagicMock(), {})
+    fake_whisperx.align.return_value = {"segments": [], "word_segments": []}
+
+    fake_utils = MagicMock()
+    def fake_writer(*a, **k):
+        (proj_dir / "input.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nhi")
+        (proj_dir / "input.tsv").write_text("start\tend\ttext")
+        (proj_dir / "input.json").write_text("{}")
+    fake_utils.get_writer.return_value = fake_writer
+    fake_whisperx.utils = fake_utils
+
+    with patch.dict("sys.modules", {"whisperx": fake_whisperx, "whisperx.utils": fake_utils}):
+        transcribe_video.transcribe(
+            str(video_file),
+            project_folder=str(proj_dir),
+            audio_path=str(cached_wav),
+        )
+        assert str(cached_wav) in loaded_audio_paths
+        assert str(video_file) not in loaded_audio_paths
+
+    # 2. Verify gaming pipeline extracts audio RMS from cached_wav
+    extracted_rms_sources = []
+    def spy_rms(path, *args, **kwargs):
+        extracted_rms_sources.append(str(kwargs.get("audio_path") or path))
+        return [10.0] * 50, 10.0, 1.0
+
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", side_effect=spy_rms):
+        gaming_scorer.run_gaming_clipping_pipeline(
+            video_path=str(video_file),
+            project_folder=str(proj_dir),
+            transcript_words=[],
+            video_duration=10.0,
+            num_segments=1,
+            audio_path=str(cached_wav),
+        )
+        assert str(cached_wav) in extracted_rms_sources
+
+
+def _create_stereo_wav(path, duration_sec=0.2, sample_rate=16000, value=1500):
+    import wave
+    n_samples = int(duration_sec * sample_rate) * 2
+    raw = array.array("h", [value] * n_samples).tobytes()
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(raw)
+
+
+def test_extract_cached_audio_edge_cases(tmp_path):
+    import main_improved
+    # 1. Empty or None project_folder / video_path
+    assert main_improved.extract_cached_audio(None, None) is None
+    assert main_improved.extract_cached_audio("", "") is None
+    assert main_improved.extract_cached_audio("video.mp4", "") is None
+    assert main_improved.extract_cached_audio("", str(tmp_path)) is None
+
+    # 2. Non-existent video_path
+    non_existent = str(tmp_path / "does_not_exist.mp4")
+    assert main_improved.extract_cached_audio(non_existent, str(tmp_path)) is None
+
+    # 3. Cached audio exists but is <= 1000 bytes (corrupt/partial)
+    proj_dir = tmp_path / "proj_corrupt"
+    proj_dir.mkdir()
+    small_cached = proj_dir / "audio_16k.wav"
+    small_cached.write_bytes(b"short partial content")
+
+    valid_video = proj_dir / "video.mp4"
+    valid_video.write_text("valid video content")
+
+    calls = []
+    def mock_extract(v_path, out_wav):
+        calls.append(v_path)
+        _create_test_wav(out_wav, duration_sec=0.2, sample_rate=16000, value=1000)
+        return out_wav
+
+    with patch("scripts.smart_clipping.extract_audio_for_transcription", side_effect=mock_extract):
+        res = main_improved.extract_cached_audio(str(valid_video), str(proj_dir))
+        assert res == str(small_cached)
+        assert len(calls) == 1
+        assert small_cached.stat().st_size > 1000
+
+    # 4. Extraction produces 0-byte file
+    proj_empty = tmp_path / "proj_empty"
+    proj_empty.mkdir()
+    empty_video = proj_empty / "video.mp4"
+    empty_video.write_text("video")
+    empty_wav = proj_empty / "audio_16k.wav"
+
+    def mock_extract_empty(v_path, out_wav):
+        open(out_wav, "wb").close()
+        return out_wav
+
+    with patch("scripts.smart_clipping.extract_audio_for_transcription", side_effect=mock_extract_empty):
+        res_empty = main_improved.extract_cached_audio(str(empty_video), str(proj_empty))
+        assert res_empty is None
+
+
+def test_extract_audio_rms_curve_audio_path_nonexistent_fallback(tmp_path):
+    video_file = tmp_path / "real_video.mp4"
+    video_file.write_text("video data")
+    fake_audio_path = tmp_path / "missing_audio.wav"
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [950] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        # Since fake_audio_path does not exist, it must fall back to video_file
+        rms, mean, std = extract_audio_rms_curve(
+            str(video_file),
+            audio_path=str(fake_audio_path),
+            vocal_bandpass=True,
+        )
+        assert len(rms) == 1
+        assert rms[0] == pytest.approx(950.0, abs=1.0)
+        cmd = mock_run.call_args[0][0]
+        i_idx = cmd.index("-i")
+        assert cmd[i_idx + 1] == str(video_file)
+
+
+def test_extract_audio_rms_curve_both_paths_nonexistent():
+    # Both paths do not exist -> should return ([], 0.0, 0.0) safely without error
+    rms, mean, std = extract_audio_rms_curve(
+        "/nonexistent/video.mp4",
+        audio_path="/nonexistent/audio.wav",
+    )
+    assert rms == []
+    assert mean == 0.0
+    assert std == 0.0
+
+
+def test_extract_audio_rms_curve_stereo_wav_falls_back_to_ffmpeg(tmp_path):
+    stereo_wav = tmp_path / "stereo.wav"
+    _create_stereo_wav(stereo_wav, duration_sec=0.2, sample_rate=16000, value=1200)
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [1200] * 1600).tobytes()
+
+    # Even with vocal_bandpass=False, 2-channel WAV cannot use wave direct mono path
+    # and must call ffmpeg to downmix to mono
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms, mean, std = extract_audio_rms_curve(str(stereo_wav), vocal_bandpass=False)
+        assert len(rms) == 1
+        assert mock_run.called
+        cmd = mock_run.call_args[0][0]
+        assert "-ac" in cmd
+        assert cmd[cmd.index("-ac") + 1] == "1"
+
+
+def test_extract_audio_rms_curve_corrupt_wav_fallback(tmp_path):
+    corrupt_wav = tmp_path / "corrupt.wav"
+    corrupt_wav.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt invalid chunk")
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [1500] * 1600).tobytes()
+
+    # wave.open will raise wave.Error, which should be caught and fall back to ffmpeg
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms, mean, std = extract_audio_rms_curve(str(corrupt_wav), vocal_bandpass=False)
+        assert len(rms) == 1
+        assert mock_run.called
+
+
+def test_extract_audio_rms_curve_subprocess_timeout_or_error(tmp_path):
+    video_file = tmp_path / "test_timeout.mp4"
+    video_file.write_text("video")
+
+    # TimeoutExpired
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=120)):
+        rms, mean, std = extract_audio_rms_curve(str(video_file))
+        assert rms == []
+        assert mean == 0.0
+        assert std == 0.0
+
+    # SubprocessError
+    with patch("subprocess.run", side_effect=subprocess.SubprocessError("FFmpeg failed")):
+        rms, mean, std = extract_audio_rms_curve(str(video_file))
+        assert rms == []
+        assert mean == 0.0
+        assert std == 0.0
+
+
+def test_gaming_scorer_auto_detect_project_folder_cached_audio(tmp_path):
+    from scripts import gaming_scorer
+    proj_dir = tmp_path / "scorer_proj"
+    proj_dir.mkdir()
+    video_file = proj_dir / "input.mp4"
+    video_file.write_text("video")
+
+    cached_wav = proj_dir / "audio_16k.wav"
+    _create_test_wav(cached_wav, duration_sec=0.5, sample_rate=16000, value=2500)
+
+    passed_audio_paths = []
+    def spy_extract(target, *args, **kwargs):
+        passed_audio_paths.append(kwargs.get("audio_path"))
+        return [2500.0] * 5, 2500.0, 10.0
+
+    # Do not explicitly pass audio_path; pipeline should auto-discover proj_dir/audio_16k.wav
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", side_effect=spy_extract):
+        gaming_scorer.run_gaming_clipping_pipeline(
+            video_path=str(video_file),
+            project_folder=str(proj_dir),
+            transcript_words=[],
+            video_duration=5.0,
+            num_segments=1,
+            audio_path=None,
+        )
+        assert len(passed_audio_paths) == 1
+        assert passed_audio_paths[0] == str(cached_wav)
+
+
+def test_transcribe_video_audio_path_fallback_to_input(tmp_path):
+    from scripts import transcribe_video
+
+    proj_dir = tmp_path / "transcribe_fallback"
+    proj_dir.mkdir()
+    video_file = proj_dir / "real.mp4"
+    video_file.write_text("video")
+    missing_audio = proj_dir / "missing.wav"
+
+    loaded_paths = []
+    fake_whisperx = MagicMock()
+    fake_whisperx.load_audio.side_effect = lambda p: loaded_paths.append(str(p)) or [0.0] * 16000
+    fake_whisperx.load_model.return_value = MagicMock(transcribe=lambda *a, **k: {"segments": [], "language": "en"})
+    fake_whisperx.load_align_model.return_value = (MagicMock(), {})
+    fake_whisperx.align.return_value = {"segments": [], "word_segments": []}
+    fake_utils = MagicMock()
+    fake_utils.get_writer.return_value = lambda *a, **k: (proj_dir / "real.srt").write_text("sub")
+    fake_whisperx.utils = fake_utils
+
+    with patch.dict("sys.modules", {"whisperx": fake_whisperx, "whisperx.utils": fake_utils}):
+        transcribe_video.transcribe(
+            str(video_file),
+            project_folder=str(proj_dir),
+            audio_path=str(missing_audio),  # Missing!
+        )
+        # Should fallback to video_file
+        assert str(video_file) in loaded_paths
+        assert str(missing_audio) not in loaded_paths
