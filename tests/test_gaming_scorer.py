@@ -812,6 +812,36 @@ def test_generate_gaming_windows_duration_clamping_edge_cases():
     assert win_max["duration"] <= 40.0
     assert win_max["start_time"] <= 100.0 <= win_max["end_time"]
 
+
+def test_generate_gaming_windows_clutch_silence_buildup():
+    # Peak at 50.0s. Silence from 20.0s to 27.0s (7 seconds >= 5.0s, z = -0.5)
+    # Default pre-roll (18s) would start at 32.0s, but silence buildup expands start to 20.0s
+    peaks = [{"timestamp": 50.0, "score": 92.0, "keywords": ["clutch"]}]
+    sr = 10.0
+    total_samples = int(120.0 * sr)
+    z_scores = [0.0] * total_samples
+    # Set silence run Z = -0.5 from 20.0s to 27.0s (indices 200 to 270)
+    for i in range(200, 270):
+        z_scores[i] = -0.5
+
+    windows = generate_gaming_windows(
+        peaks=peaks,
+        video_duration=120.0,
+        min_duration=20.0,
+        max_duration=60.0,
+        pre_roll=18.0,
+        post_roll=10.0,
+        audio_zscores=z_scores,
+        sample_rate_hz=sr,
+    )
+    assert len(windows) == 1
+    w = windows[0]
+    # start_time should be expanded to include silence buildup (around 20.0s)
+    assert w["start_time"] == pytest.approx(20.0, abs=0.5)
+    assert w["end_time"] == pytest.approx(60.0, abs=0.5)
+    assert w["duration"] == pytest.approx(40.0, abs=1.0)
+
+
     # 5. Invalid video duration <= 0
     assert generate_gaming_windows(peaks, video_duration=0.0) == []
     assert generate_gaming_windows(peaks, video_duration=-10.0) == []

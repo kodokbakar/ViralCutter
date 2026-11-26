@@ -38,6 +38,8 @@ class JobRunRequest(BaseModel):
     pipeline_mode: str = Field(default="podcast", description="Pipeline mode: podcast or gaming")
     gaming_facecam_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for facecam")
     gaming_gameplay_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for gameplay")
+    gaming_layout: Optional[str] = Field(default=None, description="Gaming layout preset: split_30_70, split_40_60, floating_pip, blurred_bg")
+    gaming_killfeed_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for killfeed overlay")
     manual_crop: Optional[str] = Field(default=None, description="Normalized crop x,y,w,h for manual 9:16 vertical crop")
 
 
@@ -259,6 +261,10 @@ class JobRunRequest(BaseModel):
             cmd.extend(["--gaming-facecam", str(self.gaming_facecam_crop)])
         if self.gaming_gameplay_crop:
             cmd.extend(["--gaming-gameplay", str(self.gaming_gameplay_crop)])
+        if self.gaming_layout:
+            cmd.extend(["--gaming-layout", str(self.gaming_layout)])
+        if self.gaming_killfeed_crop:
+            cmd.extend(["--gaming-killfeed", str(self.gaming_killfeed_crop)])
         if self.manual_crop:
             cmd.extend(["--manual-crop", str(self.manual_crop)])
 

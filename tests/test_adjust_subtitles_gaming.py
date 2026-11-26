@@ -283,3 +283,123 @@ def test_adjust_subtitles_podcast_various_alignments_no_regression(tmp_path):
         parts = style_line.split(",")
         assert parts[-5] == str(req_align)
         assert parts[-2] == str(req_margin)
+
+
+@pytest.mark.parametrize("layout,expected_margin", [
+    ("split_30_70", "400"),
+    ("split_40_60", "350"),
+    ("floating_pip", "120"),
+    ("blurred_bg", "180"),
+])
+def test_adjust_subtitles_all_gaming_layouts_vertical_position(tmp_path, layout, expected_margin):
+    in_json = tmp_path / f"{layout}.json"
+    out_ass = tmp_path / f"{layout}.ass"
+    in_json.write_text(json.dumps({
+        "segments": [{
+            "start": 0.0,
+            "end": 2.0,
+            "text": "Gaming text",
+            "words": [{"word": "Gaming", "start": 0.0, "end": 1.0}, {"word": "text", "start": 1.0, "end": 2.0}],
+        }]
+    }), encoding="utf-8")
+
+    generate_ass_from_file(
+        input_path=str(in_json),
+        output_path=str(out_ass),
+        project_folder=str(tmp_path),
+        base_color="&H00FFFFFF",
+        base_size=24,
+        highlight_size=28,
+        highlight_color="&H0000FF00",
+        words_per_block=2,
+        gap_limit=0.2,
+        mode="highlight",
+        vertical_position=210,
+        alignment=2,
+        font="Arial",
+        outline_color="&H00000000",
+        shadow_color="&H00000000",
+        bold=True,
+        italic=False,
+        underline=False,
+        strikeout=False,
+        border_style=1,
+        outline_thickness=2,
+        shadow_size=1,
+        uppercase=False,
+        face_modes={},
+        layout_mode=layout,
+    )
+    assert out_ass.exists()
+    content = out_ass.read_text(encoding="utf-8")
+    style_line = next(l for l in content.splitlines() if l.startswith("Style: Default"))
+    parts = style_line.split(",")
+    assert parts[-5] == "2"
+    assert parts[-2] == expected_margin
+
+
+def test_adjust_subtitles_shout_and_spike_pop_tag(tmp_path):
+    from scripts.adjust_subtitles import POP_TAG
+
+    in_json = tmp_path / "shout.json"
+    out_ass = tmp_path / "shout.ass"
+    # Word 1: regular word
+    # Word 2: spike word with z_score >= 2.0
+    # Word 3: shout keyword "anjir"
+    in_json.write_text(json.dumps({
+        "segments": [{
+            "start": 0.0,
+            "end": 3.0,
+            "text": "biasa panik anjir",
+            "words": [
+                {"word": "biasa", "start": 0.0, "end": 1.0},
+                {"word": "panik", "start": 1.0, "end": 2.0, "z_score": 2.5},
+                {"word": "anjir", "start": 2.0, "end": 3.0},
+            ],
+        }]
+    }), encoding="utf-8")
+
+    generate_ass_from_file(
+        input_path=str(in_json),
+        output_path=str(out_ass),
+        project_folder=str(tmp_path),
+        base_color="&H00FFFFFF",
+        base_size=24,
+        highlight_size=28,
+        highlight_color="&H0000FF00",
+        words_per_block=3,
+        gap_limit=0.2,
+        mode="highlight",
+        vertical_position=400,
+        alignment=2,
+        font="Arial",
+        outline_color="&H00000000",
+        shadow_color="&H00000000",
+        bold=True,
+        italic=False,
+        underline=False,
+        strikeout=False,
+        border_style=1,
+        outline_thickness=2,
+        shadow_size=1,
+        uppercase=False,
+        face_modes={},
+        layout_mode="split_30_70",
+        enable_hook_header=False,
+    )
+    assert out_ass.exists()
+    content = out_ass.read_text(encoding="utf-8")
+    dialogue_lines = [l for l in content.splitlines() if ",Default," in l]
+    assert len(dialogue_lines) == 3
+
+    # Line 1: 'biasa' active -> regular highlight (no POP_TAG)
+    assert POP_TAG not in dialogue_lines[0]
+
+    # Line 2: 'panik' active -> has z_score=2.5, must include POP_TAG
+    assert POP_TAG in dialogue_lines[1]
+    assert f"{POP_TAG}panik" in dialogue_lines[1]
+
+    # Line 3: 'anjir' active -> shout keyword, must include POP_TAG
+    assert POP_TAG in dialogue_lines[2]
+    assert f"{POP_TAG}anjir" in dialogue_lines[2]
+

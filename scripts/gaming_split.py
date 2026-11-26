@@ -45,6 +45,8 @@ def get_best_encoder() -> Tuple[str, str, List[str]]:
 from scripts.gaming_facecam_detector import FACECAM_QUADRANTS, DEFAULT_FACECAM_BOX
 DEFAULT_GAMEPLAY_BOX = "0.25,0.0,0.50,0.622"
 DEFAULT_MANUAL_CROP_BOX = "0.3418,0.0,0.3164,1.0"
+DEFAULT_KILLFEED_BOX = "0.70,0.05,0.25,0.12"
+VALID_GAMING_LAYOUTS = ("split_30_70", "split_40_60", "floating_pip", "blurred_bg")
 
 def parse_normalized_box(box_str: str) -> Tuple[float, float, float, float]:
     """
@@ -112,23 +114,79 @@ def build_gaming_split_filter(
     gameplay_box: str,
     src_w: int,
     src_h: int,
-    scale_flags: str = "bicubic"
+    scale_flags: str = "bicubic",
+    layout: str = "split_30_70",
+    killfeed_box: Optional[str] = None
 ) -> str:
     """
-    Generates FFmpeg filter_complex string for vertical stacking:
-    Top: 1080x576 (30% facecam)
-    Bottom: 1080x1344 (70% gameplay)
-    Total: 1080x1920 (9:16)
+    Generates FFmpeg filter_complex string for gaming layouts:
+    - split_30_70: 1080x576 facecam top (30%), 1080x1344 gameplay bottom (70%)
+    - split_40_60: 1080x768 facecam top (40%), 1080x1152 gameplay bottom (60%)
+    - floating_pip: 1080x1920 gameplay background with floating facecam PiP overlay
+    - blurred_bg: blurred gameplay background with facecam top and gameplay center
+    Optional killfeed_box overlay positioned at top-right (x=W-w-20:y=20) with white border.
+    Total: 1080x1920 (9:16), terminating strictly on pad [stacked_v].
     """
+    # Backward compatibility: swap if layout passed positionally into scale_flags
+    if scale_flags in VALID_GAMING_LAYOUTS and layout == "split_30_70":
+        layout = scale_flags
+        scale_flags = "bicubic"
+    if layout not in VALID_GAMING_LAYOUTS:
+        layout = "split_30_70"
+
     cam_x, cam_y, cam_w, cam_h = to_pixel_box(facecam_box, src_w, src_h)
     game_x, game_y, game_w, game_h = to_pixel_box(gameplay_box, src_w, src_h)
 
-    return (
-        f"[0:v]split=2[raw_cam][raw_game];"
-        f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:576:flags={scale_flags}[cam_top];"
-        f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1344:flags={scale_flags}[game_bottom];"
-        f"[cam_top][game_bottom]vstack=inputs=2[stacked_v]"
-    )
+    has_kf = bool(killfeed_box and str(killfeed_box).strip() and str(killfeed_box).strip().lower() != "none")
+    base_pad = "[base_v]" if has_kf else "[stacked_v]"
+
+    if layout == "split_40_60":
+        split_n = 3 if has_kf else 2
+        splits = f"[0:v]split={split_n}[raw_cam][raw_game]" + ("[raw_kf];" if has_kf else ";")
+        filt = (
+            f"{splits}"
+            f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:768:flags={scale_flags}[cam_top];"
+            f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1152:flags={scale_flags}[game_bottom];"
+            f"[cam_top][game_bottom]vstack=inputs=2{base_pad}"
+        )
+    elif layout == "floating_pip":
+        split_n = 3 if has_kf else 2
+        splits = f"[0:v]split={split_n}[raw_cam][raw_game]" + ("[raw_kf];" if has_kf else ";")
+        filt = (
+            f"{splits}"
+            f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1920:flags={scale_flags}[game_bg];"
+            f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=360:270:flags={scale_flags}[cam_pip];"
+            f"[game_bg][cam_pip]overlay=x=40:y=60{base_pad}"
+        )
+    elif layout == "blurred_bg":
+        split_n = 4 if has_kf else 3
+        splits = f"[0:v]split={split_n}[raw_bg][raw_cam][raw_game]" + ("[raw_kf];" if has_kf else ";")
+        filt = (
+            f"{splits}"
+            f"[raw_bg]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1920:flags={scale_flags},boxblur=20:5[bg_blur];"
+            f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:576:flags={scale_flags}[cam_top];"
+            f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:608:flags={scale_flags}[game_mid];"
+            f"[bg_blur][cam_top]overlay=x=0:y=0[bg_cam];"
+            f"[bg_cam][game_mid]overlay=x=0:y=620{base_pad}"
+        )
+    else:  # split_30_70 (default)
+        split_n = 3 if has_kf else 2
+        splits = f"[0:v]split={split_n}[raw_cam][raw_game]" + ("[raw_kf];" if has_kf else ";")
+        filt = (
+            f"{splits}"
+            f"[raw_cam]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale=1080:576:flags={scale_flags}[cam_top];"
+            f"[raw_game]crop={game_w}:{game_h}:{game_x}:{game_y},scale=1080:1344:flags={scale_flags}[game_bottom];"
+            f"[cam_top][game_bottom]vstack=inputs=2{base_pad}"
+        )
+
+    if has_kf:
+        kf_x, kf_y, kf_w, kf_h = to_pixel_box(str(killfeed_box), src_w, src_h)
+        filt += (
+            f";[raw_kf]crop={kf_w}:{kf_h}:{kf_x}:{kf_y},drawbox=t=2:c=white@0.6[kf_boxed];"
+            f"[base_v][kf_boxed]overlay=x=W-w-20:y=20[stacked_v]"
+        )
+
+    return filt
 
 def probe_video_dimensions(video_path: str) -> Tuple[int, int]:
     """Returns (width, height) of video file via ffprobe, falling back to (1920, 1080)."""
@@ -164,17 +222,26 @@ def render_gaming_split_clip(
     input_path: str,
     output_path: str,
     facecam_box: str = DEFAULT_FACECAM_BOX,
-    gameplay_box: str = DEFAULT_GAMEPLAY_BOX
+    gameplay_box: str = DEFAULT_GAMEPLAY_BOX,
+    layout: str = "split_30_70",
+    killfeed_box: Optional[str] = None
 ) -> str:
     """
-    Renders input video into 1080x1920 gaming split format via FFmpeg.
+    Renders input video into 1080x1920 gaming format via FFmpeg.
     """
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     src_w, src_h = probe_video_dimensions(input_path)
-    filter_complex = build_gaming_split_filter(facecam_box, gameplay_box, src_w, src_h)
+    filter_complex = build_gaming_split_filter(
+        facecam_box=facecam_box,
+        gameplay_box=gameplay_box,
+        src_w=src_w,
+        src_h=src_h,
+        layout=layout,
+        killfeed_box=killfeed_box
+    )
 
     codec, preset, extra_args = get_best_encoder()
 
@@ -273,4 +340,26 @@ def render_manual_crop_clip(
         subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
     return output_path
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Render gaming split video clip")
+    parser.add_argument("-i", "--input", required=True, help="Input video file path")
+    parser.add_argument("-o", "--output", required=True, help="Output video file path")
+    parser.add_argument("--facecam", default=DEFAULT_FACECAM_BOX, help="Facecam crop box (x,y,w,h)")
+    parser.add_argument("--gameplay", default=DEFAULT_GAMEPLAY_BOX, help="Gameplay crop box (x,y,w,h)")
+    parser.add_argument("--layout", default="split_30_70", choices=VALID_GAMING_LAYOUTS, help="Gaming layout preset")
+    parser.add_argument("--killfeed", default=None, help="Killfeed crop box (x,y,w,h)")
+    args = parser.parse_args()
+
+    render_gaming_split_clip(
+        input_path=args.input,
+        output_path=args.output,
+        facecam_box=args.facecam,
+        gameplay_box=args.gameplay,
+        layout=args.layout,
+        killfeed_box=args.killfeed
+    )
+
 

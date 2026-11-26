@@ -255,9 +255,13 @@ def generate_gaming_windows(
     post_roll: float = 10.0,
     language: str = "id",
     transcript_words: Optional[Any] = None,
+    audio_rms: Optional[List[float]] = None,
+    audio_zscores: Optional[List[float]] = None,
+    sample_rate_hz: float = 10.0,
 ) -> List[Dict[str, Any]]:
     """
     Converts event peaks into complete video clip segments with pre-action buildup and post-action reaction.
+    Supports clutch silence buildup detection (Z < -0.2 for >= 5.0s) preceding peak.
     """
     try:
         peaks = list(peaks) if peaks is not None else []
@@ -272,6 +276,22 @@ def generate_gaming_windows(
     target_min = min(min_dur, vid_dur)
     pre = max(0.0, _safe_float(pre_roll, 18.0))
     post = max(0.0, _safe_float(post_roll, 10.0))
+    sr = max(0.1, _safe_float(sample_rate_hz, 10.0))
+
+    # Derive audio z-scores if audio_rms provided but not audio_zscores
+    if audio_zscores is None and audio_rms:
+        try:
+            n_rms = len(audio_rms)
+            if n_rms > 0:
+                mean_rms = sum(audio_rms) / n_rms
+                var_rms = sum((x - mean_rms) ** 2 for x in audio_rms) / n_rms
+                std_rms = math.sqrt(var_rms)
+                if std_rms > 1e-6:
+                    audio_zscores = [(v - mean_rms) / std_rms for v in audio_rms]
+                else:
+                    audio_zscores = [0.0] * n_rms
+        except Exception:
+            audio_zscores = None
 
     valid_words = []
     if transcript_words is not None:
@@ -309,17 +329,54 @@ def generate_gaming_windows(
         ideal_start = max(0.0, round(ts - eff_pre, 2))
         ideal_end = min(vid_dur, round(ts + eff_post, 2))
 
+        # Detect prolonged clutch silence buildup (Z < -0.2 for >= 5.0s) preceding peak
+        silence_start = None
+        if audio_zscores and len(audio_zscores) > 0:
+            min_sil_samples = int(round(5.0 * sr))
+            peak_sample = min(len(audio_zscores), max(0, int(round(ts * sr))))
+            earliest_sample = max(0, int(round((ts - max_dur) * sr)))
+
+            current_run = 0
+            runs = []
+            for idx in range(earliest_sample, peak_sample):
+                if audio_zscores[idx] < -0.2:
+                    current_run += 1
+                else:
+                    if current_run >= min_sil_samples:
+                        runs.append((idx - current_run, idx))
+                    current_run = 0
+            if current_run >= min_sil_samples:
+                runs.append((peak_sample - current_run, peak_sample))
+
+            if runs:
+                best_run = runs[-1]
+                silence_start = round(best_run[0] / sr, 2)
+
+        if silence_start is not None and silence_start < ideal_start:
+            ideal_start = silence_start
+            if (ideal_end - ideal_start) > max_dur:
+                ideal_start = max(0.0, round(ideal_end - max_dur, 2))
+
         if valid_words:
-            # Adaptive speech-boundary snapping:
-            # Start: look back [ts - 22.0, ts - 6.0] for natural speech pause
-            search_start_min = max(0.0, ts - 22.0)
-            search_start_max = max(0.0, ts - 6.0)
+            # Adaptive speech-boundary snapping
+            if silence_start is not None:
+                search_start_min = max(0.0, ideal_start - 5.0)
+                search_start_max = max(search_start_min, min(ts - 2.0, ideal_start + 4.0))
+            else:
+                search_start_min = max(0.0, ts - 22.0)
+                search_start_max = max(0.0, ts - 6.0)
+
             start_candidates = []
             for k, w in enumerate(valid_words):
                 w_start = w["start"]
                 if search_start_min <= w_start <= search_start_max:
                     if k == 0 or (w_start - valid_words[k - 1]["end"]) >= 0.4:
                         start_candidates.append(w_start)
+                if silence_start is not None:
+                    w_end = w["end"]
+                    if search_start_min <= w_end <= search_start_max:
+                        if (k < len(valid_words) - 1 and (valid_words[k + 1]["start"] - w_end) >= 0.4) or (k == len(valid_words) - 1):
+                            start_candidates.append(w_end)
 
             start = min(start_candidates, key=lambda c: abs(c - ideal_start)) if start_candidates else ideal_start
 
@@ -531,6 +588,7 @@ def run_gaming_clipping_pipeline(
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
     base_url: Optional[str] = None,
+    rms_values: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Runs the full offline gaming clipping detection pipeline."""
     video_str = str(video_path) if video_path else None
@@ -538,8 +596,9 @@ def run_gaming_clipping_pipeline(
 
     # 1. Audio spike detection
     audio_events = []
-    if video_str and os.path.exists(video_str):
+    if rms_values is None and video_str and os.path.exists(video_str):
         rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(video_str)
+    if rms_values:
         audio_events = gaming_audio_detector.detect_audio_events(rms_values, sample_rate_hz=10.0)
 
     # 2. Exclamatory keyword scanning
@@ -585,6 +644,8 @@ def run_gaming_clipping_pipeline(
         max_duration=max_duration,
         language=language,
         transcript_words=transcript_words,
+        audio_rms=rms_values,
+        sample_rate_hz=10.0,
     )
 
     # 6. Hybrid LLM candidate refinement (if configured)

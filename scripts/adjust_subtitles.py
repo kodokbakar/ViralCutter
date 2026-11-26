@@ -1,8 +1,44 @@
 import json
 import re
 import os
+from typing import Any, Dict, List, Optional
 
 from scripts import subtitle_fonts
+
+POP_TAG = "{\\fscx125\\fscy125\\t(0,100,\\fscx100\\fscy100)\\c&H0000FFFF&}"
+
+GAMING_LAYOUT_VERTICAL_POSITIONS = {
+    "split_30_70": 400,
+    "split_40_60": 350,
+    "floating_pip": 120,
+    "blurred_bg": 180,
+    "gaming_split": 400,
+    "9:16_gaming_split": 400,
+}
+
+
+def is_shout_or_spike_word(word_data: Any) -> bool:
+    if not isinstance(word_data, dict):
+        return False
+    if word_data.get("is_shout") or word_data.get("shout") or word_data.get("is_spike") or word_data.get("spike"):
+        return True
+    for z_key in ("z_score", "zscore", "audio_zscore", "audio_z"):
+        val = word_data.get(z_key)
+        if val is not None:
+            try:
+                if float(val) >= 2.0:
+                    return True
+            except (ValueError, TypeError):
+                pass
+    w_text = str(word_data.get("word", "")).strip()
+    if w_text:
+        try:
+            from scripts.gaming_keyword_detector import match_gaming_keywords
+            if len(match_gaming_keywords(w_text)) > 0:
+                return True
+        except Exception:
+            pass
+    return False
 
 HOOK_HEADER_STYLES = {
     "yellow_box": {
@@ -202,7 +238,6 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
     # 2. Determine Style Overrides (Face Mode)
     # Determine static alignment (fallback)
-    MID_SEAM_VERTICAL_POSITION = 400
     key = base_name
     if idx is not None:
         key = f"output{str(idx).zfill(3)}"
@@ -212,9 +247,15 @@ def generate_ass_from_file(input_path, output_path, project_folder,
 
     layout_mode = kwargs.get("layout_mode") or ""
     mode_face = face_modes.get(key)
-    if mode_face in ("gaming_split", "9:16_gaming_split") or layout_mode == "9:16_gaming_split":
+    if mode_face in GAMING_LAYOUT_VERTICAL_POSITIONS:
         current_alignment = 2
-        current_vertical_position = MID_SEAM_VERTICAL_POSITION
+        current_vertical_position = GAMING_LAYOUT_VERTICAL_POSITIONS[mode_face]
+    elif layout_mode in GAMING_LAYOUT_VERTICAL_POSITIONS:
+        current_alignment = 2
+        current_vertical_position = GAMING_LAYOUT_VERTICAL_POSITIONS[layout_mode]
+    elif mode_face in ("gaming_split", "9:16_gaming_split") or layout_mode == "9:16_gaming_split":
+        current_alignment = 2
+        current_vertical_position = 400
     elif mode_face == "2" and not timeline_data: # Only use static if no timeline
         current_alignment = 5
         current_vertical_position = 0
@@ -416,28 +457,45 @@ def generate_ass_from_file(input_path, output_path, project_folder,
                         for k, word_data in enumerate(block):
                             word = word_data['word']
                             if k == j:
-                                line += f"{{\\fs{highlight_size}\\c{highlight_color}}}{word} "
+                                if is_shout_or_spike_word(word_data):
+                                    line += f"{{\\fs{highlight_size}}}{POP_TAG}{word} "
+                                else:
+                                    line += f"{{\\fs{highlight_size}\\c{highlight_color}}}{word} "
                             else:
                                 line += f"{{\\fs{base_size}\\c{base_color}}}{word} "
                         line = line.strip()
 
-                        line = line.strip()
-
                     elif mode == "no_highlight" or mode == "sem_higlight":
-                        line = " ".join(word_data['word'] for word_data in block).strip()
+                        words_line = []
+                        for word_data in block:
+                            word = word_data['word']
+                            if is_shout_or_spike_word(word_data):
+                                words_line.append(f"{POP_TAG}{word}")
+                            else:
+                                words_line.append(word)
+                        line = " ".join(words_line).strip()
 
                     elif mode in {
                         "word_by_word",
                         "palavra_por_palavra",
                     }:
-                        line = (
-                            block[j]["word"]
-                            .strip()
-                        )
+                        active_word_data = block[j]
+                        w_text = active_word_data["word"].strip()
+                        if is_shout_or_spike_word(active_word_data):
+                            line = f"{POP_TAG}{w_text}"
+                        else:
+                            line = w_text
 
                     else:
                         # Fallback / No Highlight
-                        line = " ".join(word_data['word'] for word_data in block).strip()
+                        words_line = []
+                        for word_data in block:
+                            word = word_data['word']
+                            if is_shout_or_spike_word(word_data):
+                                words_line.append(f"{POP_TAG}{word}")
+                            else:
+                                words_line.append(word)
+                        line = " ".join(words_line).strip()
 
                     # Check dynamic timeline for this specific time
                     pos_tag = ""
