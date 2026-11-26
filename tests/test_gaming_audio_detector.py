@@ -197,3 +197,95 @@ def test_extract_audio_rms_curve_custom_bandpass_frequencies(tmp_path):
         assert "-af" in called_cmd
         af_idx = called_cmd.index("-af")
         assert called_cmd[af_idx + 1] == "highpass=f=100,lowpass=f=5000"
+
+
+def test_extract_audio_rms_curve_vectorized_matches_pure_python_fallback(tmp_path):
+    import time
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # Generate 16000 samples (10 chunks of 1600 samples) with distinct amplitudes
+    sample_list = []
+    for chunk_idx in range(10):
+        amp = (chunk_idx + 1) * 1500
+        sample_list.extend([amp] * 1600)
+    raw_samples = array.array("h", sample_list).tobytes()
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = raw_samples
+
+    with patch("subprocess.run", return_value=mock_proc):
+        # 1. Vectorized NumPy execution
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            rms_np, mean_np, std_np = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+        # 2. Pure Python fallback execution
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            rms_py, mean_py, std_py = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+    assert len(rms_np) == 10
+    assert len(rms_py) == 10
+    for r_np, r_py in zip(rms_np, rms_py):
+        assert r_np == pytest.approx(r_py, rel=1e-3, abs=0.1)
+    assert mean_np == pytest.approx(mean_py, rel=1e-3, abs=0.1)
+    assert std_np == pytest.approx(std_py, rel=1e-3, abs=0.1)
+
+
+def test_extract_audio_rms_curve_numpy_error_fallback(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    raw_samples = array.array("h", [1200] * 1600 + [2400] * 1600).tobytes()
+    mock_proc = MagicMock()
+    mock_proc.stdout = raw_samples
+
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("numpy.frombuffer", side_effect=ValueError("simulated numpy buffer error")):
+            rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+            assert len(rms) == 2
+            assert rms[0] == pytest.approx(1200.0, abs=1.0)
+            assert rms[1] == pytest.approx(2400.0, abs=1.0)
+            assert mean == pytest.approx(1800.0, abs=1.0)
+
+
+def test_compute_audio_zscores_numpy_and_fallback_consistency():
+    rms_vals = [10.0, 15.0, 20.0, 45.0, 10.0]
+    mean = 20.0
+    std = 13.0
+
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+        z_np = compute_audio_zscores(rms_vals, mean, std)
+
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+        z_py = compute_audio_zscores(rms_vals, mean, std)
+
+    assert len(z_np) == len(z_py)
+    for a, b in zip(z_np, z_py):
+        assert a == pytest.approx(b, rel=1e-3, abs=1e-4)
+
+    # Test error fallback in compute_audio_zscores
+    with patch("numpy.asarray", side_effect=RuntimeError("simulated error")):
+        z_err = compute_audio_zscores(rms_vals, mean, std)
+        assert len(z_err) == len(rms_vals)
+        for a, b in zip(z_err, z_py):
+            assert a == pytest.approx(b, rel=1e-3, abs=1e-4)
+
+
+def test_extract_audio_rms_curve_large_buffer_performance(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # 160,000 samples (10 seconds, 100 chunks of 1600 samples)
+    raw_samples = array.array("h", [1500] * 160000).tobytes()
+    mock_proc = MagicMock()
+    mock_proc.stdout = raw_samples
+
+    with patch("subprocess.run", return_value=mock_proc):
+        rms, mean, std = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+    assert len(rms) == 100
+    assert rms[0] == pytest.approx(1500.0, abs=1.0)
+    assert mean == pytest.approx(1500.0, abs=1.0)
+    assert std == pytest.approx(0.0, abs=1.0)
+
+

@@ -3,6 +3,12 @@ import math
 import subprocess
 from typing import List, Dict, Tuple, Any, Optional
 
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
 
 def compute_audio_zscores(rms_values: List[float], mean: float, std: float) -> List[float]:
     """Computes Z-scores for each RMS audio value against stream baseline."""
@@ -10,6 +16,12 @@ def compute_audio_zscores(rms_values: List[float], mean: float, std: float) -> L
         return []
     if std <= 1e-6:
         return [0.0] * len(rms_values)
+    if _HAS_NUMPY:
+        try:
+            rms_arr = np.asarray(rms_values, dtype=np.float32)
+            return ((rms_arr - mean) / std).tolist()
+        except Exception:
+            pass
     return [(v - mean) / std for v in rms_values]
 
 
@@ -116,17 +128,42 @@ def extract_audio_rms_curve(
 
         if len(raw_bytes) % 2 != 0:
             raw_bytes = raw_bytes[:len(raw_bytes) - (len(raw_bytes) % 2)]
+        if not raw_bytes:
+            return [], 0.0, 0.0
 
+        sample_rate = 16000
+        samples_per_chunk = max(1, int(sample_rate * chunk_sec))
+
+        if _HAS_NUMPY:
+            try:
+                arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32)
+                n_chunks = len(arr) // samples_per_chunk
+                if n_chunks > 0:
+                    chunks = arr[:n_chunks * samples_per_chunk].reshape(n_chunks, samples_per_chunk)
+                    rms_arr = np.sqrt(np.mean(chunks ** 2, axis=1))
+                    rms_values = rms_arr.tolist()
+                    mean = float(np.mean(rms_arr))
+                    std = float(np.std(rms_arr))
+                    return rms_values, mean, std
+                elif len(arr) > 0:
+                    rms = float(np.sqrt(np.mean(arr ** 2)))
+                    return [rms], rms, 0.0
+                else:
+                    return [], 0.0, 0.0
+            except Exception:
+                pass
+
+        # Fallback to pure Python loop
         import array
         samples = array.array("h")
         samples.frombytes(raw_bytes)
 
-        sample_rate = 16000
-        samples_per_chunk = max(1, int(sample_rate * chunk_sec))
         rms_values = []
+        usable_samples = (len(samples) // samples_per_chunk) * samples_per_chunk
+        samples_to_use = samples[:usable_samples] if usable_samples > 0 else samples
 
-        for offset in range(0, len(samples), samples_per_chunk):
-            chunk = samples[offset:offset + samples_per_chunk]
+        for offset in range(0, len(samples_to_use), samples_per_chunk):
+            chunk = samples_to_use[offset:offset + samples_per_chunk]
             if not chunk:
                 continue
             sq_sum = sum(s * s for s in chunk)
