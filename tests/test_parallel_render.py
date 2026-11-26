@@ -280,3 +280,124 @@ def test_parallel_gaming_split_execution_and_subtitles_burned(tmp_path):
     assert "output002" in subtitled_gaming_clips
     assert "output001" not in subtitled_gaming_clips
     assert len(face_modes) == 4
+
+
+def test_get_max_render_workers_edge_cases(monkeypatch):
+    # Non-integer / float strings
+    monkeypatch.setenv("VIRALCUTTER_MAX_RENDER_WORKERS", "3.14")
+    with patch("os.cpu_count", return_value=8):
+        assert gs_get_max_workers() == 3
+
+    # Empty string or whitespace
+    monkeypatch.setenv("VIRALCUTTER_MAX_RENDER_WORKERS", "")
+    with patch("os.cpu_count", return_value=8):
+        assert gs_get_max_workers() == 3
+
+    monkeypatch.setenv("VIRALCUTTER_MAX_RENDER_WORKERS", "   ")
+    with patch("os.cpu_count", return_value=8):
+        assert gs_get_max_workers() == 3
+
+    # Special characters
+    monkeypatch.setenv("VIRALCUTTER_MAX_RENDER_WORKERS", "!@#$%")
+    with patch("os.cpu_count", return_value=4):
+        assert gs_get_max_workers() == 2
+
+    # Custom default_cap
+    monkeypatch.delenv("VIRALCUTTER_MAX_RENDER_WORKERS", raising=False)
+    with patch("os.cpu_count", return_value=16):
+        assert gs_get_max_workers(default_cap=5) == 5
+        assert gs_get_max_workers(default_cap=1) == 1
+
+    # cpu_count returns 0 or negative
+    with patch("os.cpu_count", return_value=0):
+        # (0 or 2) // 2 = 1
+        assert gs_get_max_workers() == 1
+
+
+def test_burn_subtitles_single_clip_and_broll(tmp_path):
+    project_dir = tmp_path / "proj_single"
+    final_dir = project_dir / "final"
+    subs_dir = project_dir / "subs_ass"
+    final_dir.mkdir(parents=True)
+    subs_dir.mkdir(parents=True)
+
+    (final_dir / "solo_clip_processed.mp4").write_bytes(b"solo_video")
+    (subs_dir / "solo_clip.ass").write_text("[Script Info]\n")
+
+    broll_list = [{"template_id": "solo_tpl", "video_path": str(tmp_path / "solo.webm")}]
+    (tmp_path / "solo.webm").write_bytes(b"fake_broll")
+
+    received_kwargs = {}
+
+    def fake_burn_video_file(in_file, sub_file, out_file, **kwargs):
+        received_kwargs.update(kwargs)
+        return True, "Success", {"size": 2048, "duration": 3.0}
+
+    with patch("scripts.burn_subtitles.burn_video_file", side_effect=fake_burn_video_file):
+        out_folder = burn_subtitles.burn(
+            project_folder=str(project_dir),
+            broll_items=broll_list,
+            max_workers=5,
+        )
+
+    assert os.path.exists(out_folder)
+    assert received_kwargs.get("broll_items") == broll_list
+
+
+def test_burn_subtitles_all_clips_skipped(tmp_path):
+    project_dir = tmp_path / "proj_skipped"
+    final_dir = project_dir / "final"
+    subs_dir = project_dir / "subs_ass"
+    final_dir.mkdir(parents=True)
+    subs_dir.mkdir(parents=True)
+
+    (final_dir / "clip_a_processed.mp4").write_bytes(b"dummy_a")
+    (final_dir / "clip_b_processed.mp4").write_bytes(b"dummy_b")
+    (subs_dir / "clip_a.ass").write_text("[Script Info]\n")
+    (subs_dir / "clip_b.ass").write_text("[Script Info]\n")
+
+    out_folder = burn_subtitles.burn(
+        project_folder=str(project_dir),
+        skip_clips={"clip_a", "clip_b"},
+        max_workers=2,
+    )
+    assert os.path.exists(out_folder)
+
+
+def test_burn_subtitles_worker_exception_propagation(tmp_path):
+    project_dir = tmp_path / "proj_exc"
+    final_dir = project_dir / "final"
+    subs_dir = project_dir / "subs_ass"
+    final_dir.mkdir(parents=True)
+    subs_dir.mkdir(parents=True)
+
+    (final_dir / "clip_crash_processed.mp4").write_bytes(b"dummy")
+    (subs_dir / "clip_crash.ass").write_text("[Script Info]\n")
+
+    def fake_burn_crash(*args, **kwargs):
+        raise ValueError("Fatal render worker crash")
+
+    with patch("scripts.burn_subtitles.burn_video_file", side_effect=fake_burn_crash):
+        with pytest.raises(ValueError, match="Fatal render worker crash"):
+            burn_subtitles.burn(
+                project_folder=str(project_dir),
+                max_workers=2,
+            )
+
+
+def test_gaming_split_parallel_pool_workers_calculation():
+    # 0 clips
+    cut_files_empty = []
+    render_workers = 3
+    pool_workers_empty = min(render_workers, len(cut_files_empty)) if cut_files_empty else 1
+    assert pool_workers_empty == 1
+
+    # 1 clip
+    cut_files_one = ["output000.mp4"]
+    pool_workers_one = min(render_workers, len(cut_files_one)) if cut_files_one else 1
+    assert pool_workers_one == 1
+
+    # 10 clips with max 3 workers
+    cut_files_many = [f"output{i:03d}.mp4" for i in range(10)]
+    pool_workers_many = min(render_workers, len(cut_files_many)) if cut_files_many else 1
+    assert pool_workers_many == 3
