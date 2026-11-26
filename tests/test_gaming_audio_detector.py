@@ -289,3 +289,118 @@ def test_extract_audio_rms_curve_large_buffer_performance(tmp_path):
     assert std == pytest.approx(0.0, abs=1.0)
 
 
+
+
+def test_extract_audio_rms_curve_unaligned_bytes_and_empty_fallbacks(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # 1. Single odd byte (1 byte -> trimmed to 0 bytes -> empty)
+    mock_proc = MagicMock()
+    mock_proc.stdout = b"\x7f"
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            assert extract_audio_rms_curve(str(dummy)) == ([], 0.0, 0.0)
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            assert extract_audio_rms_curve(str(dummy)) == ([], 0.0, 0.0)
+
+    # 2. 3 bytes (1 int16 sample + 1 unaligned byte) -> trimmed to 2 bytes (1 sample)
+    # chunk_sec=0.1 means samples_per_chunk=1600. Since 1 sample < 1600, returns [rms], rms, 0.0
+    mock_proc.stdout = array.array("h", [1234]).tobytes() + b"\xff"
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            rms_np, mean_np, std_np = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            rms_py, mean_py, std_py = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+    assert rms_np == [pytest.approx(1234.0, abs=1.0)]
+    assert rms_py == [pytest.approx(1234.0, abs=1.0)]
+    assert mean_np == pytest.approx(mean_py, abs=1.0)
+    assert std_np == pytest.approx(std_py, abs=1.0)
+
+
+def test_extract_audio_rms_curve_partial_and_odd_chunk_lengths(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # 4000 samples (2.5 chunks of 1600 samples)
+    # Chunk 1: 1600 samples of 1000
+    # Chunk 2: 1600 samples of 2000
+    # Trailing: 800 samples of 5000 (should be discarded identically by both)
+    samples = [1000] * 1600 + [2000] * 1600 + [5000] * 800
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", samples).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            rms_np, mean_np, std_np = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            rms_py, mean_py, std_py = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+    assert len(rms_np) == 2
+    assert len(rms_py) == 2
+    assert rms_np[0] == pytest.approx(1000.0, abs=1.0)
+    assert rms_np[1] == pytest.approx(2000.0, abs=1.0)
+    assert rms_np == pytest.approx(rms_py, rel=1e-3, abs=0.1)
+    assert mean_np == pytest.approx(mean_py, rel=1e-3, abs=0.1)
+    assert std_np == pytest.approx(std_py, rel=1e-3, abs=0.1)
+
+    # All-zero samples (silence)
+    mock_proc.stdout = array.array("h", [0] * 3200).tobytes()
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            rms_np, mean_np, std_np = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            rms_py, mean_py, std_py = extract_audio_rms_curve(str(dummy), chunk_sec=0.1)
+
+    assert rms_np == [0.0, 0.0]
+    assert rms_py == [0.0, 0.0]
+    assert mean_np == 0.0
+    assert std_np == 0.0
+
+
+def test_extract_audio_rms_curve_tiny_or_zero_chunk_sec(tmp_path):
+    dummy = tmp_path / "stream.mp4"
+    dummy.write_text("fake video")
+
+    # chunk_sec <= 0 clamped to max(1, ...)
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [1500, 2500]).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc):
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+            rms_np, mean_np, std_np = extract_audio_rms_curve(str(dummy), chunk_sec=0.0)
+        with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+            rms_py, mean_py, std_py = extract_audio_rms_curve(str(dummy), chunk_sec=0.0)
+
+    assert len(rms_np) == 2
+    assert len(rms_py) == 2
+    assert rms_np[0] == pytest.approx(1500.0, abs=1.0)
+    assert rms_np[1] == pytest.approx(2500.0, abs=1.0)
+    assert rms_np == pytest.approx(rms_py, rel=1e-3, abs=0.1)
+
+
+def test_compute_audio_zscores_edge_cases_and_nan_guards():
+    # 1. Empty rms list
+    assert compute_audio_zscores([], mean=10.0, std=5.0) == []
+
+    # 2. Zero standard deviation guards
+    assert compute_audio_zscores([10.0, 10.0, 10.0], mean=10.0, std=0.0) == [0.0, 0.0, 0.0]
+    assert compute_audio_zscores([10.0, 10.0], mean=10.0, std=1e-7) == [0.0, 0.0]
+
+    # 3. Single element list
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+        assert compute_audio_zscores([5.0], mean=5.0, std=0.0) == [0.0]
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+        assert compute_audio_zscores([5.0], mean=5.0, std=0.0) == [0.0]
+
+    # 4. Consistency on negative and extreme values
+    extreme_vals = [-1000.0, 0.0, 50000.0]
+    mean = 16333.33
+    std = 23814.09
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", True):
+        z_np = compute_audio_zscores(extreme_vals, mean, std)
+    with patch("scripts.gaming_audio_detector._HAS_NUMPY", False):
+        z_py = compute_audio_zscores(extreme_vals, mean, std)
+
+    assert z_np == pytest.approx(z_py, rel=1e-3, abs=1e-4)
