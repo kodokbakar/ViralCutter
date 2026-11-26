@@ -238,3 +238,68 @@ def test_complex_filter_nvenc_error_disables_nvenc_availability(tmp_path):
         )
         assert ok1 is True
         assert burn_subtitles._NVENC_AVAILABLE is False
+
+
+def test_burn_subtitles_burn_skip_clips(tmp_path):
+    project_dir = tmp_path / "project"
+    final_dir = project_dir / "final"
+    subs_dir = project_dir / "subs_ass"
+    burned_dir = project_dir / "burned_sub"
+    final_dir.mkdir(parents=True)
+    subs_dir.mkdir(parents=True)
+
+    (final_dir / "output000_processed.mp4").write_bytes(b"vid0")
+    (final_dir / "output001_processed.mp4").write_bytes(b"vid1")
+    (subs_dir / "output000.ass").write_text("[Script Info]\n")
+    (subs_dir / "output001.ass").write_text("[Script Info]\n")
+
+    burned_calls = []
+    def fake_burn_video_file(in_file, sub_file, out_file, **kwargs):
+        burned_calls.append(out_file)
+        return True, "Success", {"size": 100, "duration": 1.0}
+
+    with patch("scripts.burn_subtitles.burn_video_file", side_effect=fake_burn_video_file):
+        # Skip output000
+        res = burn_subtitles.burn(
+            project_folder=str(project_dir),
+            skip_clips={"output000", "output000_processed"},
+        )
+        assert res == str(burned_dir)
+        assert len(burned_calls) == 1
+        assert "output001.mp4" in burned_calls[0]
+
+        # Skip all
+        burned_calls.clear()
+        res_all = burn_subtitles.burn(
+            project_folder=str(project_dir),
+            skip_clips={"output000", "output001"},
+        )
+        assert res_all == str(burned_dir)
+        assert len(burned_calls) == 0
+
+
+def test_burn_subtitles_skip_clips_with_clean_clip_name_variations(tmp_path):
+    project_dir = tmp_path / "project"
+    final_dir = project_dir / "final"
+    subs_dir = project_dir / "subs_ass"
+    burned_dir = project_dir / "burned_sub"
+    final_dir.mkdir(parents=True)
+    subs_dir.mkdir(parents=True)
+
+    # Video named with processed suffix
+    (final_dir / "001_95_Epic_Moment_processed.mp4").write_bytes(b"vid0")
+    (subs_dir / "001_95_Epic_Moment.ass").write_text("[Script Info]\n")
+
+    burned_calls = []
+    def fake_burn_video_file(in_file, sub_file, out_file, **kwargs):
+        burned_calls.append(out_file)
+        return True, "Success", {"size": 100, "duration": 1.0}
+
+    with patch("scripts.burn_subtitles.burn_video_file", side_effect=fake_burn_video_file):
+        # Passing clean name into skip_clips
+        burn_subtitles.burn(
+            project_folder=str(project_dir),
+            skip_clips={"001_95_Epic_Moment"},
+        )
+        # Should be skipped!
+        assert len(burned_calls) == 0

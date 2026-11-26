@@ -13,6 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import json
+import re
 import shutil
 import subprocess
 import argparse
@@ -1020,6 +1021,7 @@ def main():
             face_mode = "none"
 
         # 5. Edit Video / Preserve Original Framing
+        subtitled_gaming_clips = set()
         if workflow_choice != "3":
             if (is_already_vertical and getattr(args, "pipeline_mode", "podcast") == "gaming"):
                 print(i18n("Preserving original source framing..."), flush=True)
@@ -1050,19 +1052,77 @@ def main():
                         source_vid = video_file if video_file and os.path.exists(video_file) else (os.path.join(cuts_folder, cut_files[0]) if cut_files else None)
                         if source_vid:
                             args.gaming_facecam = gaming_facecam_detector.auto_detect_facecam_box(source_vid)
+
+                    can_single_pass_subs = (
+                        watermark_config.get("mode") == "disabled"
+                        and not getattr(args, "enable_html_broll", False)
+                    )
+                    subs_dir = os.path.join(project_folder, "subs")
+                    subs_ass_dir = os.path.join(project_folder, "subs_ass")
+                    if can_single_pass_subs and os.path.exists(subs_dir):
+                        sub_config_preview = get_subtitle_config(getattr(args, "subtitle_config", None))
+                        layout_val = getattr(args, "gaming_layout", "split_30_70") or "9:16_gaming_split"
+                        sub_config_preview["layout_mode"] = layout_val
+                        if sub_config_preview.get("vertical_position") == 210:
+                            layout_v_pos = {
+                                "split_30_70": 400,
+                                "split_40_60": 350,
+                                "floating_pip": 120,
+                                "blurred_bg": 180,
+                            }
+                            sub_config_preview["vertical_position"] = layout_v_pos.get(layout_val, 400)
+                        if "enable_hook_header" not in sub_config_preview:
+                            sub_config_preview["enable_hook_header"] = getattr(args, "enable_hook_header", True)
+                        if "hook_header_style" not in sub_config_preview:
+                            sub_config_preview["hook_header_style"] = getattr(args, "hook_header_style", "yellow_box")
+                        if getattr(args, "translate_target", None) and args.translate_target.lower() != "none":
+                            import asyncio
+                            try:
+                                asyncio.run(translate_json.translate_project_subs(project_folder, args.translate_target))
+                            except Exception as e:
+                                print(i18n("Translation failed: {}").format(e))
+                        try:
+                            adjust_subtitles.adjust(project_folder=project_folder, **sub_config_preview)
+                        except Exception as e:
+                            print(f"Pre-adjust subtitles skipped: {e}")
+
                     for idx, c_file in enumerate(cut_files):
                         c_path = os.path.join(cuts_folder, c_file)
                         base_name = c_file.replace("_original_scale.mp4", "").replace(".mp4", "")
+                        clean_clip_name = re.sub(r'(_processed|_original_scale)+$', '', base_name)
                         target_out = os.path.join(final_folder, f"{base_name}_processed.mp4")
                         print(f"Rendering gaming split: {c_file} -> {os.path.basename(target_out)}")
-                        gaming_split.render_gaming_split_clip(
+
+                        sub_ass_path = None
+                        if can_single_pass_subs and os.path.exists(subs_ass_dir):
+                            for cand in (
+                                os.path.join(subs_ass_dir, f"{base_name}.ass"),
+                                os.path.join(subs_ass_dir, f"{clean_clip_name}.ass"),
+                                os.path.join(subs_ass_dir, f"output{idx:03d}.ass"),
+                                os.path.join(subs_ass_dir, f"{base_name}_processed.ass"),
+                            ):
+                                if os.path.exists(cand):
+                                    sub_ass_path = cand
+                                    break
+
+                        render_res = gaming_split.render_gaming_split_clip(
                             input_path=c_path,
                             output_path=target_out,
                             facecam_box=args.gaming_facecam,
                             gameplay_box=args.gaming_gameplay,
                             layout=getattr(args, "gaming_layout", "split_30_70") or "split_30_70",
-                            killfeed_box=getattr(args, "gaming_killfeed", None)
+                            killfeed_box=getattr(args, "gaming_killfeed", None),
+                            subtitle_ass_path=sub_ass_path,
                         )
+                        if getattr(render_res, "subtitles_burned", False) is True:
+                            subtitled_gaming_clips.add(base_name)
+                            subtitled_gaming_clips.add(f"{base_name}_processed")
+                            subtitled_gaming_clips.add(clean_clip_name)
+                            if os.path.exists(target_out):
+                                burned_folder = os.path.join(project_folder, "burned_sub")
+                                os.makedirs(burned_folder, exist_ok=True)
+                                shutil.copy2(target_out, os.path.join(burned_folder, f"{clean_clip_name}.mp4"))
+
                         face_modes[f"output{idx:03d}"] = getattr(args, "gaming_layout", "split_30_70") or "gaming_split"
                     modes_file = os.path.join(project_folder, "face_modes.json")
                     with open(modes_file, "w", encoding="utf-8") as f:
@@ -1246,6 +1306,7 @@ def main():
                     enable_html_broll=getattr(args, "enable_html_broll", False),
                     enable_broll_sfx=getattr(args, "enable_broll_sfx", True),
                     broll_sfx_volume=getattr(args, "broll_sfx_volume", 0.35),
+                    skip_clips=subtitled_gaming_clips,
                 )
             except FileNotFoundError as fnf_error:
                 print(i18n("\n[ERROR] Subtitle processing failed: {}").format(str(fnf_error)))
