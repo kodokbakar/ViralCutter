@@ -972,3 +972,94 @@ def test_rms_cache_corrupt_cache_and_wav_fallbacks(tmp_path):
         assert len(rms_c) == 1
         assert rms_c[0] == pytest.approx(1500.0, abs=1.0)
         assert mock_run.called
+
+
+def test_extract_audio_rms_curve_readonly_filesystem_graceful(tmp_path):
+    from scripts.gaming_audio_detector import save_rms_cache
+
+    proj_dir = tmp_path / "ro_proj"
+    proj_dir.mkdir()
+    audio_wav = proj_dir / "audio_16k.wav"
+    _create_tone_wav(audio_wav, freq=1000, duration_sec=0.2, sample_rate=16000, amplitude=2000)
+
+    # 1. save_rms_cache gracefully returns False on OSError / PermissionError
+    with patch("builtins.open", side_effect=OSError(30, "Read-only file system")):
+        saved = save_rms_cache(str(proj_dir), target_audio=str(audio_wav), rms_values=[1414.0], mean=1414.0, std=0.0)
+        assert saved is False
+
+    # 2. extract_audio_rms_curve still completes and returns computed RMS even if save_rms_cache fails
+    with patch("scripts.gaming_audio_detector.save_rms_cache", return_value=False):
+        rms, mean, std = extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+        assert len(rms) == 2
+        assert rms[0] == pytest.approx(1414.0, abs=100.0)
+
+
+def test_extract_audio_rms_curve_zero_length_wav(tmp_path):
+    import wave
+
+    zero_wav = tmp_path / "zero_length.wav"
+    with wave.open(str(zero_wav), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"")
+
+    rms, mean, std = extract_audio_rms_curve(str(zero_wav), vocal_bandpass=True)
+    assert rms == []
+    assert mean == 0.0
+    assert std == 0.0
+
+
+def test_fir_bandpass_nan_inf_and_parameter_extremes():
+    from scripts.gaming_audio_detector import _design_fir_bandpass, _apply_fir_bandpass
+    import numpy as np
+
+    # Even num_taps adjusted to odd
+    h_even = _design_fir_bandpass(num_taps=100)
+    assert len(h_even) == 101
+
+    # Inverted frequency bounds handled safely
+    h_inv = _design_fir_bandpass(low_cut=4000, high_cut=1000)
+    assert h_inv is not None
+    assert len(h_inv) == 101
+
+    # None or empty input
+    assert _apply_fir_bandpass(None) is None
+    empty_res = _apply_fir_bandpass(np.array([], dtype=np.float32))
+    assert len(empty_res) == 0
+
+    # NaN / Inf input handling on standard audio buffer (e.g. 1600 samples for 100ms)
+    nan_arr = np.zeros(1600, dtype=np.float32)
+    nan_arr[50] = np.nan
+    nan_arr[100] = np.inf
+    nan_arr[150] = -np.inf
+    filt_nan = _apply_fir_bandpass(nan_arr)
+    assert filt_nan is not None
+    assert len(filt_nan) == len(nan_arr)
+
+
+def test_load_rms_cache_corrupt_structures_and_non_numeric(tmp_path):
+    from scripts.gaming_audio_detector import load_rms_cache
+
+    cache_dir = tmp_path / "cache_edge"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "rms_cache.json"
+
+    # 1. Non-dict JSON root (e.g. list)
+    cache_file.write_text("[1, 2, 3]", encoding="utf-8")
+    assert load_rms_cache(str(cache_dir)) is None
+
+    # 2. Missing essential keys
+    cache_file.write_text(json.dumps({"version": 1, "mean": 10.0}), encoding="utf-8")
+    assert load_rms_cache(str(cache_dir)) is None
+
+    # 3. Non-numeric value in rms_values
+    cache_file.write_text(
+        json.dumps({
+            "rms_values": ["invalid_string"],
+            "mean": 10.0,
+            "std": 1.0,
+        }),
+        encoding="utf-8",
+    )
+    assert load_rms_cache(str(cache_dir)) is None
