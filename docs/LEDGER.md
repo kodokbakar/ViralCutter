@@ -16,7 +16,10 @@
 | `issue-8` | Unify 16kHz audio extraction cache for Whisper & detector | developer | `feat/issue-8` | `DONE` | Commits `a622305`, `54ed543`, merged `6cd5ae6` |
 | `issue-9` | Merge gaming split & subtitles into single-pass filtergraph | developer | `feat/issue-9` | `DONE` | Commits `0779f61`, `bb75b30`, merged `3f1096b` |
 | `issue-6` | Parallelize clip layout rendering and subtitle burning | developer | `feat/issue-6` | `DONE` | Commits `b533c6a`, `7e20aab`, merged `373b4d9` |
-| `AUDIT-LOGSTREAM-BACKEND` | Fix logstream concurrency, cancellation race, Windows attribute error, UTF-8 decode, and active job cleanup | orchestrator | `main` | `TODO` | Failing regression tests in `tests/test_logstream_concurrency_bugs.py` (`808a2cb`); ready for worktree dispatch |
+| `issue-10` | Zero-copy symbolic link import to eliminate Cloudflare 524 timeouts | developer | `feat/issue-10` | `WIP` | Worktree dispatch; prepare clean branch & PR |
+| `issue-11` | Missing auto-scroll, SSE reconnection, and DOM thrashing in GeneratorTab | developer | `fix/issue-11` | `WIP` | Worktree dispatch; frontend logstream fixes |
+| `issue-12` | Pipe reader UnicodeDecodeError, cancellation race, orphaned GPU processes | developer | `fix/issue-12` | `WIP` | Worktree dispatch; resolve failing regression tests |
+| `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `TODO` | Queued after issue-12 backend foundation |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 
