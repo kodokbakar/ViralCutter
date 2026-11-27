@@ -95,6 +95,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return response.json() as Promise<T>;
 }
 
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+
 // -------------------------------------------------------------
 // Jobs API
 // -------------------------------------------------------------
@@ -120,25 +122,84 @@ export const jobsApi = {
     request<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`),
 
   /**
-   * Connect to SSE log stream.
+   * Connect to SSE log stream with exponential backoff reconnection.
    * Returns a cleanup function to close connection.
    */
   streamLogs: (
     jobId: string,
     onMessage: (logLine: string) => void,
-    onError?: (error: Event) => void
+    onError?: ((error: Event) => void) & { onStatusChange?: (status: ConnectionStatus) => void },
+    onStatusChange?: (status: ConnectionStatus) => void
   ): (() => void) => {
+    const notifyStatus = (status: ConnectionStatus) => {
+      onStatusChange?.(status);
+      onError?.onStatusChange?.(status);
+    };
+
     if (typeof EventSource === 'undefined') {
+      notifyStatus('disconnected');
       return () => {};
     }
 
-    const sseUrl = `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream`;
-    const eventSource = new EventSource(sseUrl);
+    let isTerminal = false;
+    let isCleanedUp = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+    let lastId: number | null = null;
+
+    const cleanupCurrentSource = () => {
+      if (eventSource) {
+        eventSource.removeEventListener('message', handleMessage);
+        eventSource.removeEventListener('log', handleMessage);
+        eventSource.removeEventListener('progress', handleMessage);
+        eventSource.removeEventListener('complete', handleComplete);
+        eventSource.removeEventListener('error', handleErrorEvent);
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const scheduleReconnect = (_err?: Event) => {
+      if (isTerminal || isCleanedUp || reconnectTimer !== null) {
+        return;
+      }
+      notifyStatus('reconnecting');
+      cleanupCurrentSource();
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 10000);
+    };
 
     const handleMessage = (event: Event) => {
       const msgEvent = event as MessageEvent;
+      if (msgEvent.lastEventId) {
+        const parsed = Number(msgEvent.lastEventId);
+        if (!Number.isNaN(parsed)) {
+          lastId = parsed;
+        }
+      }
+
+      retryDelay = 1000;
+      notifyStatus('connected');
+
       try {
         const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed.id === 'number') {
+            lastId = parsed.id;
+          } else if (typeof parsed.cursor === 'number') {
+            lastId = parsed.cursor;
+          }
+        }
+        if (lastId === null && !msgEvent.lastEventId) {
+          lastId = 0;
+        } else if (!msgEvent.lastEventId && !(parsed && typeof parsed === 'object' && (typeof parsed.id === 'number' || typeof parsed.cursor === 'number'))) {
+          lastId = (lastId ?? 0) + 1;
+        }
+
         if (typeof parsed === 'string') {
           onMessage(parsed);
         } else if (parsed && typeof parsed.message === 'string') {
@@ -149,11 +210,21 @@ export const jobsApi = {
           onMessage(typeof msgEvent.data === 'string' ? msgEvent.data : JSON.stringify(parsed));
         }
       } catch {
+        if (lastId === null && !msgEvent.lastEventId) {
+          lastId = 0;
+        } else if (!msgEvent.lastEventId) {
+          lastId = (lastId ?? 0) + 1;
+        }
         onMessage(String(msgEvent.data ?? ''));
       }
     };
 
     const handleComplete = (event: Event) => {
+      isTerminal = true;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       const msgEvent = event as MessageEvent;
       try {
         const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
@@ -162,12 +233,18 @@ export const jobsApi = {
       } catch {
         onMessage('[System] Job COMPLETED.');
       }
-      eventSource.close();
+      cleanupCurrentSource();
+      notifyStatus('disconnected');
     };
 
     const handleErrorEvent = (event: Event) => {
       const msgEvent = event as MessageEvent;
       if (msgEvent.data) {
+        isTerminal = true;
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
         try {
           const parsed = typeof msgEvent.data === 'string' ? JSON.parse(msgEvent.data) : msgEvent.data;
           const errMsg = parsed?.error || parsed?.message || JSON.stringify(parsed);
@@ -175,29 +252,57 @@ export const jobsApi = {
         } catch {
           onMessage(`[System Error] ${String(msgEvent.data)}`);
         }
-      }
-      eventSource.close();
-    };
-
-    eventSource.addEventListener('message', handleMessage);
-    eventSource.addEventListener('log', handleMessage);
-    eventSource.addEventListener('progress', handleMessage);
-    eventSource.addEventListener('complete', handleComplete);
-    eventSource.addEventListener('error', handleErrorEvent);
-
-    eventSource.onerror = (e) => {
-      if (onError) {
-        onError(e);
+        cleanupCurrentSource();
+        notifyStatus('disconnected');
+      } else {
+        if (onError) {
+          onError(event);
+        }
+        scheduleReconnect(event);
       }
     };
+
+    const connect = () => {
+      if (isTerminal || isCleanedUp) return;
+
+      const cursorQuery = lastId !== null ? `?cursor=${lastId + 1}` : '';
+      const sseUrl = `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream${cursorQuery}`;
+      const es = new EventSource(sseUrl);
+      eventSource = es;
+
+      es.onopen = () => {
+        retryDelay = 1000;
+        notifyStatus('connected');
+      };
+
+      es.addEventListener('message', handleMessage);
+      es.addEventListener('log', handleMessage);
+      es.addEventListener('progress', handleMessage);
+      es.addEventListener('complete', handleComplete);
+      es.addEventListener('error', handleErrorEvent);
+
+      es.onerror = (e) => {
+        if (onError) {
+          onError(e);
+        }
+        if (!isTerminal && !isCleanedUp) {
+          scheduleReconnect(e);
+        }
+      };
+
+      notifyStatus('connected');
+    };
+
+    connect();
 
     return () => {
-      eventSource.removeEventListener('message', handleMessage);
-      eventSource.removeEventListener('log', handleMessage);
-      eventSource.removeEventListener('progress', handleMessage);
-      eventSource.removeEventListener('complete', handleComplete);
-      eventSource.removeEventListener('error', handleErrorEvent);
-      eventSource.close();
+      isCleanedUp = true;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      cleanupCurrentSource();
+      notifyStatus('disconnected');
     };
   },
 };
