@@ -1,3 +1,5 @@
+import os
+import json
 import array
 import subprocess
 from unittest.mock import patch, MagicMock
@@ -790,3 +792,183 @@ def test_transcribe_video_audio_path_fallback_to_input(tmp_path):
         # Should fallback to video_file
         assert str(video_file) in loaded_paths
         assert str(missing_audio) not in loaded_paths
+
+
+def _create_tone_wav(path, freq=1000, duration_sec=0.4, sample_rate=16000, amplitude=2000):
+    import wave
+    import math
+    n_samples = int(duration_sec * sample_rate)
+    samples = [int(amplitude * math.sin(2 * math.pi * freq * i / sample_rate)) for i in range(n_samples)]
+    raw = array.array("h", samples).tobytes()
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(raw)
+
+
+def test_extract_audio_rms_curve_direct_wav_with_vocal_bandpass_no_subprocess(tmp_path):
+    wav_path = tmp_path / "fast_audio_vocal.wav"
+    _create_tone_wav(wav_path, freq=1000, duration_sec=0.4, sample_rate=16000, amplitude=2000)
+
+    # When input is a valid 16kHz mono WAV, even with vocal_bandpass=True,
+    # it must read directly from wave file and filter in-memory with FIR bandpass without calling subprocess.run
+    with patch("subprocess.run", side_effect=AssertionError("subprocess.run should not be called")):
+        rms, mean, std = extract_audio_rms_curve(str(wav_path), vocal_bandpass=True)
+        assert len(rms) == 4
+        # In-band 1000 Hz signal RMS of amplitude 2000 is ~1414
+        assert rms[0] == pytest.approx(1414.0, abs=100.0)
+        assert mean == pytest.approx(1414.0, abs=100.0)
+
+
+def test_fir_bandpass_attenuation():
+    from scripts.gaming_audio_detector import _design_fir_bandpass, _apply_fir_bandpass
+    import numpy as np
+
+    sr = 16000
+    duration = 0.5
+    n = int(duration * sr)
+    t = np.arange(n) / sr
+
+    # In-band tone (1000 Hz) vs Out-of-band high tone (6000 Hz) vs Out-of-band low tone (50 Hz)
+    in_tone = (2000.0 * np.sin(2 * np.pi * 1000.0 * t)).astype(np.float32)
+    out_high = (2000.0 * np.sin(2 * np.pi * 6000.0 * t)).astype(np.float32)
+    out_low = (2000.0 * np.sin(2 * np.pi * 50.0 * t)).astype(np.float32)
+
+    in_filtered = _apply_fir_bandpass(in_tone, low_cut=200, high_cut=3500, sample_rate=sr)
+    out_high_filtered = _apply_fir_bandpass(out_high, low_cut=200, high_cut=3500, sample_rate=sr)
+    out_low_filtered = _apply_fir_bandpass(out_low, low_cut=200, high_cut=3500, sample_rate=sr)
+
+    # Steady-state region (excluding edge transients from filter impulse response)
+    margin = 100
+    in_rms_raw = float(np.sqrt(np.mean(in_tone[margin:-margin] ** 2)))
+    in_rms_filt = float(np.sqrt(np.mean(in_filtered[margin:-margin] ** 2)))
+
+    out_high_raw = float(np.sqrt(np.mean(out_high[margin:-margin] ** 2)))
+    out_high_filt = float(np.sqrt(np.mean(out_high_filtered[margin:-margin] ** 2)))
+
+    out_low_raw = float(np.sqrt(np.mean(out_low[margin:-margin] ** 2)))
+    out_low_filt = float(np.sqrt(np.mean(out_low_filtered[margin:-margin] ** 2)))
+
+    # In-band signal is preserved (>95% amplitude)
+    assert in_rms_filt / in_rms_raw > 0.95
+
+    # Out-of-band high frequency (6000 Hz) is attenuated by >99%
+    assert out_high_filt / out_high_raw < 0.01
+
+    # Out-of-band low frequency (50 Hz) is attenuated by >80%
+    assert out_low_filt / out_low_raw < 0.20
+
+
+def test_rms_cache_creation_and_reuse(tmp_path):
+    proj_dir = tmp_path / "cache_proj"
+    proj_dir.mkdir()
+    audio_wav = proj_dir / "audio_16k.wav"
+    _create_tone_wav(audio_wav, freq=1000, duration_sec=0.3, sample_rate=16000, amplitude=2000)
+
+    cache_file = proj_dir / "rms_cache.json"
+    assert not cache_file.exists()
+
+    # First pass: computes RMS curve and writes rms_cache.json
+    rms1, mean1, std1 = extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+    assert cache_file.exists()
+    assert len(rms1) == 3
+
+    with open(cache_file, "r", encoding="utf-8") as f:
+        cache_data = json.load(f)
+    assert cache_data["version"] == 1
+    assert "audio_mtime" in cache_data
+    assert cache_data["chunk_sec"] == 0.1
+    assert cache_data["vocal_bandpass"] is True
+    assert len(cache_data["rms_values"]) == 3
+
+    # Second pass: loads directly from cache; wave.open and subprocess.run must not be invoked
+    with patch("wave.open", side_effect=AssertionError("wave.open should not be called on cache hit")), \
+         patch("subprocess.run", side_effect=AssertionError("subprocess.run should not be called on cache hit")):
+        rms2, mean2, std2 = extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+        assert len(rms2) == len(rms1)
+        for r1, r2 in zip(rms1, rms2):
+            assert r2 == pytest.approx(r1, abs=1e-4)
+        assert mean2 == pytest.approx(mean1, abs=1e-4)
+        assert std2 == pytest.approx(std1, abs=1e-4)
+
+
+def test_rms_cache_invalidation_on_audio_mtime_change(tmp_path):
+    from scripts.gaming_audio_detector import load_rms_cache
+
+    proj_dir = tmp_path / "mtime_proj"
+    proj_dir.mkdir()
+    audio_wav = proj_dir / "audio_16k.wav"
+    _create_tone_wav(audio_wav, freq=1000, duration_sec=0.2, sample_rate=16000, amplitude=2000)
+
+    # Create cache
+    extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+
+    # Valid cache initially
+    cached = load_rms_cache(str(proj_dir), target_audio=str(audio_wav))
+    assert cached is not None
+
+    # Simulate audio file modification by advancing mtime
+    current_mtime = os.path.getmtime(str(audio_wav))
+    os.utime(str(audio_wav), (current_mtime + 5.0, current_mtime + 5.0))
+
+    # Cache should be invalidated
+    invalidated = load_rms_cache(str(proj_dir), target_audio=str(audio_wav))
+    assert invalidated is None
+
+
+def test_rms_cache_invalidation_on_params_change(tmp_path):
+    from scripts.gaming_audio_detector import load_rms_cache
+
+    proj_dir = tmp_path / "params_proj"
+    proj_dir.mkdir()
+    audio_wav = proj_dir / "audio_16k.wav"
+    _create_tone_wav(audio_wav, freq=1000, duration_sec=0.2, sample_rate=16000, amplitude=2000)
+
+    # Create cache with default parameters (chunk_sec=0.1, vocal_bandpass=True, low_cut=200, high_cut=3500)
+    extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+
+    # Changing chunk_sec invalidates cache
+    assert load_rms_cache(str(proj_dir), target_audio=str(audio_wav), chunk_sec=0.2) is None
+    # Changing vocal_bandpass invalidates cache
+    assert load_rms_cache(str(proj_dir), target_audio=str(audio_wav), vocal_bandpass=False) is None
+    # Changing low_cut invalidates cache
+    assert load_rms_cache(str(proj_dir), target_audio=str(audio_wav), low_cut=300) is None
+    # Changing high_cut invalidates cache
+    assert load_rms_cache(str(proj_dir), target_audio=str(audio_wav), high_cut=4000) is None
+
+
+def test_rms_cache_corrupt_cache_and_wav_fallbacks(tmp_path):
+    from scripts.gaming_audio_detector import load_rms_cache
+
+    proj_dir = tmp_path / "corrupt_proj"
+    proj_dir.mkdir()
+    audio_wav = proj_dir / "audio_16k.wav"
+    _create_tone_wav(audio_wav, freq=1000, duration_sec=0.2, sample_rate=16000, amplitude=2000)
+
+    # 1. Corrupted cache JSON file
+    cache_file = proj_dir / "rms_cache.json"
+    cache_file.write_text("{ corrupt json !!")
+
+    # load_rms_cache should gracefully return None
+    assert load_rms_cache(str(proj_dir), target_audio=str(audio_wav)) is None
+
+    # extract_audio_rms_curve handles corrupt cache, computes from audio, and overwrites cache
+    rms, mean, std = extract_audio_rms_curve(str(audio_wav), project_folder=str(proj_dir), use_cache=True)
+    assert len(rms) == 2
+    with open(cache_file, "r", encoding="utf-8") as f:
+        repaired_cache = json.load(f)
+    assert repaired_cache["version"] == 1
+    assert len(repaired_cache["rms_values"]) == 2
+
+    # 2. Corrupt WAV file fallback to ffmpeg
+    corrupt_wav = proj_dir / "corrupt_audio.wav"
+    corrupt_wav.write_text("not a real wav file")
+    mock_proc = MagicMock()
+    mock_proc.stdout = array.array("h", [1500] * 1600).tobytes()
+
+    with patch("subprocess.run", return_value=mock_proc) as mock_run:
+        rms_c, mean_c, std_c = extract_audio_rms_curve(str(corrupt_wav), project_folder=str(proj_dir), use_cache=False)
+        assert len(rms_c) == 1
+        assert rms_c[0] == pytest.approx(1500.0, abs=1.0)
+        assert mock_run.called

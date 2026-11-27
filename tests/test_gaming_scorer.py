@@ -920,3 +920,30 @@ def test_generate_gaming_windows_silence_buildup_boundary_and_clamp():
     # Must be clamped so (end_time - start_time) <= max_duration (40.0s)
     assert win_clamped[0]["duration"] <= 40.0
     assert win_clamped[0]["start_time"] <= 70.0 <= win_clamped[0]["end_time"]
+
+
+@patch("scripts.gaming_facecam_detector.detect_facecam_reactions")
+@patch("scripts.gaming_keyword_detector.scan_shout_keywords")
+@patch("scripts.gaming_audio_detector.detect_audio_events")
+@patch("scripts.gaming_audio_detector.extract_audio_rms_curve")
+def test_run_gaming_clipping_pipeline_passes_project_folder_to_rms(mock_rms, mock_audio_ev, mock_kw, mock_face, tmp_path):
+    mock_rms.return_value = ([0.1] * 50, 0.1, 0.02)
+    mock_audio_ev.return_value = [{"timestamp": 25.0, "score": 80.0}]
+    mock_kw.return_value = []
+    mock_face.return_value = []
+
+    proj_dir = tmp_path / "rms_pipe_proj"
+    proj_dir.mkdir()
+    vid_file = proj_dir / "vid.mp4"
+    vid_file.write_text("dummy")
+
+    result = run_gaming_clipping_pipeline(
+        video_path=str(vid_file),
+        project_folder=str(proj_dir),
+        transcript_words=[],
+        video_duration=60.0,
+    )
+    assert len(result["segments"]) == 1
+    assert mock_rms.called
+    kwargs = mock_rms.call_args[1]
+    assert kwargs.get("project_folder") == str(proj_dir)
