@@ -253,3 +253,4 @@ def test_cancel_job_sync_when_process_already_exited():
     res = job_manager.cancel_job_sync(job.job_id)
     assert res is False
     assert job_manager.active_job is None
+

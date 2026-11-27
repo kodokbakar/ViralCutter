@@ -23,7 +23,7 @@
 | Type check / static analysis | `cd webui/frontend && npx tsc -b` |
 | Default branch | `main` |
 | Do-not-touch paths | `models/`, `credentials.json`, `token_drive.json`, `webui/PREVIEW/`, `VIRALS/`, `.worktrees/`, `webui/frontend/dist/` |
-| Docs of record | `README.md`, `README_en.md`, `docs/superpowers/specs/`, `docs/superpowers/plans/` |
+| Docs of record | `README.md`, `README_en.md`, `docs/LEDGER.md`, `docs/superpowers/specs/`, `docs/superpowers/plans/` |
 
 If a field is empty, detect it from the repo (`go.mod`, `package.json`, `composer.json`,
 
@@ -314,6 +314,8 @@ Escalation message: what was tried per round, what is blocking, and 2–3 concre
 
 - [ ] Tester `PASS` and Reviewer `APPROVE` recorded
 
+- [ ] `docs/LEDGER.md` updated with status and evidence
+
 - [ ] No unrelated changes in the diff; working tree clean
 
 - [ ] Docs/changelog updated if behavior or public API changed
@@ -326,7 +328,7 @@ Escalation message: what was tried per round, what is blocking, and 2–3 concre
 
 - Does not write product code. Plans, delegates, tracks rounds, and reports to the human.
 
-- Creates the worktree, writes briefs (§6.1), tracks round counters and spawn count (e.g. in the todo list).
+- Creates the worktree, maintains and updates `docs/LEDGER.md`, writes briefs (§6.1), tracks round counters and spawn count (e.g. in the todo list).
 
 - Passes shared background through context and one self-contained brief per task item.
 
@@ -363,3 +365,15 @@ Escalation message: what was tried per round, what is blocking, and 2–3 concre
 - **Low Tier (`9router/ag/gemini-3.8-flash-low`):**
   - Digunakan untuk pencarian informasi, analisis persyaratan, pemetaan codebase, klasifikasi ticket, dan update dokumentasi.
   - Roles: `researcher`, `explorer`, `triage`, `analyst`, `docs-writer`.
+
+---
+
+## 13. Project Ledger (`docs/LEDGER.md`)
+
+- **Single Source of Work State**: `docs/LEDGER.md` is the centralized ledger tracking active/pending tasks, owners, worktrees, branches, status (`TODO` · `WIP` · `BLOCKED` · `DONE`), and durable architectural decisions.
+- **Sole Writer**: The `orchestrator` is the sole writer of `docs/LEDGER.md`. Subagents read the ledger to stay aligned with project context and report status/evidence back to the orchestrator via standard handoff reports (§6.2).
+- **Update Protocol**: The orchestrator updates the ledger upon:
+  1. Task dispatch/claim (marks `WIP` with Owner and Branch/Worktree).
+  2. Blocker or decision escalation (marks `BLOCKED` with reason/options).
+  3. Verification and completion (marks `DONE` with commit SHAs and test evidence).
+- **Pre-flight Alignment**: Before dispatching or starting any task, the orchestrator verifies the ledger to prevent duplicate effort, enforce branch/worktree naming conventions, and avoid collision across parallel pipelines.

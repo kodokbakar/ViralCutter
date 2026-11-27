@@ -81,6 +81,8 @@ def validate_safe_path(
         target = p.resolve()
 
     is_safe = any(target == root or root in target.parents for root in resolved_roots)
+    if not is_safe and allowed_roots is DEFAULT_ALLOWED_ROOTS and is_drive_path(target):
+        is_safe = True
     if not is_safe:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -100,13 +102,11 @@ def is_drive_path(path: Any) -> bool:
     """Check if path resides within Google Drive mount boundary (/content/drive)."""
     if not path:
         return False
-    path_str = str(path).replace("\\", "/")
-    if path_str.startswith("/content/drive") or "/content/drive" in path_str:
-        return True
     try:
         p = Path(str(path)).resolve()
         drive_root = Path("/content/drive").resolve()
-        return p == drive_root or drive_root in p.parents
+        return p == drive_root or drive_root in p.parents or str(p).startswith("/content/drive")
     except Exception:
-        return False
+        path_str = str(path).replace("\\", "/")
+        return path_str.startswith("/content/drive")
 

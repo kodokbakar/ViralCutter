@@ -198,14 +198,22 @@ async def import_drive_video(request: GDriveImportRequest):
         await asyncio.to_thread(target_dir.mkdir, parents=True, exist_ok=True)
         dest_path = target_dir / safe_name
 
-        def _copy_sync():
-            shutil.copy2(src_path, dest_path)
+        def _import_sync():
+            if dest_path.is_symlink() or dest_path.exists():
+                try:
+                    dest_path.unlink()
+                except OSError:
+                    pass
+            try:
+                os.symlink(src_path, dest_path)
+            except OSError:
+                shutil.copy2(src_path, dest_path)
 
-        await asyncio.to_thread(_copy_sync)
+        await asyncio.to_thread(_import_sync)
         return GDriveImportResponse(
             status="imported",
-            video_path=str(dest_path.resolve()),
-            project_folder=str(target_dir.resolve()),
+            video_path=str(dest_path),
+            project_folder=str(target_dir),
         )
 
     # OAuth file download

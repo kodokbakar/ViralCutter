@@ -87,6 +87,25 @@ def test_colab_gdrive_project_path_isolation(tmp_path, monkeypatch):
     assert proj_arg == str(mock_virals / "MyProject")
 
 
+def test_ensure_input_video_symlinks_for_drive_path(tmp_path, monkeypatch):
+    """Verify _ensure_input_video creates a symlink for /content/drive paths."""
+    from webui.backend.schemas.jobs import JobRunRequest
+
+    mock_src = tmp_path / "fake_drive" / "sample.mp4"
+    mock_src.parent.mkdir(parents=True, exist_ok=True)
+    mock_src.write_bytes(b"sample video bytes")
+
+    proj_dir = tmp_path / "VIRALS" / "test_symlink_proj"
+    req = JobRunRequest(project_name="test_symlink_proj")
+
+    # Use simulated /content/drive path pointing to mock_src
+    req._ensure_input_video(proj_dir, str(mock_src))
+    target = proj_dir / "input.mp4"
+    assert target.exists()
+    assert target.read_bytes() == b"sample video bytes"
+
+
+
 def test_project_clips_endpoint_burned_sub_priority(tmp_path, monkeypatch):
     """
     Test GET /api/v1/library/projects/{project_name}/clips:
@@ -228,3 +247,128 @@ def test_project_clips_endpoint_404(tmp_path, monkeypatch):
 
     res = client.get("/api/v1/library/projects/NonExistentProject/clips")
     assert res.status_code == 404
+
+
+def test_import_drive_video_broken_symlink_overwrite(tmp_path, monkeypatch):
+    """
+    Test that importing over an existing broken symlink at dest_path
+    unlinks it and creates a valid new symlink.
+    """
+    import webui.backend.api.v1.gdrive as gdrive_mod
+    import webui.drive_browser as drive_browser
+
+    mock_drive = tmp_path / "content" / "drive"
+    mock_drive.mkdir(parents=True, exist_ok=True)
+    mock_virals = tmp_path / "VIRALS"
+    mock_virals.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(gdrive_mod, "VIRALS_DIR", mock_virals)
+    monkeypatch.setattr(gdrive_mod, "DRIVE_ROOT", mock_drive)
+    monkeypatch.setattr(drive_browser, "DRIVE_ROOT", mock_drive)
+
+    src_file = mock_drive / "video_clip.mp4"
+    src_file.write_bytes(b"drive binary data")
+
+    proj_dir = mock_virals / "test_broken_sym"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = proj_dir / "video_clip.mp4"
+
+    # Create a broken symlink targeting a nonexistent file
+    os.symlink("/nonexistent/file/path.mp4", dest_path)
+    assert dest_path.is_symlink()
+    assert not dest_path.exists()
+
+    res = client.post(
+        "/api/v1/gdrive/import",
+        json={"file_path": str(src_file), "project_name": "test_broken_sym"},
+    )
+    assert res.status_code == 200
+    assert dest_path.is_symlink()
+    assert dest_path.exists()
+    assert dest_path.read_bytes() == b"drive binary data"
+
+
+def test_import_drive_video_symlink_fallback_to_copy(tmp_path, monkeypatch):
+    """
+    Test that importing falls back to shutil.copy2 when os.symlink raises OSError.
+    """
+    import webui.backend.api.v1.gdrive as gdrive_mod
+    import webui.drive_browser as drive_browser
+
+    mock_drive = tmp_path / "content" / "drive"
+    mock_drive.mkdir(parents=True, exist_ok=True)
+    mock_virals = tmp_path / "VIRALS"
+    mock_virals.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(gdrive_mod, "VIRALS_DIR", mock_virals)
+    monkeypatch.setattr(gdrive_mod, "DRIVE_ROOT", mock_drive)
+    monkeypatch.setattr(drive_browser, "DRIVE_ROOT", mock_drive)
+
+    src_file = mock_drive / "video_fallback.mp4"
+    src_file.write_bytes(b"fallback copy data")
+
+    def mock_symlink(src, dst):
+        raise OSError("Operation not supported on filesystem")
+
+    monkeypatch.setattr(os, "symlink", mock_symlink)
+
+    res = client.post(
+        "/api/v1/gdrive/import",
+        json={"file_path": str(src_file), "project_name": "test_fallback_proj"},
+    )
+    assert res.status_code == 200
+    dest_path = mock_virals / "test_fallback_proj" / "video_fallback.mp4"
+    assert dest_path.exists()
+    assert not dest_path.is_symlink()
+    assert dest_path.read_bytes() == b"fallback copy data"
+
+
+def test_ensure_input_video_drive_symlink_fallback_to_copy(tmp_path, monkeypatch):
+    """
+    Verify _ensure_input_video falls back to shutil.copy2 when is_drive_path is True
+    and os.symlink raises an OSError.
+    """
+    from webui.backend.schemas.jobs import JobRunRequest
+    import webui.backend.schemas.jobs as jobs_mod
+
+    mock_src = tmp_path / "mock_drive" / "sample_video.mp4"
+    mock_src.parent.mkdir(parents=True, exist_ok=True)
+    mock_src.write_bytes(b"source sample video data")
+
+    proj_dir = tmp_path / "VIRALS" / "test_ensure_fallback_proj"
+    req = JobRunRequest(project_name="test_ensure_fallback_proj")
+
+    def mock_symlink(src, dst):
+        raise OSError("Simulated symlink failure")
+
+    monkeypatch.setattr(os, "symlink", mock_symlink)
+    monkeypatch.setattr(jobs_mod, "is_drive_path", lambda p: True)
+
+    req._ensure_input_video(proj_dir, str(mock_src))
+    target = proj_dir / "input.mp4"
+    assert target.exists()
+    assert not target.is_symlink()
+    assert target.read_bytes() == b"source sample video data"
+
+
+def test_validate_safe_path_drive_boundary_and_traversal():
+    """
+    Verify validate_safe_path allows /content/drive paths under default allowed roots,
+    while rejecting directory traversal attempts outside the boundary.
+    """
+    from fastapi import HTTPException
+    from webui.backend.core.security import validate_safe_path
+
+    # Valid drive path allowed
+    safe_drive = validate_safe_path("/content/drive/MyDrive/clip.mp4", must_exist=False)
+    assert "content/drive" in str(safe_drive)
+
+    # Path traversal outside /content/drive rejected with 403
+    with pytest.raises(HTTPException) as exc_info:
+        validate_safe_path("/content/drive/../../etc/passwd", must_exist=False)
+    assert exc_info.value.status_code == 403
+
+    # Arbitrary system path rejected with 403
+    with pytest.raises(HTTPException) as exc_info:
+        validate_safe_path("/etc/shadow", must_exist=False)
+    assert exc_info.value.status_code == 403
