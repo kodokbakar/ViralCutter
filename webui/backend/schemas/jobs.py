@@ -132,12 +132,18 @@ class JobRunRequest(BaseModel):
         project_dir.mkdir(parents=True, exist_ok=True)
         if not target.exists():
             if is_drive_path(src):
-                shutil.copy2(str(src), str(target))
+                try:
+                    os.symlink(str(src), str(target))
+                except OSError:
+                    shutil.copy2(str(src), str(target))
             else:
                 try:
                     os.link(str(src), str(target))
                 except OSError:
-                    shutil.copy2(str(src), str(target))
+                    try:
+                        os.symlink(str(src), str(target))
+                    except OSError:
+                        shutil.copy2(str(src), str(target))
 
     def cleanup_temp_files(self) -> None:
         """Remove any temporary files created for CLI args."""
