@@ -134,3 +134,123 @@ def test_job_completion_clears_active_job():
     assert job_manager.active_job is None, (
         f"active_job was not cleared after job completion: {job_manager.active_job}"
     )
+
+
+def test_sse_ping_cadence_relaxed_to_15s():
+    """Verify default SSE ping cadence is relaxed from 0.5s to 15.0s."""
+    import inspect
+    sig = inspect.signature(Job.event_generator)
+    assert sig.parameters["ping_interval"].default == 15.0
+
+
+
+def test_terminate_proc_group_kills_nested_grandchildren():
+    """
+    Verify _terminate_proc_group recursively finds and terminates
+    grandchild processes (e.g. spawned worker or GPU subprocesses).
+    """
+    import subprocess
+    import psutil
+
+    nested_script = (
+        "import subprocess, sys, time; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        "time.sleep(60)"
+    )
+    proc = subprocess.Popen([sys.executable, '-c', nested_script], start_new_session=True)
+    try:
+        p_proc = psutil.Process(proc.pid)
+        children = []
+        for _ in range(30):
+            children = p_proc.children(recursive=True)
+            if children:
+                break
+            time.sleep(0.1)
+
+        assert len(children) >= 1
+        grandchild_pid = children[0].pid
+        assert psutil.pid_exists(grandchild_pid)
+
+        req = JobRunRequest(url='https://youtube.com/watch?v=mock')
+        job = Job(job_id='test_nested_kill', request=req)
+        job.process = proc
+
+        job._terminate_proc_group(proc, signal.SIGKILL)
+        proc.wait(timeout=5)
+
+        time.sleep(0.2)
+        assert not psutil.pid_exists(grandchild_pid)
+    finally:
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            pass
+
+
+@pytest.mark.anyio
+async def test_concurrent_cancellation_calls_are_safe_and_idempotent():
+    """
+    Verify concurrent cancel() invocations on the same Job instance
+    resolve safely, with exactly one returning True and no race-induced exceptions.
+    """
+    req = JobRunRequest(custom_cmd=[sys.executable, '-c', 'import time; time.sleep(10)'])
+    job = job_manager.start_job(req)
+    for _ in range(20):
+        if job.status == 'running' and job.process is not None:
+            break
+        await asyncio.sleep(0.05)
+
+    results = await asyncio.gather(
+        job_manager.cancel_job(job.job_id),
+        job_manager.cancel_job(job.job_id),
+        job_manager.cancel_job(job.job_id),
+    )
+    assert results.count(True) == 1
+    assert results.count(False) == 2
+    assert job.status == 'cancelled'
+    assert job_manager.active_job is None
+
+
+def test_subprocess_pipe_handles_mixed_surrogates_and_cjk_binary_noise():
+    """
+    Verify stdout reader with errors='replace' handles arbitrary invalid byte sequences,
+    multibyte CJK fragments, and surrogates without crashing or truncation.
+    """
+    script = (
+        "import sys, time; "
+        "sys.stdout.buffer.write('こんにちは世界\n'.encode('utf-8')); "
+        "sys.stdout.buffer.flush(); "
+        "time.sleep(0.02); "
+        "sys.stdout.buffer.write(b'\xe3\x81\xff\xfe\xed\xa0\x80bad_bytes\n'); "
+        "sys.stdout.buffer.flush(); "
+        "time.sleep(0.02); "
+        "sys.stdout.buffer.write('final_stream_success\n'.encode('utf-8')); "
+        "sys.stdout.buffer.flush()"
+    )
+    req = JobRunRequest(custom_cmd=[sys.executable, '-c', script])
+    job = Job('test_cjk_surrogates', req)
+    job_manager._run_job_process(job)
+
+    logs = [e['data'].get('message', '') for e in job.events if e.get('event') == 'log']
+    assert any('こんにちは世界' in m for m in logs)
+    assert any('final_stream_success' in m for m in logs)
+
+
+def test_cancel_job_sync_when_process_already_exited():
+    """
+    Verify cancel_job_sync when process has already terminated
+    returns False without exceptions and active_job is None.
+    """
+    req = JobRunRequest(custom_cmd=[sys.executable, '-c', 'import sys; sys.exit(0)'])
+    job = job_manager.start_job(req)
+    for _ in range(50):
+        if job.status in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+
+    assert job.status == 'completed'
+    res = job_manager.cancel_job_sync(job.job_id)
+    assert res is False
+    assert job_manager.active_job is None
+

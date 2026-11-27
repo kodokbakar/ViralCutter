@@ -246,7 +246,7 @@ async def test_job_event_generator_stream_open_padding_and_ping_cadence():
     req = JobRunRequest(url="https://youtube.com/watch?v=mock")
     job = Job(job_id="test_padding_job", request=req)
 
-    gen = job.event_generator()
+    gen = job.event_generator(ping_interval=0.5)
     first_chunk = await anext(gen)
     assert first_chunk.startswith(": stream-open ")
     padding = first_chunk[len(": stream-open "):first_chunk.rfind("\n\n")]
