@@ -440,3 +440,37 @@ def test_auto_detect_facecam_quadrant_min_votes(tmp_path):
         q2, b2 = auto_detect_facecam_quadrant(str(dummy_video), min_votes=2)
         assert q2 is None
         assert b2 is None
+
+
+def test_detect_facecam_reactions_edge_cases(tmp_path):
+    dummy_video = tmp_path / "edge_case.mp4"
+    dummy_video.write_bytes(b"dummy video")
+
+    # None video path
+    assert detect_facecam_reactions(None) == []
+    assert detect_facecam_reactions("") == []
+    assert detect_facecam_reactions(12345) == []
+
+    # Empty candidate timestamps or malformed candidates
+    assert detect_facecam_reactions(str(dummy_video), candidate_timestamps=[]) == []
+    assert detect_facecam_reactions(str(dummy_video), candidate_timestamps=None) == []
+    assert detect_facecam_reactions(str(dummy_video), candidate_timestamps=[-5.0, "invalid", None, float("nan")]) == []
+
+    # Whitespace variations in disabled facecam_box_str
+    for disabled_val in [" none ", " OFF \n", "\tno\t", "False", " FALSE "]:
+        assert detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str=disabled_val,
+            candidate_timestamps=[10.0, 20.0]
+        ) == []
+
+    # Malformed facecam crop string fallback (when box is not disabled)
+    # OpenCV won't open dummy video bytes, so it falls back to neutral reactions
+    events = detect_facecam_reactions(
+        str(dummy_video),
+        facecam_box_str="malformed,box,not,floats",
+        candidate_timestamps=[5.0]
+    )
+    assert len(events) == 1
+    assert events[0]["score"] == 0.0
+    assert events[0]["timestamp"] == 5.0
