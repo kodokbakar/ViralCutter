@@ -339,6 +339,17 @@ Escalation message: what was tried per round, what is blocking, and 2–3 concre
 - Asks the human before: merging into the default branch, pushing, releasing, or any command from the
   "approval required" list in §3.2.
 
+### 10.1 Hard Negative Constraints for Orchestrator (Zero-Execution Rule)
+
+The orchestrator is **STRICTLY PROHIBITED** from executing the following actions directly in the main orchestrator session, even when explicitly requested by the human user:
+1. **Never perform merges or rebases**: Strictly prohibited from running `git merge`, `git rebase`, `git cherry-pick`, or `gh pr merge`.
+2. **Never edit repository source/test files**: Strictly prohibited from authoring code, modifying files, or resolving merge conflicts in any repository file, with the sole exception of tracking progress in `docs/LEDGER.md`.
+3. **Never delete worktrees or branches**: Strictly prohibited from running `git worktree remove` or deleting branches (`git branch -d/-D`, `git push --delete`).
+4. **Mandatory delegation to `integrator` upon human approval**:
+   - When human owner approval is granted to merge or clean up, the orchestrator **MUST NOT** execute the merge or cleanup itself.
+   - The orchestrator **MUST** dispatch the `integrator` subagent to perform the merge, resolve any conflicts, verify integration tests in an isolated worktree, and clean up branches/worktrees.
+   - Merging into `main`, merge conflict resolution, and worktree removal are the **EXCLUSIVE responsibilities of the `integrator`**.
+
 ---
 
 ## 11. OpenCode V2 Parallel Execution Protocol
