@@ -176,6 +176,107 @@ describe('Issue #11 - Log Streaming, Reconnection & Auto-scroll Resilience', () 
 
       cleanup();
     });
+    it("caps exponential backoff delay at 10000ms (10s) and resets delay upon reconnection/message", () => {
+      const statuses: ConnectionStatus[] = [];
+      const cleanup = jobsApi.streamLogs(
+        "job_backoff_cap",
+        () => {},
+        undefined,
+        (s) => statuses.push(s)
+      );
+
+      // Attempt 1: es[0] fails -> delay 1000ms
+      MockEventSource.instances[0].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(MockEventSource.instances.length).toBe(2);
+
+      // Attempt 2: es[1] fails -> delay 2000ms
+      MockEventSource.instances[1].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(MockEventSource.instances.length).toBe(3);
+
+      // Attempt 3: es[2] fails -> delay 4000ms
+      MockEventSource.instances[2].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(MockEventSource.instances.length).toBe(4);
+
+      // Attempt 4: es[3] fails -> delay 8000ms
+      MockEventSource.instances[3].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(8000);
+      });
+      expect(MockEventSource.instances.length).toBe(5);
+
+      // Attempt 5: es[4] fails -> delay should clamp to 10000ms (not 16000ms)
+      MockEventSource.instances[4].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(9999);
+      });
+      expect(MockEventSource.instances.length).toBe(5);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(MockEventSource.instances.length).toBe(6);
+
+      // Attempt 6: es[5] fails -> delay stays clamped at 10000ms
+      MockEventSource.instances[5].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(9999);
+      });
+      expect(MockEventSource.instances.length).toBe(6);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(MockEventSource.instances.length).toBe(7);
+
+      // Now es[6] successfully connects and receives a message, which resets retryDelay
+      MockEventSource.instances[6].emit("message", JSON.stringify({ message: "Recovered" }));
+      expect(statuses[statuses.length - 1]).toBe("connected");
+
+      // Subsequent failure should restart backoff from 1000ms
+      MockEventSource.instances[6].onerror?.(new Event("error") as unknown as { type: string });
+      act(() => {
+        vi.advanceTimersByTime(999);
+      });
+      expect(MockEventSource.instances.length).toBe(7);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(MockEventSource.instances.length).toBe(8);
+
+      cleanup();
+    });
+
+    it("terminates immediately without reconnect when error event contains error payload", () => {
+      const statuses: ConnectionStatus[] = [];
+      const messages: string[] = [];
+      const cleanup = jobsApi.streamLogs(
+        "job_terminal_err",
+        (msg) => messages.push(msg),
+        undefined,
+        (s) => statuses.push(s)
+      );
+      const es = MockEventSource.instances[0];
+
+      es.emit("error", JSON.stringify({ error: "Fatal runtime failure" }));
+      expect(statuses[statuses.length - 1]).toBe("disconnected");
+      expect(es.closed).toBe(true);
+      expect(messages).toEqual(["[System Error] Fatal runtime failure"]);
+
+      // Ensure no reconnection attempt is scheduled
+      act(() => {
+        vi.advanceTimersByTime(15000);
+      });
+      expect(MockEventSource.instances.length).toBe(1);
+
+      cleanup();
+    });
   });
 
   describe('GeneratorTab Auto-scroll & User Scroll Lock', () => {
@@ -244,6 +345,70 @@ describe('Issue #11 - Log Streaming, Reconnection & Auto-scroll Resilience', () 
       // Click "Scroll to bottom"
       act(() => {
         scrollBottomBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      expect(logContainer.scrollTop).toBe(1000);
+
+      unmount();
+    });
+    it("accurately respects 60px boundary: locks when distance is 61px and resumes auto-scroll at 60px", () => {
+      let messageHandler: ((line: string) => void) | null = null;
+      vi.spyOn(jobsApi, "streamLogs").mockImplementation((_jobId, onMessage) => {
+        messageHandler = onMessage;
+        return () => {};
+      });
+
+      const activeJob = {
+        active: true,
+        job: {
+          job_id: "job_scroll_boundary",
+          status: "running" as const,
+          stage: "Processing",
+          percent: 50,
+          elapsed: "00:00:10",
+          started_at: "2026-09-30 00:00:00",
+        },
+      };
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab activeJob={activeJob} defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+      );
+
+      const logContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+      expect(logContainer).toBeTruthy();
+
+      // Configure dimensions: scrollHeight=1000, clientHeight=400
+      // distance = scrollHeight - scrollTop - clientHeight
+      Object.defineProperty(logContainer, "scrollHeight", { value: 1000, configurable: true });
+      Object.defineProperty(logContainer, "clientHeight", { value: 400, configurable: true });
+
+      // Case 1: distance = 1000 - 539 - 400 = 61px (> 60px) -> Locked, no auto-scroll
+      logContainer.scrollTop = 539;
+      act(() => {
+        logContainer.dispatchEvent(new Event("scroll"));
+      });
+
+      act(() => {
+        messageHandler?.("Boundary Log 1");
+        vi.advanceTimersByTime(100);
+      });
+      // scrollTop must remain 539 (no auto-scroll)
+      expect(logContainer.scrollTop).toBe(539);
+      expect(container.querySelector("[data-testid=\"scroll-to-bottom-button\"]")).toBeTruthy();
+
+      // Case 2: User scrolls back down to exactly distance = 60px (scrollTop = 540)
+      // 1000 - 540 - 400 = 60px (<= 60px) -> Auto-scroll unlocks
+      logContainer.scrollTop = 540;
+      act(() => {
+        logContainer.dispatchEvent(new Event("scroll"));
+      });
+
+      // The button should disappear
+      expect(container.querySelector("[data-testid=\"scroll-to-bottom-button\"]")).toBeNull();
+
+      // When next log line arrives, it should automatically scroll to bottom (scrollHeight = 1000)
+      act(() => {
+        messageHandler?.("Boundary Log 2");
+        vi.advanceTimersByTime(100);
       });
       expect(logContainer.scrollTop).toBe(1000);
 
