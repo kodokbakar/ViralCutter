@@ -22,10 +22,10 @@
 | `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 merged |
 | `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | - | `feat/issue-18` | `TODO` | Issue #18 created; awaiting planning & implementation dispatch |
 | `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | - | `perf/issue-19` | `TODO` | Issue #19 created; eliminate OpenCV FUSE seeking latency |
-| `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | - | `perf/issue-20` | `TODO` | Issue #20 created; direct PCM read from existing audio cache |
-| `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | - | `perf/issue-21` | `TODO` | Issue #21 created; skip 75 seeks when 0 face votes detected |
+| `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | developer | `perf/issue-20` | `WIP` | Planner approved; developer dispatched in `/home/dokbakar/Projects/ViralCutter-wt/issue-20` |
+| `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | developer | `perf/issue-21` | `WIP` | Planner approved; developer dispatched in `/home/dokbakar/Projects/ViralCutter-wt/issue-21` |
 | `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | - | `perf/issue-22` | `TODO` | Issue #22 created; Haar/MediaPipe before InsightFace |
-| `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | - | `perf/issue-23` | `TODO` | Issue #23 created; 8s timeout guard + 1024 token budget |
+| `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | developer | `perf/issue-23` | `WIP` | Planner approved; developer dispatched in `/home/dokbakar/Projects/ViralCutter-wt/issue-23` |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 
