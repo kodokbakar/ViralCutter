@@ -16,10 +16,10 @@
 | `issue-8` | Unify 16kHz audio extraction cache for Whisper & detector | developer | `feat/issue-8` | `DONE` | Commits `a622305`, `54ed543`, merged `6cd5ae6` |
 | `issue-9` | Merge gaming split & subtitles into single-pass filtergraph | developer | `feat/issue-9` | `DONE` | Commits `0779f61`, `bb75b30`, merged `3f1096b` |
 | `issue-6` | Parallelize clip layout rendering and subtitle burning | developer | `feat/issue-6` | `DONE` | Commits `b533c6a`, `7e20aab`, merged `373b4d9` |
-| `issue-10` | Zero-copy symbolic link import to eliminate Cloudflare 524 timeouts | developer | `feat/issue-10` | `DONE` | Commits `a47ebc6`, `ca8ad49`, `90d4116`; Tester PASS & Reviewer APPROVE; PR #14 |
-| `issue-11` | Missing auto-scroll, SSE reconnection, and DOM thrashing in GeneratorTab | developer | `fix/issue-11` | `DONE` | Commits `c915d9a`, `d6e7e62`, `889aa7f`; Tester PASS & Reviewer APPROVE; PR #15 |
-| `issue-12` | Pipe reader UnicodeDecodeError, cancellation race, orphaned GPU processes | developer | `fix/issue-12` | `DONE` | Commits `409e8d8`, `b4a8c2b`, `4341d37`; Tester PASS & Reviewer APPROVE; PR #16 |
-| `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 |
+| `issue-10` | Zero-copy symbolic link import to eliminate Cloudflare 524 timeouts | developer | `feat/issue-10` | `DONE` | Commits `a47ebc6`, `ca8ad49`, `90d4116`; Tester PASS & Reviewer APPROVE; PR #14 merged |
+| `issue-11` | Missing auto-scroll, SSE reconnection, and DOM thrashing in GeneratorTab | developer | `fix/issue-11` | `DONE` | Commits `c915d9a`, `d6e7e62`, `889aa7f`; Tester PASS & Reviewer APPROVE; PR #15 merged |
+| `issue-12` | Pipe reader UnicodeDecodeError, cancellation race, orphaned GPU processes | developer | `fix/issue-12` | `DONE` | Commits `409e8d8`, `b4a8c2b`, `4341d37`; Tester PASS & Reviewer APPROVE; PR #16 merged |
+| `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 merged |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 
