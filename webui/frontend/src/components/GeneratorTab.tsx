@@ -21,7 +21,7 @@ import {
   Search,
   WrapText,
 } from 'lucide-react';
-import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi } from '../api/client';
+import { jobsApi, uploadApi, systemApi, libraryApi, gdriveApi, previewApi, type ConnectionStatus } from '../api/client';
 import type { JobRunRequest, ActiveJobResponse, TestAiResponse, AssetItem, GeneratedClipItem, VideoOrientation, SampleFrameItem, StoredWatermarkConfig, VideoMetadata, GamingLayout } from '../api/types';
 import GamingCropEditor from './GamingCropEditor';
 import VerticalCropEditor from './VerticalCropEditor';
@@ -345,6 +345,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const [logs, setLogs] = useState<string[]>([]);
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
   const [trackedJobId, setTrackedJobId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
 
   // Completed Clips Preview & Export State
   const [outputClips, setOutputClips] = useState<GeneratedClipItem[]>([]);
@@ -356,6 +357,8 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const logBufferRef = useRef<string[]>([]);
+  const shouldAutoScrollRef = useRef<boolean>(true);
+  const [isNearBottom, setIsNearBottom] = useState<boolean>(true);
   const [logFilter, setLogFilter] = useState<'all' | 'error' | 'stage' | 'cmd'>('all');
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
   const [wordWrap, setWordWrap] = useState<boolean>(true);
@@ -459,6 +462,10 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   useEffect(() => {
     if (activeJob?.active && activeJob.job?.job_id) {
       setTrackedJobId(activeJob.job.job_id);
+    } else if (activeJob && !activeJob.active) {
+      setTrackedJobId(null);
+    } else if (activeJob?.job?.status && ['completed', 'failed', 'cancelled'].includes(activeJob.job.status)) {
+      setTrackedJobId(null);
     }
   }, [activeJob]);
 
@@ -518,9 +525,28 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
   }, []);
 
   useEffect(() => {
-    const timerId = setInterval(flushLogs, 50);
+    let timerId: ReturnType<typeof setInterval>;
+
+    const setupTimer = () => {
+      clearInterval(timerId);
+      const isHidden = typeof document !== 'undefined' && document.hidden;
+      const interval = isHidden ? 1000 : 50;
+      timerId = setInterval(flushLogs, interval);
+    };
+
+    setupTimer();
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        flushLogs();
+      }
+      setupTimer();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       clearInterval(timerId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [flushLogs]);
 
@@ -536,6 +562,21 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
       return true;
     });
   }, [logs, logFilter, logSearchQuery]);
+
+  // Auto-scroll handler & scroll-lock state
+  const handleLogScroll = useCallback(() => {
+    if (!logContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = logContainerRef.current;
+    const nearBottom = scrollHeight - scrollTop - clientHeight <= 60;
+    shouldAutoScrollRef.current = nearBottom;
+    setIsNearBottom(nearBottom);
+  }, []);
+
+  useEffect(() => {
+    if (shouldAutoScrollRef.current && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [filteredLogs]);
 
   // Refresh Output Clips When Job Completes (Strictly from burned_sub/)
   const fetchCompletedClips = useCallback(async (proj: string) => {
@@ -666,10 +707,24 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
   // Live SSE Stream Connection
   useEffect(() => {
-    if (!trackedJobId) return;
+    if (!trackedJobId) {
+      setConnectionStatus('disconnected');
+      return;
+    }
 
     logBufferRef.current.push(`[System] Connecting to SSE log stream for job ${trackedJobId}...`);
     flushLogs();
+
+    const handleStreamError = () => {
+      onRefreshActiveJobRef.current?.();
+      if (projectNameRef.current) {
+        fetchCompletedClipsRef.current(projectNameRef.current);
+      }
+      setTrackedJobId(null);
+    };
+    handleStreamError.onStatusChange = (status: ConnectionStatus) => {
+      setConnectionStatus(status);
+    };
 
     const cleanup = jobsApi.streamLogs(
       trackedJobId,
@@ -677,21 +732,20 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
         if (!line || line.startsWith(':')) return;
 
         logBufferRef.current.push(line);
-        flushLogs();
+        const isHidden = typeof document !== 'undefined' && document.hidden;
+        if (!isHidden) {
+          flushLogs();
+        }
 
         if (line.includes('COMPLETED') || line.includes('Finished processing') || line.includes('Process completed')) {
           onRefreshActiveJobRef.current?.();
           if (projectNameRef.current) {
             fetchCompletedClipsRef.current(projectNameRef.current);
           }
+          setTrackedJobId(null);
         }
       },
-      () => {
-        onRefreshActiveJobRef.current?.();
-        if (projectNameRef.current) {
-          fetchCompletedClipsRef.current(projectNameRef.current);
-        }
-      }
+      handleStreamError
     );
 
     return () => {
@@ -946,6 +1000,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
     try {
       await jobsApi.cancel(activeId);
       logBufferRef.current.push(`[System] Job ${activeId} cancellation requested.`);
+      setTrackedJobId(null);
       onRefreshActiveJob?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to cancel job';
@@ -2155,6 +2210,33 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                       {trackedJobId}
                     </span>
                   )}
+                  {trackedJobId && (
+                    <span
+                      data-testid="connection-status-badge"
+                      className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] font-mono border ${
+                        connectionStatus === 'connected'
+                          ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40'
+                          : connectionStatus === 'reconnecting'
+                          ? 'bg-amber-950/60 text-amber-400 border-amber-800/40 animate-pulse'
+                          : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          connectionStatus === 'connected'
+                            ? 'bg-emerald-400'
+                            : connectionStatus === 'reconnecting'
+                            ? 'bg-amber-400 animate-ping'
+                            : 'bg-zinc-500'
+                        }`}
+                      />
+                      {connectionStatus === 'connected'
+                        ? 'Connected'
+                        : connectionStatus === 'reconnecting'
+                        ? 'Reconnecting...'
+                        : 'Disconnected'}
+                    </span>
+                  )}
                   <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
                     {logs.length} lines
                   </span>
@@ -2249,6 +2331,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
             <div className="relative flex-1 min-h-0 flex flex-col h-full">
               <div
                 ref={logContainerRef}
+                onScroll={handleLogScroll}
                 className={`flex-1 h-full w-full overflow-y-auto font-mono text-xs bg-zinc-950 p-4 rounded-b-lg space-y-1 min-h-[480px] ${wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'}`}
               >
                 {filteredLogs.length === 0 ? (
@@ -2259,7 +2342,7 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                 ) : (
                   filteredLogs.map((line, idx) => (
                     <div
-                      key={idx}
+                      key={`log-${idx}-${line.slice(0, 32)}`}
                       className={`leading-relaxed ${
                         line.includes('[System Error]') || line.includes('ERROR')
                           ? 'text-red-400 bg-red-950/20 px-1 rounded'
@@ -2283,6 +2366,22 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
                   ))
                 )}
               </div>
+              {!isNearBottom && filteredLogs.length > 0 && (
+                <button
+                  type="button"
+                  data-testid="scroll-to-bottom-button"
+                  onClick={() => {
+                    shouldAutoScrollRef.current = true;
+                    setIsNearBottom(true);
+                    if (logContainerRef.current) {
+                      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+                    }
+                  }}
+                  className="absolute bottom-4 right-4 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 text-[11px] px-2.5 py-1 rounded shadow-md border border-zinc-700 flex items-center gap-1 z-10 transition-colors"
+                >
+                  ↓ Scroll to bottom
+                </button>
+              )}
             </div>
           </div>
         </div>
