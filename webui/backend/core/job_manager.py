@@ -92,6 +92,62 @@ class JobConflictError(Exception):
     pass
 
 
+def _iter_proc_lines(stream):
+    """
+    Universal non-blocking chunk/line reader that yields on either \r or \n.
+    Prevents in-place carriage-return progress bars (tqdm/whisperx/ffmpeg)
+    from blocking readline().
+    """
+    fd = None
+    if hasattr(stream, "fileno"):
+        try:
+            raw_fd = stream.fileno()
+            if isinstance(raw_fd, int) and raw_fd >= 0:
+                fd = raw_fd
+        except Exception:
+            fd = None
+
+    buffer = b""
+    while True:
+        chunk = None
+        if fd is not None:
+            try:
+                chunk = os.read(fd, 1024)
+            except Exception:
+                fd = None
+        if chunk is None:
+            try:
+                chunk = stream.read(1024)
+            except Exception:
+                break
+
+        if not chunk:
+            break
+
+        if isinstance(chunk, str):
+            chunk = chunk.encode("utf-8", errors="replace")
+
+        buffer += chunk
+        while b"\r" in buffer or b"\n" in buffer:
+            r_idx = buffer.find(b"\r")
+            n_idx = buffer.find(b"\n")
+            if r_idx != -1 and (n_idx == -1 or r_idx < n_idx):
+                line = buffer[:r_idx].decode("utf-8", errors="replace")
+                if n_idx == r_idx + 1:
+                    buffer = buffer[r_idx + 2 :]
+                else:
+                    buffer = buffer[r_idx + 1 :]
+            else:
+                line = buffer[:n_idx].decode("utf-8", errors="replace")
+                buffer = buffer[n_idx + 1 :]
+            clean = line.rstrip("\r\n")
+            if clean:
+                yield clean
+    rest = buffer.decode("utf-8", errors="replace").rstrip("\r\n")
+    if rest:
+        yield rest
+
+
 class Job:
     def __init__(self, job_id: str, request: JobRunRequest):
         self.job_id = job_id
@@ -105,6 +161,7 @@ class Job:
         self.error: Optional[str] = None
         self.process: Optional[subprocess.Popen] = None
         self.events: deque = deque(maxlen=10000)
+        self.event_counter: int = 0
         self.lock = threading.RLock()
 
     def get_elapsed(self) -> str:
@@ -124,8 +181,9 @@ class Job:
         )
 
     def emit(self, event_type: str, data: Dict[str, Any]):
-        event = {"event": event_type, "data": data}
         with self.lock:
+            event = {"id": self.event_counter, "event": event_type, "data": data}
+            self.event_counter += 1
             self.events.append(event)
 
     def _initiate_cancel(self) -> Tuple[bool, Optional[subprocess.Popen]]:
@@ -224,29 +282,33 @@ class Job:
         self._finalize_cancel()
         return True
 
-    async def event_generator(self, ping_interval: float = 15.0):
+    async def event_generator(self, cursor: int = 0, ping_interval: float = 15.0):
         import asyncio
-        cursor = 0
+        current_cursor = cursor
         last_activity = time.time()
         # Flush initial HTTP headers and bypass proxy/Cloudflare edge buffers immediately
         yield f": stream-open {' ' * 8192}\n\n"
         while True:
             events_to_yield = []
             with self.lock:
-                while cursor < len(self.events):
-                    events_to_yield.append(self.events[cursor])
-                    cursor += 1
+                for ev in self.events:
+                    ev_id = ev.get("id", 0)
+                    if ev_id >= current_cursor:
+                        events_to_yield.append(ev)
+                if events_to_yield:
+                    current_cursor = events_to_yield[-1]["id"] + 1
                 is_done = self.status in ("completed", "failed", "cancelled")
 
             for ev in events_to_yield:
+                ev_id = ev.get("id", 0)
                 event_name = ev.get("event", "message")
                 data_str = json.dumps(ev.get("data", {}))
-                yield f"event: {event_name}\ndata: {data_str}\n\n"
+                yield f"id: {ev_id}\nretry: 3000\nevent: {event_name}\ndata: {data_str}\n\n"
                 last_activity = time.time()
                 if event_name in ("complete", "error"):
                     return
 
-            if is_done and cursor >= len(self.events):
+            if is_done and (not self.events or current_cursor > self.events[-1].get("id", -1)):
                 break
 
             now = time.time()
@@ -423,14 +485,7 @@ class JobManager:
             return
 
         try:
-            for line in iter(proc.stdout.readline, ""):
-                if not line and proc.poll() is not None:
-                    break
-
-                clean_line = line.rstrip("\r\n")
-                if not clean_line:
-                    continue
-
+            for clean_line in _iter_proc_lines(proc.stdout):
                 line_time = datetime.datetime.now().strftime("%H:%M:%S")
 
                 proj_folder = extract_project_folder_from_line(clean_line)

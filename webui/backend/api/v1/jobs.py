@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from webui.backend.core.job_manager import JobConflictError, job_manager
@@ -35,7 +36,11 @@ async def get_active_job():
 
 
 @router.get("/{job_id}/stream")
-async def stream_job_logs(job_id: str):
+async def stream_job_logs(
+    job_id: str,
+    cursor: Optional[int] = Query(None),
+    last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
+):
     """Server-Sent Events (SSE) stream for logs and progress events."""
     job = job_manager.get_job(job_id)
     if not job:
@@ -44,8 +49,17 @@ async def stream_job_logs(job_id: str):
             detail=f"Job {job_id} not found",
         )
 
+    start_cursor = 0
+    if cursor is not None:
+        start_cursor = max(0, cursor)
+    elif last_event_id:
+        try:
+            start_cursor = max(0, int(last_event_id) + 1)
+        except (ValueError, TypeError):
+            start_cursor = 0
+
     return StreamingResponse(
-        job.event_generator(),
+        job.event_generator(cursor=start_cursor),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
