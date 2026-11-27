@@ -314,6 +314,11 @@ def call_gemini(
     prompt,
     api_key,
     model_name="gemini-2.5-flash-lite-preview-09-2025",
+    timeout=None,
+    max_tokens=None,
+    max_retries=5,
+    base_wait=30.0,
+    response_mime_type=None,
 ):
     if not HAS_GEMINI:
         raise ImportError(
@@ -340,8 +345,11 @@ def call_gemini(
             "Gemini prompt is empty."
         )
 
-    max_retries = 5
-    base_wait = 30
+    max_retries = 5 if max_retries is None else int(max_retries)
+    base_wait = 30.0 if base_wait is None else float(base_wait)
+
+    if max_retries < 1:
+        return "{}"
 
     retryable_status_codes = {
         429,
@@ -367,20 +375,42 @@ def call_gemini(
         "temporarily unavailable",
     )
 
+    client_kwargs = {"api_key": api_key}
+    if timeout is not None:
+        client_kwargs["http_options"] = {"timeout": int(float(timeout) * 1000)}
+
+    config = None
+    config_kwargs = {}
+    if max_tokens is not None:
+        config_kwargs["max_output_tokens"] = int(max_tokens)
+    if response_mime_type is not None:
+        config_kwargs["response_mime_type"] = str(response_mime_type)
+
+    if config_kwargs:
+        genai_types = getattr(genai, "types", None)
+        if genai_types is not None and hasattr(genai_types, "GenerateContentConfig"):
+            config = genai_types.GenerateContentConfig(**config_kwargs)
+        else:
+            try:
+                from google.genai import types as gtypes
+                config = gtypes.GenerateContentConfig(**config_kwargs)
+            except Exception:
+                config = config_kwargs
+
+    generate_kwargs = {
+        "model": model_name,
+        "contents": prompt,
+    }
+    if config is not None:
+        generate_kwargs["config"] = config
+
     for attempt in range(
         1,
         max_retries + 1,
     ):
         try:
-            with genai.Client(
-                api_key=api_key
-            ) as client:
-                response = (
-                    client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                    )
-                )
+            with genai.Client(**client_kwargs) as client:
+                response = client.models.generate_content(**generate_kwargs)
 
             response_text = getattr(
                 response,
@@ -434,6 +464,7 @@ def call_gemini(
             if (
                 retryable
                 and attempt < max_retries
+                and max_retries > 1
             ):
                 wait_time = (
                     base_wait * attempt
@@ -505,19 +536,26 @@ def call_gemini(
 
     return "{}"
 
-def call_g4f(prompt, model_name="gpt-4o-mini"):
+def call_g4f(prompt, model_name="gpt-4o-mini", timeout=None, max_retries=3):
     if not HAS_G4F:
         raise ImportError("A biblioteca 'g4f' não está instalada. Instale com: pip install g4f")
     
-    max_retries = 3
+    max_retries = 3 if max_retries is None else int(max_retries)
     base_wait = 5
+
+    if max_retries <= 0:
+        return "{}"
     
     for attempt in range(max_retries):
         try:
-            response = g4f.ChatCompletion.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            create_kwargs = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            if timeout is not None:
+                create_kwargs["timeout"] = timeout
+
+            response = g4f.ChatCompletion.create(**create_kwargs)
             
             if isinstance(response, dict):
                 if 'error' in response:
@@ -534,7 +572,8 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
 
             if not response:
                 print(f"[WARN] G4F retornou resposta vazia. Tentativa {attempt+1}/{max_retries}")
-                time.sleep(base_wait)
+                if attempt < max_retries - 1 and max_retries > 1:
+                    time.sleep(base_wait)
                 continue
             
             if isinstance(response, str):
@@ -547,14 +586,14 @@ def call_g4f(prompt, model_name="gpt-4o-mini"):
             
         except Exception as e:
             print(f"[WARN] Erro na API do G4F (Tentativa {attempt+1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
+            if attempt < max_retries - 1 and max_retries > 1:
                 wait_time = base_wait * (2 ** attempt)
                 time.sleep(wait_time)
             
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
-def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=16384):
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=16384, response_mime_type=None):
     """
     Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
     """
@@ -582,6 +621,8 @@ def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", time
         "temperature": 0.5,
         "max_tokens": max_tokens or 16384,
     }
+    if response_mime_type == "application/json":
+        payload["response_format"] = {"type": "json_object"}
 
     response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
     if response.status_code != 200:

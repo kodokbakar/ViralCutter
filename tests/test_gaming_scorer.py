@@ -12,6 +12,7 @@ from scripts.gaming_scorer import (
     generate_gaming_hook_title,
     run_gaming_clipping_pipeline,
     refine_gaming_candidates_with_llm,
+    _ensure_heuristic_titles,
 )
 
 
@@ -920,3 +921,117 @@ def test_generate_gaming_windows_silence_buildup_boundary_and_clamp():
     # Must be clamped so (end_time - start_time) <= max_duration (40.0s)
     assert win_clamped[0]["duration"] <= 40.0
     assert win_clamped[0]["start_time"] <= 70.0 <= win_clamped[0]["end_time"]
+
+
+def test_ensure_heuristic_titles():
+    # Empty candidates
+    assert _ensure_heuristic_titles([]) == []
+
+    # Candidates without title and hook_title
+    raw = [{"start_time": 10.0, "end_time": 30.0, "score": 80, "keywords": ["clutch"]}]
+    ensured = _ensure_heuristic_titles(raw, language="id")
+    assert len(ensured) == 1
+    assert ensured[0]["title"]
+    assert ensured[0]["hook_title"] == ensured[0]["title"]
+
+    # Candidate with only title
+    has_title = [{"start_time": 10.0, "end_time": 30.0, "title": "MY TITLE"}]
+    ensured_title = _ensure_heuristic_titles(has_title)
+    assert ensured_title[0]["title"] == "MY TITLE"
+    assert ensured_title[0]["hook_title"] == "MY TITLE"
+
+    # Candidate with only hook_title
+    has_hook = [{"start_time": 10.0, "end_time": 30.0, "hook_title": "MY HOOK"}]
+    ensured_hook = _ensure_heuristic_titles(has_hook)
+    assert ensured_hook[0]["title"] == "MY HOOK"
+    assert ensured_hook[0]["hook_title"] == "MY HOOK"
+
+
+def test_refine_gaming_candidates_with_llm_guard_parameters_forwarding():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "title": "OLD TITLE"}]
+    mock_resp = json.dumps([{"index": 0, "hook_title": "NEW HOOK", "score": 90}])
+
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=mock_resp) as mock_query:
+        # Default parameters
+        res = refine_gaming_candidates_with_llm(
+            candidates,
+            ai_backend="gemini",
+            api_key="test-key",
+            language="id"
+        )
+        assert len(res) == 1
+        assert res[0]["title"] == "NEW HOOK"
+        mock_query.assert_called_once()
+        kwargs = mock_query.call_args[1]
+        assert kwargs.get("timeout") == 8.0
+        assert kwargs.get("max_tokens") == 1024
+        assert kwargs.get("max_retries") == 1
+        assert kwargs.get("response_mime_type") == "application/json"
+
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=mock_resp) as mock_query:
+        # Custom parameters override
+        refine_gaming_candidates_with_llm(
+            candidates,
+            ai_backend="custom",
+            api_key="custom-key",
+            timeout=5.0,
+            max_tokens=512,
+            max_retries=2,
+            language="en"
+        )
+        kwargs = mock_query.call_args[1]
+        assert kwargs.get("timeout") == 5.0
+        assert kwargs.get("max_tokens") == 512
+        assert kwargs.get("max_retries") == 2
+        assert kwargs.get("response_mime_type") == "application/json"
+
+
+def test_refine_gaming_candidates_with_llm_timeout_fast_fail():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80}]
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=TimeoutError("Request timed out after 8s")):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"]
+        assert res[0]["hook_title"] == res[0]["title"]
+        assert res[0]["score"] == 80
+
+
+def test_refine_gaming_candidates_with_llm_rate_limit_fast_fail():
+    # Empty string or "{}" or 429 error returns heuristic immediately
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "keywords": ["gila"]}]
+    for fail_resp in ["{}", "", None]:
+        with patch("scripts.smart_clipping.query_ai_backend", return_value=fail_resp):
+            res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+            assert len(res) == 1
+            assert res[0]["title"]
+            assert res[0]["hook_title"] == res[0]["title"]
+
+
+def test_refine_gaming_candidates_with_llm_malformed_json_fallback():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80}]
+    with patch("scripts.smart_clipping.query_ai_backend", return_value="{broken json output"):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"]
+        assert res[0]["hook_title"] == res[0]["title"]
+
+
+def test_refine_gaming_candidates_with_llm_dict_wrapped_candidates_or_segments():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "keywords": ["clutch"]}]
+
+    # 1. Wrapped in {"candidates": [...]}
+    wrapped_cand = json.dumps({"candidates": [{"index": 0, "hook_title": "WRAPPED CANDIDATE HOOK", "score": 95}]})
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=wrapped_cand):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"] == "WRAPPED CANDIDATE HOOK"
+        assert res[0]["score"] == 95
+
+    # 2. Wrapped in {"segments": [...]}
+    wrapped_seg = json.dumps({"segments": [{"index": 0, "hook_title": "WRAPPED SEGMENT HOOK", "score": 92}]})
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=wrapped_seg):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"] == "WRAPPED SEGMENT HOOK"
+        assert res[0]["score"] == 92
+

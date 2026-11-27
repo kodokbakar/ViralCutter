@@ -104,3 +104,79 @@ def test_query_ai_backend_safe_on_error():
     with patch("scripts.create_viral_segments.call_custom_api", side_effect=Exception("Read timed out")):
         resp = query_ai_backend("prompt", ai_backend="custom", base_url="http://fake:1234/v1")
         assert resp == ""
+
+
+def test_query_ai_backend_guard_parameters_forwarding():
+    from unittest.mock import patch
+
+    # 1. Gemini
+    with patch("scripts.create_viral_segments.call_gemini", return_value="gemini-ok") as mock_gemini:
+        resp = query_ai_backend(
+            prompt="gemini prompt",
+            ai_backend="gemini",
+            api_key="gem-key",
+            timeout=8.0,
+            max_tokens=1024,
+            max_retries=1,
+            response_mime_type="application/json",
+        )
+        assert resp == "gemini-ok"
+        mock_gemini.assert_called_once()
+        k = mock_gemini.call_args[1]
+        assert k["timeout"] == 8.0
+        assert k["max_tokens"] == 1024
+        assert k["max_retries"] == 1
+        assert k["response_mime_type"] == "application/json"
+
+    # 2. Custom API
+    with patch("scripts.create_viral_segments.call_custom_api", return_value="custom-ok") as mock_custom:
+        resp = query_ai_backend(
+            prompt="custom prompt",
+            ai_backend="custom",
+            base_url="http://localhost:11434/v1",
+            timeout=8.0,
+            max_tokens=1024,
+            response_mime_type="application/json",
+        )
+        assert resp == "custom-ok"
+        mock_custom.assert_called_once()
+        k = mock_custom.call_args[1]
+        assert k["timeout"] == 8.0
+        assert k["max_tokens"] == 1024
+        assert k["response_mime_type"] == "application/json"
+
+    # 3. G4F
+    with patch("scripts.create_viral_segments.call_g4f", return_value="g4f-ok") as mock_g4f:
+        resp = query_ai_backend(
+            prompt="g4f prompt",
+            ai_backend="g4f",
+            timeout=8.0,
+            max_retries=1,
+        )
+        assert resp == "g4f-ok"
+        mock_g4f.assert_called_once()
+        k = mock_g4f.call_args[1]
+        assert k["timeout"] == 8.0
+        assert k["max_retries"] == 1
+
+
+def test_query_ai_backend_default_preservation():
+    from unittest.mock import patch
+
+    with patch("scripts.create_viral_segments.call_custom_api", return_value="ok") as mock_custom:
+        query_ai_backend("prompt", ai_backend="custom", base_url="http://localhost:11434/v1")
+        mock_custom.assert_called_once()
+        k = mock_custom.call_args[1]
+        assert "timeout" not in k
+        assert "response_mime_type" not in k
+        assert k.get("max_tokens") == 16384
+
+    with patch("scripts.create_viral_segments.call_gemini", return_value="ok") as mock_gemini:
+        query_ai_backend("prompt", ai_backend="gemini", api_key="test-key")
+        mock_gemini.assert_called_once()
+        k = mock_gemini.call_args[1]
+        assert "timeout" not in k
+        assert "max_tokens" not in k
+        assert "max_retries" not in k
+        assert "response_mime_type" not in k
+

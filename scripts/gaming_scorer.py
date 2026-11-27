@@ -458,6 +458,27 @@ def generate_gaming_windows(
     return segments
 
 
+def _ensure_heuristic_titles(candidates: List[Dict[str, Any]], language: str = "id") -> List[Dict[str, Any]]:
+    """Ensures each candidate has a non-empty title and hook_title using heuristic generator if missing."""
+    if not candidates:
+        return []
+    result = []
+    for c in candidates:
+        item = dict(c)
+        title = str(item.get("title") or "").strip()
+        hook = str(item.get("hook_title") or "").strip()
+        if not title and not hook:
+            gen_hook = generate_gaming_hook_title(keywords=item.get("keywords", []), language=language)
+            item["title"] = gen_hook
+            item["hook_title"] = gen_hook
+        elif not title:
+            item["title"] = hook
+        elif not hook:
+            item["hook_title"] = title
+        result.append(item)
+    return result
+
+
 def refine_gaming_candidates_with_llm(
     candidates: List[Dict[str, Any]],
     transcript_words: Optional[Any] = None,
@@ -467,11 +488,14 @@ def refine_gaming_candidates_with_llm(
     ai_model_name: Optional[str] = None,
     base_url: Optional[str] = None,
     language: str = "id",
+    timeout: float = 8.0,
+    max_tokens: int = 1024,
+    max_retries: int = 1,
 ) -> List[Dict[str, Any]]:
     """
     Refines candidate gaming clips using LLM if an AI backend is configured.
     Generates context-specific viral hooks and refines scores for clutch/outplay/fail moments.
-    Gracefully falls back to original candidates untouched if offline, timeout, or error.
+    Gracefully falls back to heuristic candidates if offline, timeout, or error.
     """
     if not candidates:
         return []
@@ -483,7 +507,7 @@ def refine_gaming_candidates_with_llm(
     try:
         from scripts import smart_clipping
     except ImportError:
-        return candidates
+        return _ensure_heuristic_titles(candidates, language=language)
 
     words = []
     if transcript_words is not None:
@@ -533,18 +557,37 @@ def refine_gaming_candidates_with_llm(
             api_key=api_key,
             ai_model_name=ai_model_name,
             base_url=base_url,
+            timeout=timeout,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+            response_mime_type="application/json",
         )
-        if not resp or not resp.strip():
-            return candidates
+        if not resp or not resp.strip() or resp.strip() == "{}":
+            print("[GAMING-SCORER] Warning: LLM refinement returned empty or empty dict response, falling back to heuristic.")
+            return _ensure_heuristic_titles(candidates, language=language)
 
         clean_resp = resp.strip()
-        if "```" in clean_resp:
+        clean_resp = re.sub(r'<think>.*?</think>', '', clean_resp, flags=re.DOTALL).strip()
+        match_code = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', clean_resp)
+        if match_code:
+            clean_resp = match_code.group(1).strip()
+        else:
             clean_resp = re.sub(r"^```[a-zA-Z]*\n", "", clean_resp)
             clean_resp = re.sub(r"\n```$", "", clean_resp).strip()
 
         data = json.loads(clean_resp)
-        if not isinstance(data, list):
-            return candidates
+        if isinstance(data, dict):
+            if "candidates" in data and isinstance(data["candidates"], list):
+                data = data["candidates"]
+            elif "segments" in data and isinstance(data["segments"], list):
+                data = data["segments"]
+            else:
+                print("[GAMING-SCORER] Warning: LLM returned dict without candidates/segments list, falling back to heuristic.")
+                return _ensure_heuristic_titles(candidates, language=language)
+
+        if not isinstance(data, list) or not data:
+            print("[GAMING-SCORER] Warning: LLM response did not contain candidate list, falling back to heuristic.")
+            return _ensure_heuristic_titles(candidates, language=language)
 
         refined = [dict(c) for c in candidates]
         for item in data:
@@ -568,10 +611,10 @@ def refine_gaming_candidates_with_llm(
                 if "rubric" in refined[idx] and isinstance(refined[idx]["rubric"], dict):
                     refined[idx]["rubric"]["verdict"] = expl
 
-        return refined
+        return _ensure_heuristic_titles(refined, language=language)
     except Exception as e:
-        print(f"[GAMING-SCORER] LLM refinement fallback to offline: {e}")
-        return candidates
+        print(f"[GAMING-SCORER] Warning: LLM refinement fallback to heuristic: {e}")
+        return _ensure_heuristic_titles(candidates, language=language)
 
 
 def run_gaming_clipping_pipeline(
