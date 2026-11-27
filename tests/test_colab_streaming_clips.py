@@ -87,6 +87,25 @@ def test_colab_gdrive_project_path_isolation(tmp_path, monkeypatch):
     assert proj_arg == str(mock_virals / "MyProject")
 
 
+def test_ensure_input_video_symlinks_for_drive_path(tmp_path, monkeypatch):
+    """Verify _ensure_input_video creates a symlink for /content/drive paths."""
+    from webui.backend.schemas.jobs import JobRunRequest
+
+    mock_src = tmp_path / "fake_drive" / "sample.mp4"
+    mock_src.parent.mkdir(parents=True, exist_ok=True)
+    mock_src.write_bytes(b"sample video bytes")
+
+    proj_dir = tmp_path / "VIRALS" / "test_symlink_proj"
+    req = JobRunRequest(project_name="test_symlink_proj")
+
+    # Use simulated /content/drive path pointing to mock_src
+    req._ensure_input_video(proj_dir, str(mock_src))
+    target = proj_dir / "input.mp4"
+    assert target.exists()
+    assert target.read_bytes() == b"sample video bytes"
+
+
+
 def test_project_clips_endpoint_burned_sub_priority(tmp_path, monkeypatch):
     """
     Test GET /api/v1/library/projects/{project_name}/clips:
