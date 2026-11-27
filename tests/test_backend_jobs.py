@@ -555,3 +555,104 @@ async def test_sse_cursor_resume_and_last_event_id():
 
 
 
+
+
+def test_iter_proc_lines_rapid_carriage_returns_and_multibyte():
+    import io
+    from webui.backend.core.job_manager import _iter_proc_lines
+
+    # 1. Rapid consecutive carriage returns and empty chunks
+    bio = io.BytesIO(b"\r\r\rFrame 1\r\r\rFrame 2\r\r\rDone\n\n\n")
+    lines = list(_iter_proc_lines(bio))
+    assert lines == ["Frame 1", "Frame 2", "Done"]
+
+    # 2. Multibyte utf-8 with unicode characters / emojis
+    bio_utf8 = io.BytesIO("Téléchargement: 20%\rTéléchargement: 80%\rTerminé ✅\n".encode("utf-8"))
+    lines_utf8 = list(_iter_proc_lines(bio_utf8))
+    assert lines_utf8 == ["Téléchargement: 20%", "Téléchargement: 80%", "Terminé ✅"]
+
+    # 3. Stream ending without newline or carriage return
+    bio_rest = io.BytesIO(b"Processing: 99%\rFinal output")
+    lines_rest = list(_iter_proc_lines(bio_rest))
+    assert lines_rest == ["Processing: 99%", "Final output"]
+
+
+@pytest.mark.anyio
+async def test_sse_cursor_resume_edge_cases_and_malformed_headers():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        req = JobRunRequest(url="https://youtube.com/watch?v=mock")
+        job = Job(job_id="test_cursor_edge_cases", request=req)
+        with job_manager.lock:
+            job_manager.jobs[job.job_id] = job
+
+        job.emit("log", {"level": "INFO", "timestamp": "12:00:00", "message": "event_zero"})
+        job.emit("log", {"level": "INFO", "timestamp": "12:00:01", "message": "event_one"})
+        job.emit("complete", {"status": "completed", "output_dir": "/tmp/out"})
+        job.status = "completed" 
+
+        # Case 1: Malformed string in Last-Event-ID -> fallback to cursor 0 (all events yielded)
+        async with client.stream(
+            "GET", f"/api/v1/jobs/{job.job_id}/stream", headers={"Last-Event-ID": "invalid-id"}
+        ) as resp:
+            assert resp.status_code == 200
+            text = (await resp.aread()).decode("utf-8")
+            assert "event_zero" in text
+            assert "event_one" in text
+            assert "id: 0" in text
+            assert "id: 1" in text
+            assert "id: 2" in text
+
+        # Case 2: Negative cursor in query params -> clamped to 0
+        async with client.stream(
+            "GET", f"/api/v1/jobs/{job.job_id}/stream?cursor=-999"
+        ) as resp:
+            assert resp.status_code == 200
+            text = (await resp.aread()).decode("utf-8")
+            assert "event_zero" in text
+            assert "id: 0" in text
+
+        # Case 3: Negative Last-Event-ID -> int("-5") + 1 = -4 -> clamped to 0
+        async with client.stream(
+            "GET", f"/api/v1/jobs/{job.job_id}/stream", headers={"Last-Event-ID": "-5"}
+        ) as resp:
+            assert resp.status_code == 200
+            text = (await resp.aread()).decode("utf-8")
+            assert "event_zero" in text
+            assert "id: 0" in text
+
+        # Case 4: Cursor far beyond event counter -> stream opens and completes immediately without events
+        async with client.stream(
+            "GET", f"/api/v1/jobs/{job.job_id}/stream?cursor=9999"
+        ) as resp:
+            assert resp.status_code == 200
+            text = (await resp.aread()).decode("utf-8")
+            assert ": stream-open" in text
+            assert "event_zero" not in text
+            assert "event_one" not in text
+            assert "id: 0" not in text
+            assert "event: complete" not in text
+
+        # Case 5: Last-Event-ID far beyond event counter -> stream opens and completes immediately
+        async with client.stream(
+            "GET", f"/api/v1/jobs/{job.job_id}/stream", headers={"Last-Event-ID": "9999"}
+        ) as resp:
+            assert resp.status_code == 200
+            text = (await resp.aread()).decode("utf-8")
+            assert ": stream-open" in text
+            assert "event_zero" not in text
+            assert "event_one" not in text
+
+
+def test_main_improved_stdout_flush():
+    import main_improved
+    captured = {}
+    orig_raw = main_improved._raw_print
+    def mock_raw(*args, **kwargs):
+        captured.update(kwargs)
+    try:
+        main_improved._raw_print = mock_raw
+        main_improved._safe_print("test message")
+        assert captured.get("flush") is True
+    finally:
+        main_improved._raw_print = orig_raw
