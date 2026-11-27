@@ -486,5 +486,72 @@ def test_job_run_request_whisper_and_chunk_bounds():
         JobRunRequest(whisper_chunk_size=61)
 
 
+def test_iter_proc_lines_carriage_return_yielding():
+    import io
+    from webui.backend.core.job_manager import _iter_proc_lines
+
+    # Test in-memory BytesIO
+    bio = io.BytesIO(b"Progress: 10%\rProgress: 50%\r\nDone\n")
+    lines_bio = list(_iter_proc_lines(bio))
+    assert lines_bio == ["Progress: 10%", "Progress: 50%", "Done"]
+
+    # Test in-memory StringIO (text stream without fileno)
+    sio = io.StringIO("Progress: 20%\rProgress: 80%\rFinalizing\n")
+    lines_sio = list(_iter_proc_lines(sio))
+    assert lines_sio == ["Progress: 20%", "Progress: 80%", "Finalizing"]
+
+    # Test real OS pipe with fileno()
+    r_fd, w_fd = os.pipe()
+    try:
+        os.write(w_fd, b"Download: 30%\rDownload: 90%\r\nFinished\n")
+        os.close(w_fd)
+        with open(r_fd, "r", encoding="utf-8") as stream:
+            lines_pipe = list(_iter_proc_lines(stream))
+        assert lines_pipe == ["Download: 30%", "Download: 90%", "Finished"]
+    finally:
+        try:
+            os.close(w_fd)
+        except OSError:
+            pass
+
+
+@pytest.mark.anyio
+async def test_sse_cursor_resume_and_last_event_id():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        req = JobRunRequest(url="https://youtube.com/watch?v=mock")
+        job = Job(job_id="test_cursor_job", request=req)
+        with job_manager.lock:
+            job_manager.jobs[job.job_id] = job
+
+        job.emit("log", {"level": "INFO", "timestamp": "12:00:00", "message": "msg_0"})
+        job.emit("log", {"level": "INFO", "timestamp": "12:00:01", "message": "msg_1"})
+        job.emit("complete", {"status": "completed", "output_dir": "/tmp/out"})
+
+        # 1. Resume with ?cursor=1 -> should receive event id: 1 and id: 2, skipping id: 0
+        async with client.stream("GET", f"/api/v1/jobs/{job.job_id}/stream?cursor=1") as resp:
+            assert resp.status_code == 200
+            content = await resp.aread()
+            text = content.decode("utf-8")
+            assert "msg_0" not in text
+            assert "msg_1" in text
+            assert "id: 1" in text
+            assert "id: 2" in text
+            assert "retry: 3000" in text
+
+        # 2. Resume with Last-Event-ID: 1 -> should receive next events starting from id: 2
+        headers = {"Last-Event-ID": "1"}
+        async with client.stream("GET", f"/api/v1/jobs/{job.job_id}/stream", headers=headers) as resp:
+            assert resp.status_code == 200
+            content = await resp.aread()
+            text = content.decode("utf-8")
+            assert "msg_0" not in text
+            assert "msg_1" not in text
+            assert "id: 2" in text
+            assert "event: complete" in text
+            assert "retry: 3000" in text
+
+
+
 
 

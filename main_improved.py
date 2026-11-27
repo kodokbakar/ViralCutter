@@ -1,18 +1,21 @@
 import os
 import sys
+import builtins
 import functools
 import threading
 import concurrent.futures
 
 # Explicitly flush all standard output prints immediately with thread safety
 _print_lock = threading.Lock()
-_raw_print = functools.partial(print, flush=True)
+_raw_print = functools.partial(builtins.print, flush=True)
 
 def _safe_print(*args, **kwargs):
+    kwargs.setdefault("flush", True)
     with _print_lock:
         _raw_print(*args, **kwargs)
 
 print = _safe_print
+builtins.print = _safe_print
 
 # Suppress unnecessary logs before importing heavy libs
 os.environ["ORT_LOGGING_LEVEL"] = "3" 
