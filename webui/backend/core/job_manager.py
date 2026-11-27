@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 import datetime
 import json
 import os
@@ -103,7 +104,7 @@ class Job:
         self.output_dir: Optional[str] = None
         self.error: Optional[str] = None
         self.process: Optional[subprocess.Popen] = None
-        self.events: List[Dict[str, Any]] = []
+        self.events: deque = deque(maxlen=10000)
         self.lock = threading.RLock()
 
     def get_elapsed(self) -> str:
@@ -135,12 +136,43 @@ class Job:
             self.status = "cancelled"
             self.error = "Job was cancelled by user"
             self.end_time = time.time()
+            now_str = datetime.datetime.now().strftime("%H:%M:%S")
+            self.emit("log", {
+                "level": "WARN",
+                "timestamp": now_str,
+                "message": f"Job {self.job_id} cancelled by user",
+            })
+            self.emit("error", {
+                "status": "cancelled",
+                "error": "Job was cancelled by user",
+            })
             return True, proc
 
     def _terminate_proc_group(self, proc: subprocess.Popen, sig: int) -> None:
         try:
-            os.killpg(os.getpgid(proc.pid), sig)
-        except (ProcessLookupError, PermissionError):
+            import psutil
+            parent = psutil.Process(proc.pid)
+            children = parent.children(recursive=True)
+            for child in children:
+                try:
+                    if sig == signal.SIGKILL:
+                        child.kill()
+                    else:
+                        child.terminate()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+
+        try:
+            if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+                os.killpg(os.getpgid(proc.pid), sig)
+            else:
+                if sig == signal.SIGKILL:
+                    proc.kill()
+                else:
+                    proc.terminate()
+        except (ProcessLookupError, PermissionError, AttributeError):
             try:
                 if sig == signal.SIGKILL:
                     proc.kill()
@@ -150,16 +182,6 @@ class Job:
                 pass
 
     def _finalize_cancel(self) -> None:
-        now_str = datetime.datetime.now().strftime("%H:%M:%S")
-        self.emit("log", {
-            "level": "WARN",
-            "timestamp": now_str,
-            "message": f"Job {self.job_id} cancelled by user",
-        })
-        self.emit("error", {
-            "status": "cancelled",
-            "error": "Job was cancelled by user",
-        })
         self.request.cleanup_temp_files()
 
     async def cancel(self, timeout: float = 5.0) -> bool:
@@ -202,7 +224,7 @@ class Job:
         self._finalize_cancel()
         return True
 
-    async def event_generator(self):
+    async def event_generator(self, ping_interval: float = 15.0):
         import asyncio
         cursor = 0
         last_activity = time.time()
@@ -228,7 +250,7 @@ class Job:
                 break
 
             now = time.time()
-            if not events_to_yield and (now - last_activity) >= 0.5:
+            if not events_to_yield and (now - last_activity) >= ping_interval:
                 yield ": ping\n\n"
                 last_activity = now
 
@@ -289,15 +311,31 @@ class JobManager:
         job = self.get_job(job_id)
         if not job:
             return False
-        return await job.cancel(timeout=timeout)
+        res = await job.cancel(timeout=timeout)
+        with self.lock:
+            if self.active_job is job:
+                self.active_job = None
+        return res
 
     def cancel_job_sync(self, job_id: str, timeout: float = 5.0) -> bool:
         job = self.get_job(job_id)
         if not job:
             return False
-        return job.cancel_sync(timeout=timeout)
+        res = job.cancel_sync(timeout=timeout)
+        with self.lock:
+            if self.active_job is job:
+                self.active_job = None
+        return res
 
     def _run_job_process(self, job: Job):
+        try:
+            self._execute_job_process(job)
+        finally:
+            with self.lock:
+                if self.active_job is job:
+                    self.active_job = None
+
+    def _execute_job_process(self, job: Job):
         work_dir = str(MAIN_SCRIPT_PATH.parent)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -355,6 +393,7 @@ class JobManager:
                     stderr=subprocess.STDOUT,
                     text=True,
                     universal_newlines=True,
+                    errors="replace",
                     bufsize=1,
                     start_new_session=True,
                     env=env,

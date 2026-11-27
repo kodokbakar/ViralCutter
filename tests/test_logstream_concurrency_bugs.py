@@ -134,3 +134,11 @@ def test_job_completion_clears_active_job():
     assert job_manager.active_job is None, (
         f"active_job was not cleared after job completion: {job_manager.active_job}"
     )
+
+
+def test_sse_ping_cadence_relaxed_to_15s():
+    """Verify default SSE ping cadence is relaxed from 0.5s to 15.0s."""
+    import inspect
+    sig = inspect.signature(Job.event_generator)
+    assert sig.parameters["ping_interval"].default == 15.0
+
