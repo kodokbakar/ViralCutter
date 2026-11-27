@@ -10,13 +10,16 @@ FACECAM_QUADRANTS: Dict[str, str] = {
 DEFAULT_FACECAM_BOX = FACECAM_QUADRANTS["top-right"]
 
 
-def auto_detect_facecam_quadrant(video_path: str, sample_frames: int = 5) -> Tuple[str, str]:
+def auto_detect_facecam_quadrant(
+    video_path: str,
+    sample_frames: int = 5,
+    min_votes: int = 1,
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Detects which quadrant the streamer facecam is located in by sampling keyframes.
-    Returns (quadrant_name, normalized_box_string).
-    Falls back to ('top-right', FACECAM_QUADRANTS['top-right']) if no faces detected or error.
+    Returns (quadrant_name, normalized_box_string) or (None, None) if no facecam detected or on error.
     """
-    fallback = ("top-right", FACECAM_QUADRANTS["top-right"])
+    fallback: Tuple[Optional[str], Optional[str]] = (None, None)
     if not video_path or not os.path.exists(video_path):
         return fallback
 
@@ -100,7 +103,7 @@ def auto_detect_facecam_quadrant(video_path: str, sample_frames: int = 5) -> Tup
 
         cap.release()
         max_votes = max(votes.values())
-        if max_votes > 0:
+        if max_votes >= min_votes and max_votes > 0:
             winner = max(votes, key=votes.get)
             return winner, FACECAM_QUADRANTS[winner]
 
@@ -113,11 +116,16 @@ def auto_detect_facecam_quadrant(video_path: str, sample_frames: int = 5) -> Tup
         return fallback
 
 
-def auto_detect_facecam_box(video_path: str, sample_sec: float = 5.0) -> str:
+def auto_detect_facecam_box(
+    video_path: str,
+    sample_sec: float = 5.0,
+    min_votes: int = 1,
+) -> Optional[str]:
     """
-    Returns normalized facecam crop box string for video_path by detecting face quadrant.
+    Returns normalized facecam crop box string for video_path by detecting face quadrant,
+    or None if no facecam detected.
     """
-    _quadrant, box_str = auto_detect_facecam_quadrant(video_path)
+    _quadrant, box_str = auto_detect_facecam_quadrant(video_path, min_votes=min_votes)
     return box_str
 def _safe_float(val: Any, default: Optional[float] = 0.0) -> Optional[float]:
     """Safely converts input to float, guarding against None, bool, NaN, and Inf."""
@@ -207,10 +215,12 @@ def detect_facecam_reactions(
 ) -> List[Dict[str, Any]]:
     """
     Extracts facecam frames around candidate_timestamps (or scans stream) and detects reactions.
-    Gracefully returns [] if video is missing, or fallback neutral reactions if facecam box
-    is missing or OpenCV/InsightFace detects no faces.
+    Gracefully returns [] if video is missing, facecam is absent/disabled, or candidate_timestamps is empty.
     """
     if not video_path or not isinstance(video_path, str) or not os.path.exists(video_path):
+        return []
+
+    if facecam_box_str is not None and str(facecam_box_str).strip().lower() in ("none", "off", "no", "false"):
         return []
 
     if candidate_timestamps is None:
@@ -228,6 +238,13 @@ def detect_facecam_reactions(
     clean_ts = sorted(set(clean_ts))
     if not clean_ts:
         return []
+
+    if facecam_box_str is None or str(facecam_box_str).strip().lower() == "auto":
+        detected_box = auto_detect_facecam_box(video_path)
+        if not detected_box:
+            return []
+        facecam_box_str = detected_box
+
     fallback_reactions = [
         {
             "timestamp": ts,
@@ -242,9 +259,6 @@ def detect_facecam_reactions(
         import cv2
     except ImportError:
         return fallback_reactions
-
-    if facecam_box_str is None or str(facecam_box_str).strip().lower() in ("auto", "none"):
-        facecam_box_str = auto_detect_facecam_box(video_path)
 
     try:
         from scripts.gaming_split import parse_normalized_box

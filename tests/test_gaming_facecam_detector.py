@@ -93,10 +93,18 @@ def test_detect_facecam_reactions_fallback(tmp_path):
     dummy_video = tmp_path / "test.mp4"
     dummy_video.write_bytes(b"dummy video data")
 
-    # When CV is unavailable or facecam is not specified, returns neutral fallback with score 0.0
-    events = detect_facecam_reactions(
+    # When facecam is not specified and auto-detection finds nothing, returns [] immediately
+    events_none = detect_facecam_reactions(
         str(dummy_video),
         facecam_box_str=None,
+        candidate_timestamps=[10.0, 25.5]
+    )
+    assert events_none == []
+
+    # When facecam box is explicitly provided but CV cannot open/read frames, returns neutral fallback with score 0.0
+    events = detect_facecam_reactions(
+        str(dummy_video),
+        facecam_box_str="0.68,0.05,0.28,0.22",
         candidate_timestamps=[10.0, 25.5]
     )
     assert len(events) == 2
@@ -151,6 +159,7 @@ def test_detect_facecam_reactions_numpy_and_tuples(tmp_path):
     # candidate_timestamps as numpy array
     events_np = detect_facecam_reactions(
         str(dummy_video),
+        facecam_box_str="0.68,0.05,0.28,0.22",
         candidate_timestamps=np.array([10.0, 20.0, 30.0])
     )
     assert len(events_np) == 3
@@ -159,6 +168,7 @@ def test_detect_facecam_reactions_numpy_and_tuples(tmp_path):
     # candidate_timestamps as tuple
     events_tuple = detect_facecam_reactions(
         str(dummy_video),
+        facecam_box_str="0.68,0.05,0.28,0.22",
         candidate_timestamps=(15.0, 5.0)
     )
     assert len(events_tuple) == 2
@@ -171,6 +181,7 @@ def test_detect_facecam_reactions_deduplicates_and_sorts(tmp_path):
 
     events = detect_facecam_reactions(
         str(dummy_video),
+        facecam_box_str="0.68,0.05,0.28,0.22",
         candidate_timestamps=[30.0, 10.0, 30.0, 20.0, 10.0]
     )
     assert len(events) == 3
@@ -227,13 +238,13 @@ def test_detect_facecam_reactions_frame_sampling_mocked(tmp_path):
 
 def test_auto_detect_facecam_quadrant_nonexistent():
     quadrant, box = auto_detect_facecam_quadrant("/nonexistent/video.mp4")
-    assert quadrant == "top-right"
-    assert box == FACECAM_QUADRANTS["top-right"]
+    assert quadrant is None
+    assert box is None
 
 
 def test_auto_detect_facecam_box_nonexistent():
     box = auto_detect_facecam_box("/nonexistent/video.mp4")
-    assert box == FACECAM_QUADRANTS["top-right"]
+    assert box is None
 
 
 def test_auto_detect_facecam_quadrant_synthetic_top_left(tmp_path):
@@ -336,5 +347,96 @@ def test_auto_detect_facecam_quadrant_no_faces_fallback(tmp_path):
          patch("os.path.exists", return_value=True):
         quadrant, box = auto_detect_facecam_quadrant(str(dummy_video))
 
-    assert quadrant == "top-right"
-    assert box == FACECAM_QUADRANTS["top-right"]
+    assert quadrant is None
+    assert box is None
+
+
+def test_detect_facecam_reactions_disabled_early_exit(tmp_path):
+    import sys
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_disabled.mp4"
+    dummy_video.write_bytes(b"dummy video")
+
+    mock_cv2 = MagicMock()
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box") as mock_auto:
+        for disabled_val in ["none", "None", "off", "OFF", "no", "false", "False"]:
+            res = detect_facecam_reactions(
+                str(dummy_video),
+                facecam_box_str=disabled_val,
+                candidate_timestamps=[10.0, 20.0]
+            )
+            assert res == []
+
+    # Neither cv2.VideoCapture nor auto_detect_facecam_box was invoked
+    assert not mock_cv2.VideoCapture.called
+    assert not mock_auto.called
+
+
+def test_detect_facecam_reactions_zero_votes_early_exit(tmp_path):
+    import sys
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_zero_votes.mp4"
+    dummy_video.write_bytes(b"dummy video")
+
+    mock_cv2 = MagicMock()
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box", return_value=None):
+        res = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="auto",
+            candidate_timestamps=[15.0, 30.0]
+        )
+        assert res == []
+
+    # Reaction frame capture was never opened
+    assert not mock_cv2.VideoCapture.called
+
+
+def test_auto_detect_facecam_quadrant_min_votes(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_min_votes.mp4"
+    dummy_video.write_text("fake video")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1000,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 1000,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 100,
+    }.get(prop, 0)
+
+    mock_cap.read.return_value = (True, np.zeros((1000, 1000, 3), dtype=np.uint8))
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    # Exactly 1 detection in top-left
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.side_effect = [
+        [[50, 50, 100, 100]],  # 1st sample frame: face detected
+        [], [], [], [],         # subsequent samples: no face
+    ]
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True):
+        # min_votes=1 -> winner is top-left
+        q1, b1 = auto_detect_facecam_quadrant(str(dummy_video), min_votes=1)
+        assert q1 == "top-left"
+        assert b1 == FACECAM_QUADRANTS["top-left"]
+
+        # Reset side_effect for second run
+        mock_cascade.detectMultiScale.side_effect = [
+            [[50, 50, 100, 100]],
+            [], [], [], [],
+        ]
+        # min_votes=2 -> 1 vote is not enough, returns (None, None)
+        q2, b2 = auto_detect_facecam_quadrant(str(dummy_video), min_votes=2)
+        assert q2 is None
+        assert b2 is None
