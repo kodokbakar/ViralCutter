@@ -717,10 +717,6 @@ export const GeneratorTab: React.FC<GeneratorTabProps> = ({
 
     const handleStreamError = () => {
       onRefreshActiveJobRef.current?.();
-      if (projectNameRef.current) {
-        fetchCompletedClipsRef.current(projectNameRef.current);
-      }
-      setTrackedJobId(null);
     };
     handleStreamError.onStatusChange = (status: ConnectionStatus) => {
       setConnectionStatus(status);

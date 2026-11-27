@@ -506,6 +506,59 @@ describe('Issue #11 - Log Streaming, Reconnection & Auto-scroll Resilience', () 
 
       unmount();
     });
+
+    it('preserves trackedJobId and maintains connection during transient stream error', () => {
+      const activeJob = {
+        active: true,
+        job: {
+          job_id: 'job_reconnect_preserve',
+          status: 'running' as const,
+          stage: 'Running',
+          percent: 30,
+          elapsed: '00:00:08',
+          started_at: '2026-09-30 00:00:00',
+        },
+      };
+
+      const { container, unmount } = renderComponent(
+        <GeneratorTab activeJob={activeJob} defaultVideoPath="/videos/test.mp4" defaultProjectName="TestProj" />
+      );
+
+      // Verify initial connection established
+      expect(MockEventSource.instances.length).toBe(1);
+      expect(container.textContent).toContain('job_reconnect_preserve');
+
+      // Trigger a transient transport error (e.g. network disconnect)
+      act(() => {
+        MockEventSource.instances[0].onerror?.(new Event('error') as unknown as { type: string });
+      });
+
+      // trackedJobId must NOT be wiped out; badge indicates reconnecting
+      const badge = container.querySelector('[data-testid="connection-status-badge"]');
+      expect(badge).toBeTruthy();
+      expect(badge?.textContent).toContain('Reconnecting...');
+      expect(container.textContent).toContain('job_reconnect_preserve');
+
+      // Advance timers by backoff delay (1000ms)
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // A new EventSource connection should have been initiated with cursor
+      expect(MockEventSource.instances.length).toBe(2);
+      expect(MockEventSource.instances[1].url).toContain('/api/v1/jobs/job_reconnect_preserve/stream');
+
+      // Simulate new connection open & receiving a log message
+      act(() => {
+        MockEventSource.instances[1].emit('message', JSON.stringify({ message: 'Resumed log after reconnect' }));
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(container.textContent).toContain('Resumed log after reconnect');
+      expect(container.textContent).toContain('job_reconnect_preserve');
+
+      unmount();
+    });
   });
 
   describe('DOM Thrashing: document.hidden Throttling', () => {
