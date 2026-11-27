@@ -209,3 +209,29 @@ def test_call_custom_api_structured_json():
         assert payload.get("max_tokens") == 1024
         assert mock_post.call_args[1]["timeout"] == 8.0
 
+
+
+def test_call_gemini_and_g4f_zero_or_negative_retries():
+    from scripts.create_viral_segments import call_g4f
+    with patch("scripts.create_viral_segments.HAS_GEMINI", True):
+        assert call_gemini("prompt", api_key="fake", max_retries=0) == "{}"
+        assert call_gemini("prompt", api_key="fake", max_retries=-1) == "{}"
+
+    with patch("scripts.create_viral_segments.HAS_G4F", True):
+        assert call_g4f("prompt", max_retries=0) == "{}"
+        assert call_g4f("prompt", max_retries=-2) == "{}"
+
+
+def test_call_custom_api_non_200_and_timeout_errors():
+    import requests
+    mock_resp = MagicMock()
+    mock_resp.status_code = 502
+    mock_resp.text = "<html><body>502 Bad Gateway</body></html>"
+
+    with patch("requests.post", return_value=mock_resp):
+        with pytest.raises(RuntimeError, match=r"Custom API failed \(502\)"):
+            call_custom_api("prompt", base_url="http://localhost:11434/v1")
+
+    with patch("requests.post", side_effect=requests.exceptions.Timeout("Read timed out")):
+        with pytest.raises(requests.exceptions.Timeout):
+            call_custom_api("prompt", base_url="http://localhost:11434/v1", timeout=8.0)

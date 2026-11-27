@@ -180,3 +180,15 @@ def test_query_ai_backend_default_preservation():
         assert "max_retries" not in k
         assert "response_mime_type" not in k
 
+
+def test_query_ai_backend_mock_network_timeout_and_exceptions():
+    import requests
+    from unittest.mock import patch
+    for exc in [
+        requests.exceptions.ConnectTimeout("Timeout connecting to backend"),
+        requests.exceptions.ReadTimeout("Read timed out"),
+        ConnectionRefusedError("Connection refused"),
+    ]:
+        with patch("scripts.create_viral_segments.call_custom_api", side_effect=exc):
+            resp = query_ai_backend("prompt", ai_backend="custom", base_url="http://localhost:11434/v1")
+            assert resp == ""

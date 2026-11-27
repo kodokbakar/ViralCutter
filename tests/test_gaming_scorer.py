@@ -1035,3 +1035,59 @@ def test_refine_gaming_candidates_with_llm_dict_wrapped_candidates_or_segments()
         assert res[0]["title"] == "WRAPPED SEGMENT HOOK"
         assert res[0]["score"] == 92
 
+
+def test_refine_gaming_candidates_unclosed_markdown_codeblock():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80}]
+    raw_unclosed = "<think>Analyzing clips...</think>```json\n" + json.dumps([{"index": 0, "hook_title": "UNCLOSED BLOCK CLUTCH", "score": 99}])
+    with patch("scripts.smart_clipping.query_ai_backend", return_value=raw_unclosed):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"] == "UNCLOSED BLOCK CLUTCH"
+        assert res[0]["score"] == 99
+
+
+def test_refine_gaming_candidates_non_json_api_error_fallback():
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "keywords": ["clutch"]}]
+    for err_resp in [
+        "<html><head><title>502 Bad Gateway</title></head><body>502 Bad Gateway</body></html>",
+        "Internal Server Error (500)",
+        "Rate limit reached. Please retry in 20s.",
+    ]:
+        with patch("scripts.smart_clipping.query_ai_backend", return_value=err_resp):
+            res = refine_gaming_candidates_with_llm(candidates, ai_backend="gemini", api_key="test-key")
+            assert len(res) == 1
+            assert res[0]["title"]
+            assert res[0]["hook_title"] == res[0]["title"]
+            assert res[0]["score"] == 80
+
+
+def test_refine_gaming_candidates_none_and_empty_inputs():
+    assert refine_gaming_candidates_with_llm(None) == []
+    assert refine_gaming_candidates_with_llm([]) == []
+
+    # _ensure_heuristic_titles with None candidates
+    assert _ensure_heuristic_titles(None) == []
+
+    # Candidate with None keywords, None title, None hook_title ensured by heuristic
+    cand = [{"start_time": 10.0, "end_time": 40.0, "score": 80, "keywords": None, "title": None, "hook_title": None}]
+    ensured = _ensure_heuristic_titles(cand)
+    assert len(ensured) == 1
+    assert ensured[0]["title"]
+    assert ensured[0]["hook_title"] == ensured[0]["title"]
+
+    # When LLM refinement fails/empty with None fields in candidate, heuristic ensures valid titles
+    with patch("scripts.smart_clipping.query_ai_backend", return_value="{}"):
+        res = refine_gaming_candidates_with_llm(cand, ai_backend="gemini", api_key="test-key")
+        assert len(res) == 1
+        assert res[0]["title"]
+        assert res[0]["hook_title"] == res[0]["title"]
+
+
+def test_refine_gaming_candidates_mock_network_timeout():
+    import requests
+    candidates = [{"start_time": 10.0, "end_time": 40.0, "score": 80}]
+    with patch("scripts.smart_clipping.query_ai_backend", side_effect=requests.exceptions.ConnectTimeout("Connection timed out after 8s")):
+        res = refine_gaming_candidates_with_llm(candidates, ai_backend="custom", base_url="http://10.255.255.1:11434/v1")
+        assert len(res) == 1
+        assert res[0]["title"]
+        assert res[0]["hook_title"] == res[0]["title"]
