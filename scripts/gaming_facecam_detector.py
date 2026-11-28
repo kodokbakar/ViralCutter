@@ -325,6 +325,184 @@ def score_facecam_reaction(mar: float, motion_velocity: float) -> float:
     return round(total, 1)
 
 
+def _get_mediapipe_face_mesh() -> Any:
+    """
+    Lazily imports mediapipe and instantiates FaceMesh detector.
+    Returns FaceMesh instance or None on ImportError or initialization exception.
+    """
+    try:
+        import mediapipe as mp
+        if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_mesh"):
+            return mp.solutions.face_mesh.FaceMesh(
+                static_image_mode=False,
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.3,
+                min_tracking_confidence=0.3,
+            )
+    except Exception:
+        pass
+    return None
+
+
+def _get_lazy_insightface_app(cached_state: Optional[Dict[str, Any]] = None) -> Any:
+    """
+    Lazily initializes InsightFace app once.
+    cached_state dictionary tracks {'app': ..., 'attempted': bool}.
+    """
+    if cached_state is None:
+        cached_state = {}
+    if cached_state.get("attempted", False):
+        return cached_state.get("app")
+    cached_state["attempted"] = True
+    try:
+        from scripts.face_detection_insightface import init_insightface
+        cached_state["app"] = init_insightface()
+    except Exception:
+        cached_state["app"] = None
+    return cached_state.get("app")
+
+
+def _detect_face_in_region(
+    img: Any,
+    face_mesh: Any,
+    face_cascade: Any,
+    insight_state: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """
+    Detects face within given image using detector priority:
+    Priority 1: MediaPipe Face Mesh
+    Priority 2: OpenCV Haar Cascade
+    Priority 3: Lazy InsightFace Fallback
+    Returns dict with 'bbox', 'center', and optional 'mar', or None if no face detected.
+    """
+    if img is None or not hasattr(img, "shape") or len(img.shape) < 2:
+        return None
+    h, w = img.shape[:2]
+    if h <= 0 or w <= 0:
+        return None
+
+    # Priority 1 — MediaPipe Face Mesh
+    if face_mesh is not None:
+        try:
+            import cv2
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb)
+            if results and getattr(results, "multi_face_landmarks", None):
+                raw_landmarks = results.multi_face_landmarks[0].landmark
+                if raw_landmarks:
+                    scaled_pts = []
+                    iterator = raw_landmarks.values() if isinstance(raw_landmarks, dict) else raw_landmarks
+                    for lm in iterator:
+                        if lm is not None:
+                            lx = getattr(lm, "x", None)
+                            ly = getattr(lm, "y", None)
+                            if lx is None and isinstance(lm, (tuple, list)) and len(lm) >= 2:
+                                lx, ly = lm[0], lm[1]
+                            if lx is not None and ly is not None:
+                                scaled_pts.append((float(lx) * w, float(ly) * h))
+
+                    if scaled_pts:
+                        xs = [p[0] for p in scaled_pts]
+                        ys = [p[1] for p in scaled_pts]
+                        min_x, max_x = min(xs), max(xs)
+                        min_y, max_y = min(ys), max(ys)
+                        cx = float((min_x + max_x) / 2.0)
+                        cy = float((min_y + max_y) / 2.0)
+                        bbox = (float(min_x), float(min_y), float(max_x), float(max_y))
+
+                        mar_val = None
+                        try:
+                            def _get_pt(idx: int) -> Tuple[float, float]:
+                                lm = raw_landmarks[idx]
+                                lx = getattr(lm, "x", None)
+                                ly = getattr(lm, "y", None)
+                                if lx is None and isinstance(lm, (tuple, list)) and len(lm) >= 2:
+                                    lx, ly = lm[0], lm[1]
+                                return (float(lx) * w, float(ly) * h)
+
+                            p61 = _get_pt(61)
+                            p291 = _get_pt(291)
+                            p13 = _get_pt(13)
+                            p14 = _get_pt(14)
+                            mar_val = compute_mouth_aspect_ratio([p61, p291, p13, p14])
+                        except (IndexError, KeyError, TypeError, Exception):
+                            mar_val = None
+
+                        return {
+                            "bbox": bbox,
+                            "center": (cx, cy),
+                            "mar": mar_val,
+                        }
+        except Exception:
+            pass
+
+    # Priority 2 — OpenCV Haar Cascade
+    if face_cascade is not None:
+        try:
+            import cv2
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            det_faces = face_cascade.detectMultiScale(gray, 1.1, 3)
+            if det_faces is not None and len(det_faces) > 0:
+                best_face = max(det_faces, key=lambda f: f[2] * f[3])
+                fx, fy, fw, fh = best_face
+                cx = float(fx + fw / 2.0)
+                cy = float(fy + fh / 2.0)
+                bbox = (float(fx), float(fy), float(fx + fw), float(fy + fh))
+                return {
+                    "bbox": bbox,
+                    "center": (cx, cy),
+                    "mar": None,
+                }
+        except Exception:
+            pass
+
+    # Priority 3 — Lazy InsightFace Fallback
+    insight_app = _get_lazy_insightface_app(insight_state)
+    if insight_app is not None:
+        try:
+            faces = insight_app.get(img)
+            if faces:
+                best_face = max(
+                    faces,
+                    key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+                )
+                cx = float((best_face.bbox[0] + best_face.bbox[2]) / 2.0)
+                cy = float((best_face.bbox[1] + best_face.bbox[3]) / 2.0)
+                bbox = (
+                    float(best_face.bbox[0]),
+                    float(best_face.bbox[1]),
+                    float(best_face.bbox[2]),
+                    float(best_face.bbox[3]),
+                )
+
+                mar_val = None
+                if hasattr(best_face, "landmarks") and best_face.landmarks is not None:
+                    mar_val = compute_mouth_aspect_ratio(best_face.landmarks)
+                elif hasattr(best_face, "kps") and best_face.kps is not None and len(best_face.kps) >= 5:
+                    left_m = best_face.kps[3]
+                    right_m = best_face.kps[4]
+                    mouth_center_x = (left_m[0] + right_m[0]) / 2.0
+                    mouth_center_y = (left_m[1] + right_m[1]) / 2.0
+                    approx_landmarks = [
+                        (float(left_m[0]), float(left_m[1])),
+                        (float(right_m[0]), float(right_m[1])),
+                        (float(mouth_center_x), float(mouth_center_y - 5.0)),
+                        (float(mouth_center_x), float(mouth_center_y + 5.0)),
+                    ]
+                    mar_val = compute_mouth_aspect_ratio(approx_landmarks)
+
+                return {
+                    "bbox": bbox,
+                    "center": (cx, cy),
+                    "mar": mar_val,
+                }
+        except Exception:
+            pass
+
+    return None
+
+
 def detect_facecam_reactions(
     video_path: str,
     facecam_box_str: Optional[str] = None,
@@ -399,6 +577,7 @@ def detect_facecam_reactions(
         x_norm, y_norm, w_norm, h_norm = 0.0, 0.0, 0.5, 0.5
 
     cap = None
+    face_mesh = None
     try:
         try:
             cap = cv2.VideoCapture(target_video)
@@ -423,21 +602,17 @@ def detect_facecam_reactions(
             px_w = max(1, int(round(w_norm * width))) if width > 0 else 1
             px_h = max(1, int(round(h_norm * height))) if height > 0 else 1
 
-        insight_app = None
-        try:
-            from scripts.face_detection_insightface import init_insightface
-            insight_app = init_insightface()
-        except Exception:
-            insight_app = None
+        face_mesh = _get_mediapipe_face_mesh()
+        insight_state: Dict[str, Any] = {"app": None, "attempted": False}
 
         face_cascade = None
         if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
-            cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
-            if os.path.exists(cascade_path):
-                try:
+            try:
+                cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+                if os.path.exists(cascade_path):
                     face_cascade = cv2.CascadeClassifier(cascade_path)
-                except Exception:
-                    face_cascade = None
+            except Exception:
+                face_cascade = None
 
         reactions = []
         for ts in clean_ts:
@@ -472,53 +647,77 @@ def detect_facecam_reactions(
 
             face_centers = []
             mars = []
+            last_bbox = None
+            last_center = None
+            last_mar = None
 
             for crop_img in sampled_frames:
-                face_detected = False
-                if insight_app is not None:
-                    try:
-                        faces = insight_app.get(crop_img)
-                        if faces:
-                            best_face = max(
-                                faces,
-                                 key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+                if crop_img is None or not hasattr(crop_img, "shape"):
+                    continue
+                crop_h, crop_w = crop_img.shape[:2]
+                if crop_h <= 0 or crop_w <= 0:
+                    continue
+
+                det_res = None
+                mapped_roi = False
+                roi_x1, roi_y1 = 0, 0
+
+                # Temporal ROI caching: search in padded window around last detected bbox
+                if last_bbox is not None:
+                    bx1, by1, bx2, by2 = last_bbox
+                    bw = max(10.0, bx2 - bx1)
+                    bh = max(10.0, by2 - by1)
+                    pad_x = bw * 0.30
+                    pad_y = bh * 0.30
+                    roi_x1 = max(0, int(round(bx1 - pad_x)))
+                    roi_y1 = max(0, int(round(by1 - pad_y)))
+                    roi_x2 = min(crop_w, int(round(bx2 + pad_x)))
+                    roi_y2 = min(crop_h, int(round(by2 + pad_y)))
+
+                    if roi_x2 - roi_x1 >= 20 and roi_y2 - roi_y1 >= 20:
+                        roi_img = crop_img[roi_y1:roi_y2, roi_x1:roi_x2]
+                        if getattr(roi_img, "size", 0) > 0:
+                            det_res = _detect_face_in_region(
+                                roi_img, face_mesh, face_cascade, insight_state
                             )
-                            cx = (best_face.bbox[0] + best_face.bbox[2]) / 2.0
-                            cy = (best_face.bbox[1] + best_face.bbox[3]) / 2.0
-                            face_centers.append((cx, cy))
-                            face_detected = True
+                            if det_res is not None:
+                                mapped_roi = True
 
-                            if hasattr(best_face, "landmarks") and best_face.landmarks is not None:
-                                mar_val = compute_mouth_aspect_ratio(best_face.landmarks)
-                                mars.append(mar_val)
-                            elif hasattr(best_face, "kps") and best_face.kps is not None and len(best_face.kps) >= 5:
-                                left_m = best_face.kps[3]
-                                right_m = best_face.kps[4]
-                                mouth_center_x = (left_m[0] + right_m[0]) / 2.0
-                                mouth_center_y = (left_m[1] + right_m[1]) / 2.0
-                                approx_landmarks = [
-                                    (float(left_m[0]), float(left_m[1])),
-                                    (float(right_m[0]), float(right_m[1])),
-                                    (float(mouth_center_x), float(mouth_center_y - 5.0)),
-                                    (float(mouth_center_x), float(mouth_center_y + 5.0)),
-                                ]
-                                mar_val = compute_mouth_aspect_ratio(approx_landmarks)
-                                mars.append(mar_val)
-                    except Exception:
-                        pass
+                # Fallback to full crop_img if ROI search was skipped or did not detect face
+                if det_res is None:
+                    det_res = _detect_face_in_region(
+                        crop_img, face_mesh, face_cascade, insight_state
+                    )
+                    mapped_roi = False
 
-                if not face_detected and face_cascade is not None:
-                    try:
-                        gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-                        det_faces = face_cascade.detectMultiScale(gray, 1.1, 3)
-                        if len(det_faces) > 0:
-                            fx, fy, fw, fh = det_faces[0]
-                            cx = fx + fw / 2.0
-                            cy = fy + fh / 2.0
-                            face_centers.append((cx, cy))
-                            face_detected = True
-                    except Exception:
-                        pass
+                if det_res is not None:
+                    if mapped_roi:
+                        rx1, ry1, rx2, ry2 = det_res["bbox"]
+                        rcx, rcy = det_res["center"]
+                        cur_bbox = (rx1 + roi_x1, ry1 + roi_y1, rx2 + roi_x1, ry2 + roi_y1)
+                        cur_center = (rcx + roi_x1, rcy + roi_y1)
+                    else:
+                        cur_bbox = det_res["bbox"]
+                        cur_center = det_res["center"]
+
+                    cur_mar = det_res["mar"]
+
+                    last_bbox = cur_bbox
+                    last_center = cur_center
+                    if cur_mar is not None:
+                        last_mar = cur_mar
+
+                    face_centers.append(cur_center)
+                    if cur_mar is not None:
+                        mars.append(cur_mar)
+                    elif last_mar is not None:
+                        mars.append(last_mar)
+                else:
+                    # Momentary tracking continuity fallback (e.g., motion blur)
+                    if last_center is not None:
+                        face_centers.append(last_center)
+                        if last_mar is not None:
+                            mars.append(last_mar)
 
             if not face_centers:
                 reactions.append({
@@ -552,6 +751,11 @@ def detect_facecam_reactions(
     except Exception:
         return fallback_reactions
     finally:
+        if face_mesh is not None:
+            try:
+                face_mesh.close()
+            except Exception:
+                pass
         if cap is not None:
             try:
                 cap.release()
