@@ -612,6 +612,7 @@ def run_gaming_clipping_pipeline(
                 rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(
                     video_str or eval_path,
                     audio_path=target_audio if (target_audio and os.path.exists(target_audio)) else None,
+                    project_folder=proj_str,
                 )
             except TypeError:
                 rms_values, mean, std = gaming_audio_detector.extract_audio_rms_curve(eval_path)
