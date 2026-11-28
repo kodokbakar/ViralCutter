@@ -20,11 +20,11 @@
 | `issue-11` | Missing auto-scroll, SSE reconnection, and DOM thrashing in GeneratorTab | developer | `fix/issue-11` | `DONE` | Commits `c915d9a`, `d6e7e62`, `889aa7f`; Tester PASS & Reviewer APPROVE; PR #15 merged |
 | `issue-12` | Pipe reader UnicodeDecodeError, cancellation race, orphaned GPU processes | developer | `fix/issue-12` | `DONE` | Commits `409e8d8`, `b4a8c2b`, `4341d37`; Tester PASS & Reviewer APPROVE; PR #16 merged |
 | `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 merged |
-| `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | - | `feat/issue-18` | `TODO` | Issue #18 created; awaiting planning & implementation dispatch |
-| `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | - | `perf/issue-19` | `TODO` | Issue #19 created; eliminate OpenCV FUSE seeking latency |
+| `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | developer | `feat/issue-18` (`/home/dokbakar/Projects/ViralCutter-wt/issue-18`) | `WIP` | Tester PASS & Reviewer APPROVE (`4536414`, `a678bff`); PR #25 open (awaiting merge approval) |
+| `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | developer | `perf/issue-19` (`/home/dokbakar/Projects/ViralCutter-wt/issue-19`) | `WIP` | Tester PASS & Reviewer APPROVE (`19d4318`, `ca0ac77`); PR #24 open (awaiting merge approval) |
 | `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | developer | `perf/issue-20` | `DONE` | Commits `68c7066`, `7bc1d9f`; Tester PASS & Reviewer APPROVE; Merged into main (`1268916`) |
 | `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | developer | `perf/issue-21` | `DONE` | Commits `3cee0e2`, `fc68528`; Tester PASS & Reviewer APPROVE; Merged into main (`f4482c2`) |
-| `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | - | `perf/issue-22` | `TODO` | Issue #22 created; Haar/MediaPipe before InsightFace |
+| `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | developer | `perf/issue-22` (`/home/dokbakar/Projects/ViralCutter-wt/issue-22`, stacked on `perf/issue-19`) | `WIP` | Tester PASS & Reviewer APPROVE (`c210aa2`, `afb97ca`); PR #26 open (stacked on PR #24, awaiting merge approval) |
 | `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | developer | `perf/issue-23` | `DONE` | Commits `986e305`, `6fc5ebb`; Tester PASS & Reviewer APPROVE; Merged into main (`fd7ff06`) |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
