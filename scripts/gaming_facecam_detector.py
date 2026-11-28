@@ -1,6 +1,14 @@
 import os
 import math
+import shutil
+import tempfile
+import subprocess
+import logging
+from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
+
+logger = logging.getLogger(__name__)
+
 FACECAM_QUADRANTS: Dict[str, str] = {
     "top-right": "0.68,0.05,0.28,0.22",
     "top-left": "0.04,0.05,0.28,0.22",
@@ -8,6 +16,115 @@ FACECAM_QUADRANTS: Dict[str, str] = {
     "bottom-right": "0.68,0.72,0.28,0.22",
 }
 DEFAULT_FACECAM_BOX = FACECAM_QUADRANTS["top-right"]
+
+
+def is_remote_or_fuse_path(video_path: Optional[str]) -> bool:
+    """
+    Checks if a video file path resides on a remote or FUSE filesystem
+    (such as Google Drive on Google Colab under /content/drive or /mnt/drive).
+    """
+    if not video_path or not isinstance(video_path, str):
+        return False
+    norm_path = video_path.replace("\\", "/")
+    if norm_path.startswith(("/content/drive", "/mnt/drive")):
+        return True
+    try:
+        resolved = str(Path(norm_path).resolve()).replace("\\", "/")
+        if resolved.startswith(("/content/drive", "/mnt/drive")):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def extract_facecam_scratch_video(
+    video_path: str,
+    facecam_box_str: str,
+    max_timestamp: Optional[float] = None,
+    min_free_bytes: int = 50 * 1024 * 1024,
+) -> Optional[str]:
+    """
+    Pre-extracts low-resolution facecam quadrant into a local scratch video file.
+    Returns the path to the scratch file, or None if extraction fails or space is low.
+    """
+    scratch_dir = "/tmp/antigravity"
+    if not (os.path.exists(scratch_dir) and os.path.isdir(scratch_dir) and os.access(scratch_dir, os.W_OK)):
+        scratch_dir = tempfile.gettempdir()
+
+    try:
+        free_bytes = shutil.disk_usage(scratch_dir).free
+        if free_bytes < min_free_bytes:
+            logger.warning(
+                f"Insufficient disk space in {scratch_dir} ({free_bytes} bytes free < {min_free_bytes} required). "
+                f"Skipping scratch video extraction."
+            )
+            return None
+    except Exception as e:
+        logger.warning(f"Failed to check disk space in {scratch_dir}: {e}")
+        return None
+
+    try:
+        from scripts.gaming_split import parse_normalized_box
+        x_norm, y_norm, w_norm, h_norm = parse_normalized_box(facecam_box_str)
+    except Exception:
+        x_norm, y_norm, w_norm, h_norm = 0.0, 0.0, 0.5, 0.5
+
+    scratch_path = None
+    try:
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix=".mp4",
+            prefix="facecam_scratch_",
+            dir=scratch_dir,
+            delete=False,
+        )
+        scratch_path = temp_file.name
+        temp_file.close()
+
+        vf_filter = (
+            f"crop=trunc(iw*{w_norm}/2)*2:trunc(ih*{h_norm}/2)*2:"
+            f"trunc(iw*{x_norm}/2)*2:trunc(ih*{y_norm}/2)*2,"
+            f"scale='min(640,iw)':-2"
+        )
+
+        cmd = ["ffmpeg", "-y", "-i", video_path]
+        if max_timestamp is not None and max_timestamp >= 0:
+            cmd.extend(["-to", str(round(max_timestamp + 2.0, 2))])
+        cmd.extend([
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-an", "-sn", "-dn",
+            scratch_path,
+        ])
+
+        subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=60,
+        )
+
+        if not os.path.exists(scratch_path) or os.path.getsize(scratch_path) == 0:
+            logger.warning(f"Scratch video was not created or is empty: {scratch_path}")
+            if scratch_path and os.path.exists(scratch_path):
+                try:
+                    os.remove(scratch_path)
+                except Exception:
+                    pass
+            return None
+
+        return scratch_path
+
+    except Exception as e:
+        logger.warning(f"Failed to extract facecam scratch video from {video_path}: {e}")
+        if scratch_path and os.path.exists(scratch_path):
+            try:
+                os.remove(scratch_path)
+            except Exception:
+                pass
+        return None
 
 
 def auto_detect_facecam_quadrant(
@@ -260,20 +377,36 @@ def detect_facecam_reactions(
     except ImportError:
         return fallback_reactions
 
+    scratch_file: Optional[str] = None
+    target_video: str = video_path
+    already_cropped: bool = False
+
+    if is_remote_or_fuse_path(video_path):
+        max_ts = max(clean_ts) if clean_ts else None
+        scratch_file = extract_facecam_scratch_video(
+            video_path,
+            facecam_box_str,
+            max_timestamp=max_ts,
+        )
+        if scratch_file:
+            target_video = scratch_file
+            already_cropped = True
+
     try:
         from scripts.gaming_split import parse_normalized_box
         x_norm, y_norm, w_norm, h_norm = parse_normalized_box(facecam_box_str)
     except Exception:
         x_norm, y_norm, w_norm, h_norm = 0.0, 0.0, 0.5, 0.5
 
+    cap = None
     try:
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
+        try:
+            cap = cv2.VideoCapture(target_video)
+            if not cap.isOpened():
+                return fallback_reactions
+        except Exception:
             return fallback_reactions
-    except Exception:
-        return fallback_reactions
 
-    try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         if fps <= 0.0 or math.isnan(fps):
             fps = 30.0
@@ -281,10 +414,14 @@ def detect_facecam_reactions(
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-        px_x = int(round(x_norm * width)) if width > 0 else 0
-        px_y = int(round(y_norm * height)) if height > 0 else 0
-        px_w = max(1, int(round(w_norm * width))) if width > 0 else 1
-        px_h = max(1, int(round(h_norm * height))) if height > 0 else 1
+        if already_cropped:
+            px_x, px_y = 0, 0
+            px_w, px_h = max(1, width), max(1, height)
+        else:
+            px_x = int(round(x_norm * width)) if width > 0 else 0
+            px_y = int(round(y_norm * height)) if height > 0 else 0
+            px_w = max(1, int(round(w_norm * width))) if width > 0 else 1
+            px_h = max(1, int(round(h_norm * height))) if height > 0 else 1
 
         insight_app = None
         try:
@@ -411,11 +548,17 @@ def detect_facecam_reactions(
                 "score": reaction_score,
             })
 
-        cap.release()
         return reactions
     except Exception:
-        try:
-            cap.release()
-        except Exception:
-            pass
         return fallback_reactions
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+        if scratch_file and os.path.exists(scratch_file):
+            try:
+                os.remove(scratch_file)
+            except Exception:
+                pass
