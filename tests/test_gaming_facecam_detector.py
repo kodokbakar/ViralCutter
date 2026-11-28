@@ -759,3 +759,171 @@ def test_detect_facecam_reactions_with_auto_detected_box_on_fuse_path(tmp_path):
         )
         assert not dummy_scratch.exists()
         assert len(reactions) == 1
+
+
+def test_detect_facecam_reactions_lazy_insightface_not_called_when_haar_detects(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_haar.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.return_value = [[50, 50, 100, 100]]
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True), \
+         patch("scripts.face_detection_insightface.init_insightface") as mock_init_insight:
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    assert mock_init_insight.call_count == 0
+    assert events[0]["timestamp"] == 10.0
+
+
+def test_detect_facecam_reactions_mediapipe_landmarks_and_mar(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_mp.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    # Set up mock mediapipe FaceMesh
+    mock_mp = MagicMock()
+    mock_face_mesh_inst = MagicMock()
+    mock_mp.solutions.face_mesh.FaceMesh.return_value = mock_face_mesh_inst
+
+    # 468 landmarks: 61 (left corner), 291 (right corner), 13 (top lip), 14 (bottom lip)
+    mock_lms = [MagicMock(x=0.5, y=0.5) for _ in range(468)]
+    mock_lms[61] = MagicMock(x=0.3, y=0.5)
+    mock_lms[291] = MagicMock(x=0.7, y=0.5)
+    mock_lms[13] = MagicMock(x=0.5, y=0.3)
+    mock_lms[14] = MagicMock(x=0.5, y=0.5)
+
+    mock_result = MagicMock()
+    mock_result.multi_face_landmarks = [MagicMock(landmark=mock_lms)]
+    mock_face_mesh_inst.process.return_value = mock_result
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2, "mediapipe": mock_mp}), \
+         patch("scripts.face_detection_insightface.init_insightface") as mock_init_insight:
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    ev = events[0]
+    assert mock_init_insight.call_count == 0
+    assert ev["mar"] > 0.2
+    assert ev["score"] > 0
+    assert mock_face_mesh_inst.close.called
+
+
+def test_detect_facecam_reactions_temporal_roi_caching_motion_velocity(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_roi.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    mock_cv2.cvtColor.side_effect = lambda img, code: img if len(img.shape) == 2 else img[:, :, 0]
+
+    detected_calls = []
+
+    def fake_detect(gray, *args, **kwargs):
+        h, w = gray.shape[:2]
+        detected_calls.append((w, h))
+        idx = len(detected_calls) - 1
+        target_cx = 100.0 + idx * 10.0
+        target_cy = 100.0 + idx * 10.0
+        if w == 358 and h == 216:
+            fx = int(target_cx - 30)
+            fy = int(target_cy - 30)
+            return [[fx, fy, 60, 60]]
+        else:
+            prev_cx = target_cx - 10.0
+            prev_cy = target_cy - 10.0
+            pad = 60.0 * 0.30
+            roi_x1 = max(0, int(round((prev_cx - 30.0) - pad)))
+            roi_y1 = max(0, int(round((prev_cy - 30.0) - pad)))
+            rx = int(round((target_cx - 30.0) - roi_x1))
+            ry = int(round((target_cy - 30.0) - roi_y1))
+            return [[rx, ry, 60, 60]]
+
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.side_effect = fake_detect
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True), \
+         patch("scripts.face_detection_insightface.init_insightface") as mock_init_insight:
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    ev = events[0]
+    assert mock_init_insight.call_count == 0
+    # First frame tested full crop, subsequent 4 frames tested ROI window
+    assert len(detected_calls) == 5
+    assert detected_calls[0] == (358, 216)
+    assert all(w < 358 and h < 216 for w, h in detected_calls[1:])
+    # Displacement should be ~14.14 px per step, motion_velocity > 0
+    assert ev["motion_velocity"] == pytest.approx(14.14, rel=0.1)
+    assert ev["motion_velocity"] > 0
+
