@@ -22,10 +22,10 @@
 | `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 merged |
 | `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | - | `feat/issue-18` | `TODO` | Issue #18 created; awaiting planning & implementation dispatch |
 | `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | - | `perf/issue-19` | `TODO` | Issue #19 created; eliminate OpenCV FUSE seeking latency |
-| `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | developer | `perf/issue-20` | `WIP` | Commits `68c7066`, `7bc1d9f`; Tester PASS & Reviewer APPROVE; awaiting human merge approval |
-| `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | developer | `perf/issue-21` | `WIP` | Commits `3cee0e2`, `fc68528`; Tester PASS & Reviewer APPROVE; awaiting human merge approval |
+| `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | developer | `perf/issue-20` | `DONE` | Commits `68c7066`, `7bc1d9f`; Tester PASS & Reviewer APPROVE; Merged into main (`1268916`) |
+| `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | developer | `perf/issue-21` | `DONE` | Commits `3cee0e2`, `fc68528`; Tester PASS & Reviewer APPROVE; Merged into main (`f4482c2`) |
 | `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | - | `perf/issue-22` | `TODO` | Issue #22 created; Haar/MediaPipe before InsightFace |
-| `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | developer | `perf/issue-23` | `WIP` | Commits `986e305`, `6fc5ebb`; Tester PASS & Reviewer APPROVE; awaiting human merge approval |
+| `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | developer | `perf/issue-23` | `DONE` | Commits `986e305`, `6fc5ebb`; Tester PASS & Reviewer APPROVE; Merged into main (`fd7ff06`) |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 
@@ -39,6 +39,9 @@ Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 | `DEC-004` | **Parallel Clip Layout Rendering (`issue-6`)**: Parallelized independent clip exports across multiprocessing workers. |
 | `DEC-005` | **Symlink-First Video Import**: Prefer `os.symlink` over `shutil.copy2` for Google Drive and local source files to prevent duplicate disk storage and reduce setup latency. |
 | `DEC-006` | **Worktree Isolation & Antigravity V2**: Enforce strict isolated worktrees per feature/fix, with move-only task verification before dispatching agent writes. |
+| `DEC-007` | **In-Memory FIR Audio Bandpass & RMS Cache (`issue-20`)**: Bypassed redundant FFmpeg audio demuxing using cached 16kHz WAV PCM with NumPy FIR bandpass and persistent atomic `rms_cache.json`. |
+| `DEC-008` | **Facecam Early-Exit & Weight Redistribution (`issue-21`)**: Short-circuited 75 frame seeks when facecam is disabled or undetected (`(None, None)`), redistributing fusion weights to `w_audio=0.70`, `w_kw=0.30`. |
+| `DEC-009` | **Fast-Fail LLM Refinement Guard (`issue-23`)**: Guarded gaming LLM refinement with `timeout=8.0s`, `max_tokens=1024`, `max_retries=1`, structured JSON mode, and instant fallback to local heuristic titles. |
 
 ## Rules
 - Read this ledger before starting or resuming work.
