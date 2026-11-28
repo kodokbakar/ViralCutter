@@ -363,3 +363,110 @@ def test_smart_clipping_concurrent_chunks_preserves_order(tmp_path):
         titles = [s["title"] for s in segments]
         assert "Topic from Chunk 1" in titles
         assert "Topic from Chunk 2" in titles
+
+
+# =====================================================================
+# Additional Edge-Case Coverage: Fault Tolerance & Sequential Modes
+# =====================================================================
+
+def test_concurrent_chunk_partial_failure_resilience(tmp_path):
+    """Verifies that if one chunk errors, healthy chunks still succeed."""
+    proj_dir = str(tmp_path)
+    tsv_path = os.path.join(proj_dir, "input.tsv")
+    with open(tsv_path, "w", encoding="utf-8") as f:
+        for i in range(20):
+            f.write(f"{i * 3000}\t{(i + 1) * 3000}\tbukti chunk resilience kalimat {i}\n")
+
+    def mock_call_with_one_failing_chunk(prompt, **kwargs):
+        if "Part 1" in prompt:
+            raise RuntimeError("Temporary upstream server error on chunk 1")
+        return json.dumps({
+            "segments": [{
+                "start_time_ref": "(30s)",
+                "start_text": "bukti chunk resilience kalimat 10",
+                "end_text": "bukti chunk resilience kalimat 14",
+                "title": "Healthy Chunk 2",
+                "score": 90,
+            }]
+        })
+
+    with patch("scripts.create_viral_segments.call_custom_api", side_effect=mock_call_with_one_failing_chunk):
+        result = create(
+            num_segments=2,
+            viral_mode=True,
+            themes="",
+            tempo_minimo=3,
+            tempo_maximo=30,
+            ai_mode="custom",
+            project_folder=proj_dir,
+            chunk_size_arg=100,
+            base_url_arg="http://localhost:11434/v1",
+        )
+        segments = result.get("segments", [])
+        assert len(segments) >= 1
+        assert segments[0]["title"] == "Healthy Chunk 2"
+
+
+def test_retry_after_malformed_and_case_insensitive_handling():
+    """Ensures non-numeric, negative, or lowercase retry-after headers fall back safely to backoff."""
+    sleep_calls = []
+
+    mock_resp_429 = MagicMock()
+    mock_resp_429.status_code = 429
+    mock_resp_429.text = "Too Many Requests"
+    mock_resp_429.headers = {"retry-after": "not-a-number"}
+
+    mock_resp_200 = MagicMock()
+    mock_resp_200.status_code = 200
+    mock_resp_200.json.return_value = {"choices": [{"message": {"content": "recovered"}}]}
+
+    with patch("requests.post", side_effect=[mock_resp_429, mock_resp_200]), \
+         patch("scripts.create_viral_segments.time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+
+        res = call_custom_api("hello", base_url="http://localhost:11434/v1", max_retries=2)
+        assert res == "recovered"
+        assert len(sleep_calls) == 1
+        assert 1.0 <= sleep_calls[0] <= 6.0
+
+
+def test_call_custom_api_non_response_format_400_not_retried():
+    """HTTP 400 with unrelated error should immediately raise and not retry."""
+    mock_resp_400 = MagicMock()
+    mock_resp_400.status_code = 400
+    mock_resp_400.text = "Bad Request: Prompt exceeds context length"
+
+    with patch("requests.post", return_value=mock_resp_400) as mock_post:
+        with pytest.raises(RuntimeError) as exc_info:
+            call_custom_api("too long prompt", base_url="http://localhost:11434/v1", response_mime_type="application/json")
+        assert "Bad Request" in str(exc_info.value)
+        assert mock_post.call_count == 1
+
+
+def test_manual_mode_sequential_safety(tmp_path):
+    """Ensures manual mode processes chunks sequentially without threading."""
+    proj_dir = str(tmp_path)
+    tsv_path = os.path.join(proj_dir, "input.tsv")
+    with open(tsv_path, "w", encoding="utf-8") as f:
+        # Generate enough text (>15000 chars) to produce multiple chunks under manual mode chunk_size=15000
+        for i in range(200):
+            f.write(f"{i * 1000}\t{(i + 1) * 1000}\tmanual sequential line {i} with lots of long descriptive words to surpass fifteen thousand characters\n")
+
+    thread_names = []
+
+    def mock_input(prompt_msg=""):
+        import threading
+        thread_names.append(threading.current_thread().name)
+        return "{}"
+
+    with patch("builtins.input", side_effect=mock_input):
+        result = create(
+            num_segments=2,
+            viral_mode=True,
+            themes="",
+            tempo_minimo=3,
+            tempo_maximo=30,
+            ai_mode="manual",
+            project_folder=proj_dir,
+        )
+        assert len(thread_names) >= 2
+        assert all("MainThread" in t for t in thread_names)
