@@ -20,11 +20,11 @@
 | `issue-11` | Missing auto-scroll, SSE reconnection, and DOM thrashing in GeneratorTab | developer | `fix/issue-11` | `DONE` | Commits `c915d9a`, `d6e7e62`, `889aa7f`; Tester PASS & Reviewer APPROVE; PR #15 merged |
 | `issue-12` | Pipe reader UnicodeDecodeError, cancellation race, orphaned GPU processes | developer | `fix/issue-12` | `DONE` | Commits `409e8d8`, `b4a8c2b`, `4341d37`; Tester PASS & Reviewer APPROVE; PR #16 merged |
 | `issue-13` | Readline blocks on \r progress bars, stdout flush, SSE cursor resume | developer | `fix/issue-13` | `DONE` | Commits `fb2e3b7`, `a19ebba`; Tester PASS & Reviewer APPROVE; PR #17 merged |
-| `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | developer | `feat/issue-18` (`/home/dokbakar/Projects/ViralCutter-wt/issue-18`) | `WIP` | Tester PASS & Reviewer APPROVE (`4536414`, `a678bff`); PR #25 open (awaiting merge approval) |
-| `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | developer | `perf/issue-19` (`/home/dokbakar/Projects/ViralCutter-wt/issue-19`) | `WIP` | Tester PASS & Reviewer APPROVE (`19d4318`, `ca0ac77`); PR #24 open (awaiting merge approval) |
+| `issue-18` | Parallel chunking, token compaction, low-latency API call optimizations | developer | `feat/issue-18` | `DONE` | Commits `4536414`, `a678bff`; Tester PASS & Reviewer APPROVE; PR #25 merged (`9e3fc6d`) |
+| `issue-19` | Local scratch extraction for facecam reaction frame seeking on Drive FUSE | developer | `perf/issue-19` | `DONE` | Commits `19d4318`, `ca0ac77`; Tester PASS & Reviewer APPROVE; PR #24 merged (`be13507`) |
 | `issue-20` | Bypass redundant FFmpeg audio demuxing using cached 16kHz PCM audio | developer | `perf/issue-20` | `DONE` | Commits `68c7066`, `7bc1d9f`; Tester PASS & Reviewer APPROVE; Merged into main (`1268916`) |
 | `issue-21` | Early-exit facecam reaction detection for gameplay-only streams | developer | `perf/issue-21` | `DONE` | Commits `3cee0e2`, `fc68528`; Tester PASS & Reviewer APPROVE; Merged into main (`f4482c2`) |
-| `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | developer | `perf/issue-22` (`/home/dokbakar/Projects/ViralCutter-wt/issue-22`, stacked on `perf/issue-19`) | `WIP` | Tester PASS & Reviewer APPROVE (`c210aa2`, `afb97ca`); PR #26 open (stacked on PR #24, awaiting merge approval) |
+| `issue-22` | Prioritize lightweight face detector for facecam reaction scoring | developer | `perf/issue-22` | `DONE` | Commits `c210aa2`, `afb97ca`; Tester PASS & Reviewer APPROVE; PR #26 merged (`6348ade`) |
 | `issue-23` | Fast-fail timeout guard and low token budget for LLM candidate refinement | developer | `perf/issue-23` | `DONE` | Commits `986e305`, `6fc5ebb`; Tester PASS & Reviewer APPROVE; Merged into main (`fd7ff06`) |
 
 Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
@@ -42,6 +42,9 @@ Status: `TODO` · `WIP` · `BLOCKED` · `DONE`
 | `DEC-007` | **In-Memory FIR Audio Bandpass & RMS Cache (`issue-20`)**: Bypassed redundant FFmpeg audio demuxing using cached 16kHz WAV PCM with NumPy FIR bandpass and persistent atomic `rms_cache.json`. |
 | `DEC-008` | **Facecam Early-Exit & Weight Redistribution (`issue-21`)**: Short-circuited 75 frame seeks when facecam is disabled or undetected (`(None, None)`), redistributing fusion weights to `w_audio=0.70`, `w_kw=0.30`. |
 | `DEC-009` | **Fast-Fail LLM Refinement Guard (`issue-23`)**: Guarded gaming LLM refinement with `timeout=8.0s`, `max_tokens=1024`, `max_retries=1`, structured JSON mode, and instant fallback to local heuristic titles. |
+| `DEC-010` | **Parallel Cloud AI Segmentation & Pooled Clients (`issue-18`)**: Parallelized cloud LLM chunks via `ThreadPoolExecutor(max_workers=min(4, N))` (keeping `local`/`manual` sequential), pruned prompt rubrics with local `normalize_rubric_dict` hydration, thinned tags to 12s, enabled native JSON mode with 400 fallback, and pooled `requests.Session`/`genai.Client`. |
+| `DEC-011` | **Drive FUSE Facecam Scratch Pre-Extraction (`issue-19`)**: Pre-extracted only the cropped facecam quadrant via single-pass FFmpeg into local scratch storage on `/content/drive` & `/mnt/` mounts with 50MB disk guard and `already_cropped=True` coordinate mapping. |
+| `DEC-012` | **Lightweight Detector Cascade & Temporal ROI Caching (`issue-22`)**: Prioritized MediaPipe Face Mesh -> OpenCV Haar Cascade -> lazy InsightFace fallback with 30%-padded temporal ROI caching across sample offsets and guaranteed `face_mesh.close()` cleanup. |
 
 ## Rules
 - Read this ledger before starting or resuming work.
