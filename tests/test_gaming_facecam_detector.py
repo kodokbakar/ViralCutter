@@ -927,3 +927,219 @@ def test_detect_facecam_reactions_temporal_roi_caching_motion_velocity(tmp_path)
     assert ev["motion_velocity"] == pytest.approx(14.14, rel=0.1)
     assert ev["motion_velocity"] > 0
 
+
+
+def test_detect_face_in_region_detector_priority_hierarchy():
+    import sys
+    import numpy as np
+    from unittest.mock import MagicMock, patch
+    from scripts.gaming_facecam_detector import _detect_face_in_region
+
+    dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    mock_cv2 = MagicMock()
+
+    # 1. Edge cases: invalid image inputs
+    assert _detect_face_in_region(None, None, None, {}) is None
+    assert _detect_face_in_region("not an image", None, None, {}) is None
+    assert _detect_face_in_region(np.zeros((0, 0, 3), dtype=np.uint8), None, None, {}) is None
+
+    # 2. Priority 1 (MediaPipe Face Mesh) succeeds: Haar and InsightFace are NEVER queried
+    mock_mesh = MagicMock()
+    mock_lms = [MagicMock(x=0.5, y=0.5) for _ in range(468)]
+    mock_lms[61] = MagicMock(x=0.4, y=0.5)
+    mock_lms[291] = MagicMock(x=0.6, y=0.5)
+    mock_lms[13] = MagicMock(x=0.5, y=0.4)
+    mock_lms[14] = MagicMock(x=0.5, y=0.6)
+    mock_mesh.process.return_value = MagicMock(multi_face_landmarks=[MagicMock(landmark=mock_lms)])
+
+    mock_cascade = MagicMock()
+    insight_state = {"app": MagicMock(), "attempted": True}
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}):
+        res = _detect_face_in_region(dummy_img, mock_mesh, mock_cascade, insight_state)
+    assert res is not None
+    assert "bbox" in res and "center" in res and "mar" in res
+    assert mock_mesh.process.called
+    assert not mock_cascade.detectMultiScale.called
+    assert not insight_state["app"].get.called
+
+    # 3. Priority 2 (Haar cascade) succeeds when MediaPipe is None / fails: InsightFace is NEVER queried
+    mock_cascade.reset_mock()
+    insight_state["app"].reset_mock()
+    mock_cascade.detectMultiScale.return_value = [[10, 10, 40, 40]]
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}):
+        # MediaPipe returns None
+        res_haar = _detect_face_in_region(dummy_img, None, mock_cascade, insight_state)
+    assert res_haar is not None
+    assert res_haar["bbox"] == (10.0, 10.0, 50.0, 50.0)
+    assert res_haar["center"] == (30.0, 30.0)
+    assert mock_cascade.detectMultiScale.called
+    assert not insight_state["app"].get.called
+
+    # 4. Priority 3 (InsightFace) is invoked only when MediaPipe and Haar both fail
+    mock_cascade.detectMultiScale.return_value = []
+    mock_face = MagicMock()
+    mock_face.bbox = [20.0, 20.0, 60.0, 60.0]
+    mock_face.landmarks = [(10.0, 50.0), (90.0, 50.0), (50.0, 30.0), (50.0, 70.0)]
+    insight_state["app"].get.return_value = [mock_face]
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}):
+        res_insight = _detect_face_in_region(dummy_img, None, mock_cascade, insight_state)
+    assert res_insight is not None
+    assert res_insight["bbox"] == (20.0, 20.0, 60.0, 60.0)
+    assert res_insight["center"] == (40.0, 40.0)
+    assert res_insight["mar"] is not None
+    assert insight_state["app"].get.called
+
+
+def test_detect_facecam_reactions_roi_fallback_to_full_crop(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_fallback_roi.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+    mock_cv2.cvtColor.side_effect = lambda img, code: img if len(img.shape) == 2 else img[:, :, 0]
+
+    # Track frames queried to test ROI miss followed by full crop hit
+    query_sizes = []
+    def fake_detect(gray, *args, **kwargs):
+        h, w = gray.shape[:2]
+        query_sizes.append((w, h))
+        # If it is a sub-ROI (w < 300), simulate face moved out of window -> return []
+        if w < 300:
+            return []
+        # Full crop: face detected at (180, 130, 40, 40)
+        return [[180, 130, 40, 40]]
+
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.side_effect = fake_detect
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    mock_insight_app = MagicMock()
+    # InsightFace also finds nothing in ROI window, forcing full crop search
+    mock_insight_app.get.return_value = []
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True), \
+         patch("scripts.face_detection_insightface.init_insightface", return_value=mock_insight_app):
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["timestamp"] == 10.0
+    # Initial full crop search + subsequent sub-ROI search + fallback full crop searches occurred
+    assert any(w < 300 for w, h in query_sizes)
+    assert any(w >= 300 for w, h in query_sizes)
+    assert len(query_sizes) == 9  # 1 initial + 4 * (1 ROI miss + 1 full crop hit)
+
+
+def test_detect_facecam_reactions_continuity_fallback_when_missed(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_continuity.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    mock_cap.read.return_value = (True, dummy_frame)
+    mock_cv2.VideoCapture.return_value = mock_cap
+    mock_cv2.cvtColor.side_effect = lambda img, code: img if len(img.shape) == 2 else img[:, :, 0]
+
+    # Frame 0 detects face, subsequent frames return empty (misses detection due to motion blur)
+    call_count = {"count": 0}
+    def fake_detect(gray, *args, **kwargs):
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            return [[100, 100, 50, 50]]
+        return []
+
+    mock_cascade = MagicMock()
+    mock_cascade.detectMultiScale.side_effect = fake_detect
+    mock_cv2.CascadeClassifier.return_value = mock_cascade
+    mock_cv2.data.haarcascades = "/dummy/cascades"
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", return_value=True), \
+         patch("scripts.face_detection_insightface.init_insightface") as mock_init_insight:
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    assert len(events) == 1
+    ev = events[0]
+    # Continuity fallback preserves face_centers from frame 0 across all 5 sample offsets
+    assert ev["timestamp"] == 10.0
+    # Motion velocity will be 0.0 since last_center was held constant across frames
+    assert ev["motion_velocity"] == 0.0
+
+
+def test_detect_facecam_reactions_mediapipe_cleanup_on_error(tmp_path):
+    import sys
+    from unittest.mock import patch, MagicMock
+
+    dummy_video = tmp_path / "stream_error.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 1280,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 720,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 600,
+    }.get(prop, 0)
+    # Simulate decoder error midway through reading
+    mock_cap.read.side_effect = RuntimeError("Simulated read crash")
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    mock_mp = MagicMock()
+    mock_face_mesh_inst = MagicMock()
+    mock_mp.solutions.face_mesh.FaceMesh.return_value = mock_face_mesh_inst
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2, "mediapipe": mock_mp}):
+        events = detect_facecam_reactions(
+            str(dummy_video),
+            facecam_box_str="0.68,0.05,0.28,0.30",
+            candidate_timestamps=[10.0]
+        )
+
+    # In finally: face_mesh.close() and cap.release() must be called despite the exception
+    assert mock_face_mesh_inst.close.called
+    assert mock_cap.release.called
+    assert len(events) == 1
+    assert events[0]["score"] == 0.0
