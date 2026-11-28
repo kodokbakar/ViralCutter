@@ -620,3 +620,142 @@ def test_detect_facecam_reactions_local_path_bypasses_scratch(tmp_path):
 
         assert not mock_extract.called
         mock_cv2.VideoCapture.assert_called_once_with(str(local_video))
+
+
+def test_extract_facecam_scratch_zero_byte_output_cleanup():
+    import collections
+    from unittest.mock import patch
+
+    Usage = collections.namedtuple("Usage", ["total", "used", "free"])
+    created_files = []
+    real_named_temp = tempfile.NamedTemporaryFile
+
+    def tracking_temp_file(*args, **kwargs):
+        f = real_named_temp(*args, **kwargs)
+        created_files.append(f.name)
+        return f
+
+    with patch("shutil.disk_usage", return_value=Usage(1000 * 1024 * 1024, 100 * 1024 * 1024, 900 * 1024 * 1024)), \
+         patch("tempfile.NamedTemporaryFile", side_effect=tracking_temp_file), \
+         patch("subprocess.run") as mock_run:
+        result = extract_facecam_scratch_video("any_video.mp4", "0.68,0.05,0.28,0.22")
+        assert result is None
+        mock_run.assert_called_once()
+
+    assert len(created_files) == 1
+    assert not os.path.exists(created_files[0])
+
+
+def test_extract_facecam_scratch_timeout_expired_cleanup():
+    import collections
+    import subprocess
+    from unittest.mock import patch
+
+    Usage = collections.namedtuple("Usage", ["total", "used", "free"])
+    created_files = []
+    real_named_temp = tempfile.NamedTemporaryFile
+
+    def tracking_temp_file(*args, **kwargs):
+        f = real_named_temp(*args, **kwargs)
+        created_files.append(f.name)
+        return f
+
+    with patch("shutil.disk_usage", return_value=Usage(1000 * 1024 * 1024, 100 * 1024 * 1024, 900 * 1024 * 1024)), \
+         patch("tempfile.NamedTemporaryFile", side_effect=tracking_temp_file), \
+         patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=60)):
+        result = extract_facecam_scratch_video("any_video.mp4", "0.68,0.05,0.28,0.22")
+        assert result is None
+
+    assert len(created_files) == 1
+    assert not os.path.exists(created_files[0])
+
+
+def test_extract_facecam_scratch_timestamp_handling():
+    import collections
+    from unittest.mock import patch
+
+    Usage = collections.namedtuple("Usage", ["total", "used", "free"])
+    real_named_temp = tempfile.NamedTemporaryFile
+
+    def fake_temp_file(*args, **kwargs):
+        f = real_named_temp(*args, **kwargs)
+        with open(f.name, "wb") as w:
+            w.write(b"0123456789")
+        return f
+
+    # max_timestamp is None -> "-to" not in cmd
+    with patch("shutil.disk_usage", return_value=Usage(1000 * 1024 * 1024, 100 * 1024 * 1024, 900 * 1024 * 1024)), \
+         patch("tempfile.NamedTemporaryFile", side_effect=fake_temp_file), \
+         patch("subprocess.run") as mock_run:
+        res = extract_facecam_scratch_video("video.mp4", "0.68,0.05,0.28,0.22", max_timestamp=None)
+        assert res is not None
+        if os.path.exists(res):
+            os.remove(res)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-to" not in called_cmd
+
+    # max_timestamp is negative -> "-to" not in cmd
+    with patch("shutil.disk_usage", return_value=Usage(1000 * 1024 * 1024, 100 * 1024 * 1024, 900 * 1024 * 1024)), \
+         patch("tempfile.NamedTemporaryFile", side_effect=fake_temp_file), \
+         patch("subprocess.run") as mock_run:
+        res = extract_facecam_scratch_video("video.mp4", "0.68,0.05,0.28,0.22", max_timestamp=-5.0)
+        assert res is not None
+        if os.path.exists(res):
+            os.remove(res)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-to" not in called_cmd
+
+    # max_timestamp is 15.2 -> "-to", "17.2" in cmd
+    with patch("shutil.disk_usage", return_value=Usage(1000 * 1024 * 1024, 100 * 1024 * 1024, 900 * 1024 * 1024)), \
+         patch("tempfile.NamedTemporaryFile", side_effect=fake_temp_file), \
+         patch("subprocess.run") as mock_run:
+        res = extract_facecam_scratch_video("video.mp4", "0.68,0.05,0.28,0.22", max_timestamp=15.2)
+        assert res is not None
+        if os.path.exists(res):
+            os.remove(res)
+        called_cmd = mock_run.call_args[0][0]
+        assert "-to" in called_cmd
+        to_idx = called_cmd.index("-to")
+        assert called_cmd[to_idx + 1] == "17.2"
+
+
+def test_detect_facecam_reactions_with_auto_detected_box_on_fuse_path(tmp_path):
+    import sys
+    import numpy as np
+    from unittest.mock import patch, MagicMock
+
+    fuse_video = "/content/drive/MyDrive/stream_clip.mp4"
+    dummy_scratch = tmp_path / "scratch_tl.mp4"
+    dummy_scratch.write_bytes(b"data")
+
+    mock_box = FACECAM_QUADRANTS["top-left"]
+
+    mock_cv2 = MagicMock()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        mock_cv2.CAP_PROP_FRAME_WIDTH: 320,
+        mock_cv2.CAP_PROP_FRAME_HEIGHT: 180,
+        mock_cv2.CAP_PROP_FPS: 30.0,
+        mock_cv2.CAP_PROP_FRAME_COUNT: 60,
+    }.get(prop, 0)
+    mock_cap.read.return_value = (True, np.zeros((180, 320, 3), dtype=np.uint8))
+    mock_cv2.VideoCapture.return_value = mock_cap
+
+    with patch.dict(sys.modules, {"cv2": mock_cv2}), \
+         patch("os.path.exists", side_effect=lambda p: True if p in (fuse_video, str(dummy_scratch)) else os.path.exists(p)), \
+         patch("scripts.gaming_facecam_detector.extract_facecam_scratch_video", return_value=str(dummy_scratch)) as mock_extract:
+
+        reactions = detect_facecam_reactions(
+            fuse_video,
+            facecam_box_str=mock_box,
+            candidate_timestamps=[3.0]
+        )
+
+        mock_extract.assert_called_once_with(
+            fuse_video,
+            mock_box,
+            max_timestamp=3.0
+        )
+        assert not dummy_scratch.exists()
+        assert len(reactions) == 1
