@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 from scripts.create_viral_segments import (
     call_custom_api,
     verify_ai_connection,
+    call_gemini,
 )
 
 def test_call_custom_api_success():
@@ -155,3 +156,82 @@ def test_smart_clipping_fallback_passthrough(tmp_path):
         kwargs = mock_create.call_args[1]
         assert kwargs.get("chunk_size_arg") == 50000
         assert kwargs.get("prompt_file_arg") == "/tmp/test_prompt.txt"
+
+
+def test_call_gemini_max_retries_one_fast_fail():
+    mock_genai = MagicMock()
+    mock_client = MagicMock()
+    mock_genai.Client.return_value.__enter__.return_value = mock_client
+    mock_err = Exception("429 Resource exhausted: Quota exceeded")
+    setattr(mock_err, "status_code", 429)
+    mock_client.models.generate_content.side_effect = mock_err
+
+    with patch("scripts.create_viral_segments.HAS_GEMINI", True), \
+         patch("scripts.create_viral_segments.genai", mock_genai), \
+         patch("time.sleep") as mock_sleep:
+        resp = call_gemini(
+            prompt="Hello Gemini",
+            api_key="fake-gemini-key",
+            timeout=8.0,
+            max_retries=1,
+            max_tokens=1024,
+            response_mime_type="application/json",
+        )
+        assert resp == "{}"
+        mock_sleep.assert_not_called()
+        mock_genai.Client.assert_called_once_with(
+            api_key="fake-gemini-key",
+            http_options={"timeout": 8000}
+        )
+
+
+def test_call_custom_api_structured_json():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {"message": {"content": '{"candidates": []}'}}
+        ]
+    }
+
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        resp = call_custom_api(
+            prompt="Structured JSON prompt",
+            base_url="http://localhost:11434/v1",
+            response_mime_type="application/json",
+            max_tokens=1024,
+            timeout=8.0,
+        )
+        assert resp == '{"candidates": []}'
+        mock_post.assert_called_once()
+        payload = mock_post.call_args[1]["json"]
+        assert payload.get("response_format") == {"type": "json_object"}
+        assert payload.get("max_tokens") == 1024
+        assert mock_post.call_args[1]["timeout"] == 8.0
+
+
+
+def test_call_gemini_and_g4f_zero_or_negative_retries():
+    from scripts.create_viral_segments import call_g4f
+    with patch("scripts.create_viral_segments.HAS_GEMINI", True):
+        assert call_gemini("prompt", api_key="fake", max_retries=0) == "{}"
+        assert call_gemini("prompt", api_key="fake", max_retries=-1) == "{}"
+
+    with patch("scripts.create_viral_segments.HAS_G4F", True):
+        assert call_g4f("prompt", max_retries=0) == "{}"
+        assert call_g4f("prompt", max_retries=-2) == "{}"
+
+
+def test_call_custom_api_non_200_and_timeout_errors():
+    import requests
+    mock_resp = MagicMock()
+    mock_resp.status_code = 502
+    mock_resp.text = "<html><body>502 Bad Gateway</body></html>"
+
+    with patch("requests.post", return_value=mock_resp):
+        with pytest.raises(RuntimeError, match=r"Custom API failed \(502\)"):
+            call_custom_api("prompt", base_url="http://localhost:11434/v1")
+
+    with patch("requests.post", side_effect=requests.exceptions.Timeout("Read timed out")):
+        with pytest.raises(requests.exceptions.Timeout):
+            call_custom_api("prompt", base_url="http://localhost:11434/v1", timeout=8.0)

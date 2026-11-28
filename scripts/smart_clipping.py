@@ -304,7 +304,11 @@ def query_ai_backend(
     ai_backend: str,
     api_key: Optional[str] = None,
     ai_model_name: Optional[str] = None,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    timeout: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    max_retries: Optional[int] = None,
+    response_mime_type: Optional[str] = None,
 ) -> str:
     """
     Safely queries chosen AI backend with exception handling and timeout guard.
@@ -312,29 +316,45 @@ def query_ai_backend(
     from scripts import create_viral_segments
     try:
         if ai_backend == "gemini":
-            return create_viral_segments.call_gemini(
-                prompt,
-                api_key=api_key,
-                model_name=ai_model_name or "gemini-2.5-flash-lite-preview-09-2025"
-            )
+            kwargs = {
+                "api_key": api_key,
+                "model_name": ai_model_name or "gemini-2.5-flash-lite-preview-09-2025",
+            }
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            if max_retries is not None:
+                kwargs["max_retries"] = max_retries
+            if response_mime_type is not None:
+                kwargs["response_mime_type"] = response_mime_type
+            return create_viral_segments.call_gemini(prompt, **kwargs)
         elif ai_backend == "g4f":
-            return create_viral_segments.call_g4f(
-                prompt,
-                model_name=ai_model_name or "gpt-4o-mini"
-            )
+            kwargs = {
+                "model_name": ai_model_name or "gpt-4o-mini",
+            }
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            if max_retries is not None:
+                kwargs["max_retries"] = max_retries
+            return create_viral_segments.call_g4f(prompt, **kwargs)
         elif ai_backend == "local":
             return create_viral_segments.call_local_llm(
                 prompt,
                 model_name=ai_model_name
             )
         elif ai_backend == "custom":
-            return create_viral_segments.call_custom_api(
-                prompt,
-                base_url=base_url or "http://localhost:11434/v1",
-                api_key=api_key or "",
-                model_name=ai_model_name or "gpt-4o-mini",
-                max_tokens=16384
-            )
+            kwargs = {
+                "base_url": base_url or "http://localhost:11434/v1",
+                "api_key": api_key or "",
+                "model_name": ai_model_name or "gpt-4o-mini",
+                "max_tokens": max_tokens if max_tokens is not None else 16384,
+            }
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            if response_mime_type is not None:
+                kwargs["response_mime_type"] = response_mime_type
+            return create_viral_segments.call_custom_api(prompt, **kwargs)
         else:
             print(f"[SMART-CLIPPING] Unrecognized AI backend: {ai_backend}")
             return ""
