@@ -2,6 +2,7 @@ import os
 import json
 import math
 import subprocess
+import concurrent.futures
 from typing import List, Dict, Tuple, Optional, Any
 try:
     from scripts import virality_rubric
@@ -194,6 +195,7 @@ Each topic MUST have a strict 3-part storytelling structure:
 
 Target duration for the total spliced topic is between {int(target_min)}s and {int(target_max)}s.
 The sub-segments may be continuous or skip boring filler/tangents.
+Score criteria to evaluate: hook_strength, retention_flow, emotional_resonance, shareability, and verdict.
 
 TRANSCRIPT:
 {transcript_text}
@@ -207,13 +209,6 @@ OUTPUT FORMAT: Return VALID JSON ONLY matching this structure:
       "rationale": "Why this story holds retention",
       "target_duration": 45.0,
       "score": 92,
-      "rubric": {{
-        "hook_strength": 9.5,
-        "retention_flow": 9.0,
-        "emotional_resonance": 8.5,
-        "shareability": 9.0,
-        "verdict": "High viral velocity hook with strong curiosity gap"
-      }},
       "segments": {{
         "hook": {{
           "start_time": 0.0,
@@ -352,6 +347,8 @@ def query_ai_backend(
             }
             if timeout is not None:
                 kwargs["timeout"] = timeout
+            if max_retries is not None:
+                kwargs["max_retries"] = max_retries
             if response_mime_type is not None:
                 kwargs["response_mime_type"] = response_mime_type
             return create_viral_segments.call_custom_api(prompt, **kwargs)
@@ -693,7 +690,7 @@ def run_smart_clipping_pipeline(
     topics_per_chunk = max(1, int(math.ceil(num_segments / len(chunks)))) if len(chunks) > 1 else num_segments
     all_extracted_topics = []
 
-    for chunk_idx, chunk in enumerate(chunks):
+    def _process_narrative_chunk(chunk_idx: int, chunk: str) -> Tuple[int, List[Dict[str, Any]]]:
         if len(chunks) > 1:
             print(f"[SMART-CLIPPING] Processing chunk {chunk_idx + 1}/{len(chunks)}...")
 
@@ -709,11 +706,27 @@ def run_smart_clipping_pipeline(
             ai_backend=ai_backend,
             api_key=api_key,
             ai_model_name=ai_model_name,
-            base_url=base_url
+            base_url=base_url,
+            response_mime_type="application/json",
+            max_retries=3,
         )
         chunk_topics = parse_narrative_topics(llm_response)
-        if chunk_topics:
-            all_extracted_topics.extend(chunk_topics)
+        return chunk_idx, chunk_topics or []
+
+    if ai_backend in ("gemini", "g4f", "custom") and len(chunks) > 1:
+        max_workers = min(4, len(chunks))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_process_narrative_chunk, idx, c) for idx, c in enumerate(chunks)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+        results.sort(key=lambda x: x[0])
+        for _, topics_list in results:
+            if topics_list:
+                all_extracted_topics.extend(topics_list)
+    else:
+        for chunk_idx, chunk in enumerate(chunks):
+            _, chunk_topics = _process_narrative_chunk(chunk_idx, chunk)
+            if chunk_topics:
+                all_extracted_topics.extend(chunk_topics)
 
     all_extracted_topics.sort(key=lambda t: float(t.get("score", 0) or 0), reverse=True)
     topics = []

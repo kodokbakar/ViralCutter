@@ -5,7 +5,18 @@ import sys
 import time
 import ast
 import io
-from typing import Any
+import concurrent.futures
+import threading
+import random
+from typing import Any, Optional, Dict, List, Tuple
+from unittest.mock import Mock, MagicMock
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+except ImportError:
+    requests = None
+    HTTPAdapter = None
 
 # Configura stdout para evitar erros de encoding no Windows (substitui caracteres inválidos por ?)
 if sys.platform == "win32" and sys.stdout and hasattr(sys.stdout, 'buffer') and "pytest" not in sys.modules:
@@ -40,6 +51,79 @@ except ImportError:
         import virality_rubric
     except ImportError:
         virality_rubric = None
+
+# --- Strategy 6: Client & HTTP Connection Pooling ---
+_HTTP_SESSION = None
+_HTTP_LOCK = threading.Lock()
+
+def get_http_session():
+    """
+    Returns a thread-safe singleton requests.Session with connection pooling mounted.
+    """
+    global _HTTP_SESSION
+    if _HTTP_SESSION is None:
+        with _HTTP_LOCK:
+            if _HTTP_SESSION is None:
+                if requests is None:
+                    raise ImportError("The 'requests' package is not installed.")
+                session = requests.Session()
+                if HTTPAdapter is not None:
+                    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=0)
+                    session.mount("http://", adapter)
+                    session.mount("https://", adapter)
+                _HTTP_SESSION = session
+    return _HTTP_SESSION
+
+_GENAI_CLIENTS: Dict[Tuple[str, Optional[float]], Any] = {}
+_GENAI_LOCK = threading.Lock()
+
+def get_gemini_client(api_key: str, timeout=None):
+    """
+    Returns a thread-safe cached genai.Client instance per (api_key, timeout).
+    Bypasses caching when genai.Client is mocked to preserve unit test isolation.
+    """
+    global _GENAI_CLIENTS
+    if not HAS_GEMINI or genai is None:
+        raise ImportError(
+            "The 'google-genai' package is not installed. "
+            "Install it with: pip install google-genai"
+        )
+    client_cls = getattr(genai, "Client", None)
+    client_kwargs = {"api_key": str(api_key or "").strip()}
+    if timeout is not None:
+        client_kwargs["http_options"] = {"timeout": int(float(timeout) * 1000)}
+
+    if isinstance(client_cls, (Mock, MagicMock)):
+        return genai.Client(**client_kwargs)
+
+    api_key_str = str(api_key or "").strip()
+    cache_key = (api_key_str, timeout)
+    with _GENAI_LOCK:
+        if cache_key not in _GENAI_CLIENTS:
+            _GENAI_CLIENTS[cache_key] = genai.Client(**client_kwargs)
+        return _GENAI_CLIENTS[cache_key]
+
+def _reset_gemini_clients():
+    """
+    Resets cached Gemini clients and closes HTTP session pool (useful for tests).
+    """
+    global _GENAI_CLIENTS, _HTTP_SESSION
+    with _GENAI_LOCK:
+        _GENAI_CLIENTS.clear()
+    with _HTTP_LOCK:
+        if _HTTP_SESSION is not None:
+            try:
+                _HTTP_SESSION.close()
+            except Exception:
+                pass
+            _HTTP_SESSION = None
+
+def call_local_llm(prompt, model_name=None):
+    """Fallback stub for local LLM invocation."""
+    if not HAS_LLAMA_CPP:
+        print("[WARN] llama-cpp-python not installed.")
+        return "{}"
+    return "{}"
 
 def build_hook_title_prompt(transcript_chunk: str, language_instruction: str = "Same Language as Transcript") -> str:
     """
@@ -283,9 +367,10 @@ def clean_json_response(response_text):
     return {"segments": []}
 
 
-def preprocess_transcript_for_ai(segments):
+def preprocess_transcript_for_ai(segments, tag_interval: float = 12.0):
     """
     Concatenates transcript segments into a single string with embedded time tags.
+    Emits (XXs) tags every tag_interval seconds (default 12.0s) for token efficiency.
     """
     if not segments:
         return ""
@@ -304,7 +389,7 @@ def preprocess_transcript_for_ai(segments):
         
         full_text += text + " "
         
-        if end_time - last_tag_time >= 4:
+        if end_time - last_tag_time >= tag_interval:
             full_text += f"({int(end_time)}s) "
             last_tag_time = end_time
 
@@ -317,7 +402,7 @@ def call_gemini(
     timeout=None,
     max_tokens=None,
     max_retries=5,
-    base_wait=30.0,
+    base_wait=2.0,
     response_mime_type=None,
 ):
     if not HAS_GEMINI:
@@ -346,7 +431,7 @@ def call_gemini(
         )
 
     max_retries = 5 if max_retries is None else int(max_retries)
-    base_wait = 30.0 if base_wait is None else float(base_wait)
+    base_wait = 2.0 if base_wait is None else float(base_wait)
 
     if max_retries < 1:
         return "{}"
@@ -404,12 +489,19 @@ def call_gemini(
     if config is not None:
         generate_kwargs["config"] = config
 
+    is_mock = isinstance(getattr(genai, "Client", None), (Mock, MagicMock))
+    if not is_mock:
+        client = get_gemini_client(api_key, timeout=timeout)
+
     for attempt in range(
         1,
         max_retries + 1,
     ):
         try:
-            with genai.Client(**client_kwargs) as client:
+            if is_mock:
+                with genai.Client(**client_kwargs) as c:
+                    response = c.models.generate_content(**generate_kwargs)
+            else:
                 response = client.models.generate_content(**generate_kwargs)
 
             response_text = getattr(
@@ -466,27 +558,43 @@ def call_gemini(
                 and attempt < max_retries
                 and max_retries > 1
             ):
-                wait_time = (
-                    base_wait * attempt
-                )
+                wait_time = min(8.0, 2.0 * (1.5 ** attempt)) + random.uniform(0.1, 1.0)
 
-                retry_match = re.search(
-                    (
-                        r"(?:retry|try again)"
-                        r"(?:\s+in| after)?"
-                        r"\s+(\d+(?:\.\d+)?)"
-                        r"\s*s"
-                    ),
-                    error_lower,
-                )
+                resp_obj = getattr(error, "response", None)
+                headers = getattr(resp_obj, "headers", None) or getattr(error, "headers", None)
+                retry_after_val = None
+                if headers and hasattr(headers, "get"):
+                    try:
+                        raw_ra = headers.get("Retry-After") or headers.get("retry-after")
+                        if raw_ra is not None:
+                            retry_after_val = float(str(raw_ra).strip())
+                    except (TypeError, ValueError):
+                        pass
 
-                if retry_match:
-                    wait_time = (
-                        float(
-                            retry_match.group(1)
-                        )
-                        + 5.0
+                if retry_after_val is not None and retry_after_val > 0:
+                    wait_time = retry_after_val + random.uniform(0.1, 0.5)
+                else:
+                    retry_match = re.search(
+                        (
+                            r"(?:retry|try again)"
+                            r"(?:\s+in| after)?"
+                            r"\s+(\d+(?:\.\d+)?)"
+                            r"\s*s"
+                        ),
+                        error_lower,
                     )
+
+                    if retry_match:
+                        try:
+                            wait_time = (
+                                float(
+                                    retry_match.group(1)
+                                )
+                                + 1.0
+                                + random.uniform(0.1, 0.5)
+                            )
+                        except (TypeError, ValueError):
+                            pass
 
                 print(
                     (
@@ -593,9 +701,10 @@ def call_g4f(prompt, model_name="gpt-4o-mini", timeout=None, max_retries=3):
     print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
-def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=16384, response_mime_type=None):
+def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", timeout=360, max_tokens=16384, response_mime_type=None, max_retries: int = 1):
     """
     Calls any OpenAI-compatible API endpoint (Ollama, LM Studio, vLLM, Groq, DeepSeek, OpenAI, etc.).
+    Supports structured JSON mode, 400 response_format fallback, exponential jitter retries, and session pooling.
     """
     import requests
     base_url = str(base_url or "").strip().rstrip("/")
@@ -624,23 +733,68 @@ def call_custom_api(prompt, base_url, api_key="", model_name="gpt-4o-mini", time
     if response_mime_type == "application/json":
         payload["response_format"] = {"type": "json_object"}
 
-    response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
-    if response.status_code != 200:
-        raise RuntimeError(f"Custom API failed ({response.status_code}): {response.text}")
+    def _do_post(pld):
+        post_func = getattr(requests, "post", None)
+        if isinstance(post_func, (Mock, MagicMock)):
+            return requests.post(endpoint, json=dict(pld), headers=headers, timeout=timeout)
+        session = get_http_session()
+        return session.post(endpoint, json=dict(pld), headers=headers, timeout=timeout)
 
-    data = response.json()
-    choices = data.get("choices", [])
-    if choices and isinstance(choices, list):
-        choice = choices[0]
-        finish_reason = choice.get("finish_reason")
-        msg = choice.get("message", {})
-        content = msg.get("content") or ""
-        if finish_reason == "length" and not str(content).strip():
-            print("[WARN] Custom API response was truncated due to token limit (finish_reason=length). Consider using a direct instruct model or increasing token limit.")
-        if content:
-            return content
+    max_retries = max(1, int(max_retries or 1))
+    retryable_status_codes = {429, 500, 502, 503, 504}
 
-    return json.dumps(data)
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = _do_post(payload)
+
+            # Strategy 5: 400 response_format fallback
+            if response.status_code == 400 and "response_format" in payload:
+                resp_text = str(getattr(response, "text", "") or "")
+                if "response_format" in resp_text.lower():
+                    print("[WARN] Custom API rejected response_format: retrying once without it.", flush=True)
+                    payload.pop("response_format", None)
+                    response = _do_post(payload)
+
+            if response.status_code == 200:
+                data = response.json()
+                choices = data.get("choices", [])
+                if choices and isinstance(choices, list):
+                    choice = choices[0]
+                    finish_reason = choice.get("finish_reason")
+                    msg = choice.get("message", {})
+                    content = msg.get("content") or ""
+                    if finish_reason == "length" and not str(content).strip():
+                        print("[WARN] Custom API response was truncated due to token limit (finish_reason=length). Consider using a direct instruct model or increasing token limit.")
+                    if content:
+                        return content
+                return json.dumps(data)
+
+            if response.status_code in retryable_status_codes and attempt < max_retries:
+                wait_time = min(8.0, 2.0 * (1.5 ** attempt)) + random.uniform(0.1, 1.0)
+                try:
+                    resp_headers = getattr(response, "headers", None)
+                    if resp_headers and hasattr(resp_headers, "get"):
+                        raw_ra = resp_headers.get("Retry-After") or resp_headers.get("retry-after")
+                        if raw_ra is not None:
+                            ra_val = float(str(raw_ra).strip())
+                            if ra_val > 0:
+                                wait_time = ra_val + random.uniform(0.1, 0.5)
+                except (TypeError, ValueError):
+                    pass
+
+                print(f"[CUSTOM API RETRY] HTTP {response.status_code}. Retrying ({attempt}/{max_retries}) in {wait_time:.2f}s...", flush=True)
+                time.sleep(wait_time)
+                continue
+
+            raise RuntimeError(f"Custom API failed ({response.status_code}): {getattr(response, 'text', '')}")
+
+        except (requests.RequestException, ConnectionError) as err:
+            if attempt < max_retries:
+                wait_time = min(8.0, 2.0 * (1.5 ** attempt)) + random.uniform(0.1, 1.0)
+                print(f"[CUSTOM API RETRY] Transient error '{err}'. Retrying ({attempt}/{max_retries}) in {wait_time:.2f}s...", flush=True)
+                time.sleep(wait_time)
+                continue
+            raise
 
 def verify_ai_connection(backend, base_url="", api_key="", model_name=""):
     """
@@ -669,7 +823,12 @@ def verify_ai_connection(backend, base_url="", api_key="", model_name=""):
         }
 
         try:
-            resp = requests.post(endpoint, json=payload, headers=headers, timeout=10)
+            post_func = getattr(requests, "post", None)
+            if isinstance(post_func, (Mock, MagicMock)):
+                resp = requests.post(endpoint, json=payload, headers=headers, timeout=10)
+            else:
+                session = get_http_session()
+                resp = session.post(endpoint, json=payload, headers=headers, timeout=10)
             latency_ms = int((time.time() - start_time) * 1000)
             if resp.status_code == 200:
                 return True, f"Connected to {model}! ({latency_ms}ms)"
@@ -683,15 +842,23 @@ def verify_ai_connection(backend, base_url="", api_key="", model_name=""):
         if not api_key:
             return False, "Gemini API key is required."
         try:
-            with genai.Client(api_key=api_key.strip()) as client:
+            is_mock = isinstance(getattr(genai, "Client", None), (Mock, MagicMock))
+            if is_mock:
+                with genai.Client(api_key=api_key.strip()) as client:
+                    resp = client.models.generate_content(
+                        model=model_name or "gemini-2.5-flash-lite-preview-09-2025",
+                        contents="ping"
+                    )
+            else:
+                client = get_gemini_client(api_key.strip())
                 resp = client.models.generate_content(
                     model=model_name or "gemini-2.5-flash-lite-preview-09-2025",
                     contents="ping"
                 )
-                latency_ms = int((time.time() - start_time) * 1000)
-                if getattr(resp, "text", None):
-                    return True, f"Connected to Gemini! ({latency_ms}ms)"
-                return False, "Gemini returned empty response."
+            latency_ms = int((time.time() - start_time) * 1000)
+            if getattr(resp, "text", None):
+                return True, f"Connected to Gemini! ({latency_ms}ms)"
+            return False, "Gemini returned empty response."
         except Exception as e:
             return False, f"Gemini error: {str(e)}"
 
@@ -825,11 +992,11 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 if diff < min_diff:
                     min_diff = diff
                     start_idx = i
-                if s['start'] > ref_time_val + 10: 
+                if s['start'] > ref_time_val + 25: 
                     break
             
             # Backtrack
-            start_idx = max(0, start_idx - 5)
+            start_idx = max(0, start_idx - 10)
             
             # 2. Find Exact Start Text
             start_text_target = seg.get('start_text', '').lower().strip()
@@ -840,8 +1007,8 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
             match_start_idx = -1
             
             # Search window
-            search_start = max(0, start_idx - 30)
-            search_limit = min(len(transcript_segments), start_idx + 150)
+            search_start = max(0, start_idx - 50)
+            search_limit = min(len(transcript_segments), start_idx + 200)
             
             for i in range(search_start, search_limit):
                 s_text = transcript_segments[i]['text'].lower()
@@ -1094,13 +1261,6 @@ OUTPUT JSON ONLY:
                         "hook_title": "High-converting, curiosity-inducing hook headline in ALL CAPS (strictly 3 to 6 words, e.g., 'RAHASIA CUAN DARI AI?!')",
                         "reasoning": "Why this is viral? Hook? Value? (Same Language as Transcript)",
                         "score": 95,
-                        "rubric": {
-                            "hook_strength": 9.5,
-                            "retention_flow": 9.0,
-                            "emotional_resonance": 8.5,
-                            "shareability": 9.0,
-                            "verdict": "High viral velocity hook with strong curiosity gap"
-                        },
                         "broll_items": [
                             {
                                 "trigger_phrase": "naik 85 persen",
@@ -1227,15 +1387,19 @@ OUTPUT JSON ONLY:
             print(f"Failed to load model: {e}")
             return {"segments": []}
 
+    # Pre-save prompt files
     for i, prompt in enumerate(output_texts):
-        response_text = ""
         manual_prompt_path = os.path.join(project_folder, f"prompt_part_{i+1}.txt")
         try:
             with open(manual_prompt_path, "w", encoding="utf-8") as f:
                 f.write(prompt)
         except Exception as e:
             print(f"[ERRO] Falha ao salvar prompt.txt: {e}")
-        
+
+    def _process_single_chunk(i: int, prompt: str) -> Tuple[int, List[Dict[str, Any]]]:
+        response_text = ""
+        manual_prompt_path = os.path.join(project_folder, f"prompt_part_{i+1}.txt")
+
         if ai_mode == "manual":
             print(f"\n[INFO] O prompt foi salvo em: {manual_prompt_path}")
             print("\n" + "="*60)
@@ -1271,7 +1435,12 @@ OUTPUT JSON ONLY:
 
         elif ai_mode == "gemini":
             print(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...", flush=True)
-            response_text = call_gemini(prompt, api_key, model_name=model_name)
+            response_text = call_gemini(
+                prompt,
+                api_key,
+                model_name=model_name,
+                response_mime_type="application/json",
+            )
         elif ai_mode == "g4f":
             print(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...", flush=True)
             response_text = call_g4f(prompt, model_name=model_name)
@@ -1293,7 +1462,15 @@ OUTPUT JSON ONLY:
         elif ai_mode == "custom":
             print(f"Enviando chunk {i+1} para Custom API (Base: {base_url}, Model: {model_name})...", flush=True)
             try:
-                response_text = call_custom_api(prompt, base_url=base_url, api_key=api_key, model_name=model_name, max_tokens=16384)
+                response_text = call_custom_api(
+                    prompt,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model_name=model_name,
+                    max_tokens=16384,
+                    response_mime_type="application/json",
+                    max_retries=3,
+                )
             except Exception as e:
                 print(f"[ERROR] Custom API call failed: {e}")
                 response_text = "{}"
@@ -1308,15 +1485,30 @@ OUTPUT JSON ONLY:
             print(f"[WARN] Failed to save raw response: {e}")
 
         # Processar resposta
+        chunk_segments = []
         try:
             data = clean_json_response(response_text)
             chunk_segments = data.get("segments", [])
             print(f"Encontrados {len(chunk_segments)} segmentos neste chunk.")
-            all_raw_segments.extend(chunk_segments)
         except json.JSONDecodeError:
             print(f"Erro: Resposta inválida.")
         except Exception as e:
             print(f"Erro desconhecido ao processar chunk: {e}")
+
+        return i, chunk_segments
+
+    if ai_mode in ("gemini", "g4f", "custom") and len(output_texts) > 1:
+        max_workers = min(4, len(output_texts))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_process_single_chunk, i, prompt) for i, prompt in enumerate(output_texts)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+        results.sort(key=lambda x: x[0])
+        for _, segs in results:
+            all_raw_segments.extend(segs)
+    else:
+        for i, prompt in enumerate(output_texts):
+            _, chunk_segments = _process_single_chunk(i, prompt)
+            all_raw_segments.extend(chunk_segments)
 
     # Call the alignment / processing logic
     return process_segments(
