@@ -947,3 +947,118 @@ def test_run_gaming_clipping_pipeline_passes_project_folder_to_rms(mock_rms, moc
     assert mock_rms.called
     kwargs = mock_rms.call_args[1]
     assert kwargs.get("project_folder") == str(proj_dir)
+
+
+def test_run_gaming_clipping_pipeline_facecam_none_early_exit(tmp_path):
+    dummy_video = tmp_path / "game_no_facecam.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", return_value=([0.1] * 100, 0.1, 0.02)), \
+         patch("scripts.gaming_audio_detector.detect_audio_events", return_value=[{"timestamp": 25.0, "score": 80.0}]), \
+         patch("scripts.gaming_keyword_detector.scan_shout_keywords", return_value=[{"timestamp": 25.0, "score": 60.0, "matched_words": ["clutch"]}]), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box") as mock_auto, \
+         patch("scripts.gaming_facecam_detector.detect_facecam_reactions") as mock_detect:
+
+        for disabled_mode in ["none", "off", "no", "false", None]:
+            result = run_gaming_clipping_pipeline(
+                video_path=str(dummy_video),
+                project_folder=str(tmp_path / f"proj_{disabled_mode}"),
+                transcript_words=[{"word": "clutch", "start": 24.5, "end": 25.5}],
+                video_duration=60.0,
+                num_segments=1,
+                facecam_crop=disabled_mode,
+            )
+            assert len(result["segments"]) == 1
+
+        # Neither auto detection nor reaction detection should be called
+        assert not mock_auto.called
+        assert not mock_detect.called
+
+
+def test_run_gaming_clipping_pipeline_facecam_auto_undetected(tmp_path):
+    dummy_video = tmp_path / "game_absent_facecam.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", return_value=([0.1] * 100, 0.1, 0.02)), \
+         patch("scripts.gaming_audio_detector.detect_audio_events", return_value=[{"timestamp": 25.0, "score": 80.0}]), \
+         patch("scripts.gaming_keyword_detector.scan_shout_keywords", return_value=[{"timestamp": 25.0, "score": 60.0, "matched_words": ["clutch"]}]), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box", return_value=None) as mock_auto, \
+         patch("scripts.gaming_facecam_detector.detect_facecam_reactions") as mock_detect:
+
+        result = run_gaming_clipping_pipeline(
+            video_path=str(dummy_video),
+            project_folder=str(tmp_path / "proj_auto_none"),
+            transcript_words=[{"word": "clutch", "start": 24.5, "end": 25.5}],
+            video_duration=60.0,
+            num_segments=1,
+            facecam_crop="auto",
+        )
+        assert len(result["segments"]) == 1
+        # auto_detect_facecam_box was queried, but returned None so reaction frames were never sought
+        assert mock_auto.called
+        assert not mock_detect.called
+
+
+def test_run_gaming_clipping_pipeline_facecam_auto_detected(tmp_path):
+    dummy_video = tmp_path / "game_with_facecam.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    box = "0.68,0.05,0.28,0.22"
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", return_value=([0.1] * 100, 0.1, 0.02)), \
+         patch("scripts.gaming_audio_detector.detect_audio_events", return_value=[{"timestamp": 25.0, "score": 80.0}]), \
+         patch("scripts.gaming_keyword_detector.scan_shout_keywords", return_value=[{"timestamp": 25.0, "score": 60.0, "matched_words": ["clutch"]}]), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box", return_value=box) as mock_auto, \
+         patch("scripts.gaming_facecam_detector.detect_facecam_reactions", return_value=[{"timestamp": 25.0, "score": 75.0}]) as mock_detect:
+
+        result = run_gaming_clipping_pipeline(
+            video_path=str(dummy_video),
+            project_folder=str(tmp_path / "proj_auto_found"),
+            transcript_words=[{"word": "clutch", "start": 24.5, "end": 25.5}],
+            video_duration=60.0,
+            num_segments=1,
+            facecam_crop="auto",
+        )
+        assert len(result["segments"]) == 1
+        assert mock_auto.called
+        assert mock_detect.called
+        assert mock_detect.call_args[1]["facecam_box_str"] == box
+
+
+
+def test_gaming_clipping_pipeline_facecam_edge_cases(tmp_path):
+    dummy_video = tmp_path / "game_edge_facecam.mp4"
+    dummy_video.write_bytes(b"dummy")
+
+    with patch("scripts.gaming_audio_detector.extract_audio_rms_curve", return_value=([0.1] * 100, 0.1, 0.02)), \
+         patch("scripts.gaming_audio_detector.detect_audio_events", return_value=[{"timestamp": 15.0, "score": 85.0}]), \
+         patch("scripts.gaming_keyword_detector.scan_shout_keywords", return_value=[{"timestamp": 15.0, "score": 70.0, "matched_words": ["ace"]}]), \
+         patch("scripts.gaming_facecam_detector.auto_detect_facecam_box") as mock_auto, \
+         patch("scripts.gaming_facecam_detector.detect_facecam_reactions") as mock_detect:
+
+        # None or missing video path -> facecam auto detection and frame sampling skipped
+        res_none_video = run_gaming_clipping_pipeline(
+            video_path=None,
+            project_folder=str(tmp_path / "proj_none_video"),
+            transcript_words=[{"word": "ace", "start": 14.5, "end": 15.5}],
+            video_duration=30.0,
+            num_segments=1,
+            facecam_crop="auto",
+        )
+        assert len(res_none_video["segments"]) == 1
+        assert not mock_auto.called
+        assert not mock_detect.called
+
+        # Empty candidate events (audio and keywords return empty) -> reaction detection skipped
+        with patch("scripts.gaming_audio_detector.detect_audio_events", return_value=[]), \
+             patch("scripts.gaming_keyword_detector.scan_shout_keywords", return_value=[]):
+            res_no_events = run_gaming_clipping_pipeline(
+                video_path=str(dummy_video),
+                project_folder=str(tmp_path / "proj_no_events"),
+                transcript_words=[],
+                video_duration=30.0,
+                num_segments=1,
+                facecam_crop="auto",
+            )
+            assert res_no_events["segments"] == []
+            assert not mock_auto.called
+            assert not mock_detect.called

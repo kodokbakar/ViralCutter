@@ -627,20 +627,31 @@ def run_gaming_clipping_pipeline(
     keyword_events = gaming_keyword_detector.scan_shout_keywords(transcript_words)
 
     # 3. Facecam reaction detection
-    valid_events = [
-        ev
-        for ev in (audio_events + keyword_events)
-        if isinstance(ev, dict) and "timestamp" in ev and not isinstance(ev.get("timestamp"), bool)
-    ]
-    valid_events.sort(key=lambda x: _safe_float(x.get("score"), 0.0), reverse=True)
-    candidate_ts = [ev["timestamp"] for ev in valid_events[:15]]
     face_events = []
-    if video_str and os.path.exists(video_str):
-        face_events = gaming_facecam_detector.detect_facecam_reactions(
-            video_path=video_str,
-            facecam_box_str=facecam_crop,
-            candidate_timestamps=candidate_ts
-        )
+    crop_str = str(facecam_crop).strip().lower() if facecam_crop is not None else "none"
+    if crop_str not in ("none", "off", "no", "false") and video_str and os.path.exists(video_str):
+        valid_events = [
+            ev
+            for ev in (audio_events + keyword_events)
+            if isinstance(ev, dict) and "timestamp" in ev and not isinstance(ev.get("timestamp"), bool)
+        ]
+        valid_events.sort(key=lambda x: _safe_float(x.get("score"), 0.0), reverse=True)
+        candidate_ts = [ev["timestamp"] for ev in valid_events[:15]]
+        if candidate_ts:
+            if crop_str == "auto":
+                detected_box = gaming_facecam_detector.auto_detect_facecam_box(video_str)
+                if detected_box:
+                    face_events = gaming_facecam_detector.detect_facecam_reactions(
+                        video_path=video_str,
+                        facecam_box_str=detected_box,
+                        candidate_timestamps=candidate_ts
+                    )
+            else:
+                face_events = gaming_facecam_detector.detect_facecam_reactions(
+                    video_path=video_str,
+                    facecam_box_str=facecam_crop,
+                    candidate_timestamps=candidate_ts
+                )
 
     # 4. Fusion and NMS
     fused = fuse_gaming_scores(
